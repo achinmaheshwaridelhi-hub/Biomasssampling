@@ -1,0 +1,1549 @@
+/* 
+ * Biomass Sampling - Premium CSS Stylesheet (style.css)
+ * Features sleek glassmorphic themes, dark/light contrast systems, and print-ready formats.
+ */
+
+/* Import Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+:root {
+    --bg-base: #090d16;
+    --bg-surface: rgba(17, 24, 39, 0.85);
+    --bg-surface-solid: #111827;
+    --border-color: rgba(255, 255, 255, 0.08);
+    --border-color-hover: rgba(16, 185, 129, 0.4);
+    
+    --primary: #10b981; /* Biomass Emerald */
+    --primary-glow: rgba(16, 185, 129, 0.15);
+    --secondary: #3b82f6; /* Modern Blue */
+    --accent: #f59e0b; /* Amber Alert */
+    --danger: #ef4444;
+    --success: #10b981;
+    
+    --text-main: #f3f4f6;
+    --text-muted: #9ca3af;
+    --text-dark: #111827;
+    
+    --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    --shadow-primary: 0 10px 20px -3px rgba(16, 185, 129, 0.2);
+}
+
+.connection-banner {
+    width: 100%;
+    padding: 0.35rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: center;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    transition: background 0.3s, color 0.3s;
+    z-index: 1000;
+}
+.connection-banner.offline {
+    background: #ea580c; /* Orange */
+    color: white;
+}
+.connection-banner.online {
+    background: #10b981; /* Emerald */
+    color: white;
+}
+
+/* Base resets & styles */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background-color: var(--bg-base);
+    color: var(--text-main);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    background-image: 
+        radial-gradient(at 10% 20%, rgba(16, 185, 129, 0.04) 0px, transparent 50%),
+        radial-gradient(at 90% 10%, rgba(59, 130, 246, 0.03) 0px, transparent 50%),
+        radial-gradient(at 50% 80%, rgba(245, 158, 11, 0.02) 0px, transparent 50%);
+    background-attachment: fixed;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* App Header styling */
+header {
+    background: rgba(17, 24, 39, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-color);
+    padding: 1rem 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.logo-container {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.logo-icon {
+    width: 2.25rem;
+    height: 2.25rem;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    border-radius: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    box-shadow: var(--shadow-sm);
+}
+
+.logo-text {
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    background: linear-gradient(to right, var(--text-main), var(--text-muted));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.logo-text span {
+    color: var(--primary);
+    -webkit-text-fill-color: initial;
+}
+
+.header-user-badge {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.5rem 1rem;
+    border-radius: 9999px;
+    border: 1px solid var(--border-color);
+}
+
+.user-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    background-color: var(--primary);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--primary);
+}
+
+.user-name {
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.user-role {
+    font-size: 0.75rem;
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--primary);
+    padding: 0.125rem 0.5rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.btn-logout {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    transition: color 0.2s;
+    font-family: var(--font-sans);
+}
+
+.btn-logout:hover {
+    color: var(--danger);
+}
+
+/* Main Container spacing */
+main {
+    flex: 1;
+    max-width: 1400px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Card Styling */
+.card {
+    background: var(--bg-surface);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border-color);
+    border-radius: 1rem;
+    padding: 2rem;
+    box-shadow: var(--shadow-lg);
+    margin-bottom: 2rem;
+    transition: border-color 0.3s;
+}
+
+.card:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.card-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.75rem;
+}
+
+/* Typography styles */
+h1, h2, h3, h4 {
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+p {
+    color: var(--text-muted);
+}
+
+/* Utility layout grids */
+.grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+}
+
+.grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+}
+
+@media (max-width: 768px) {
+    .grid-2, .grid-3 {
+        grid-template-columns: 1fr;
+    }
+    header {
+        flex-direction: column;
+        gap: 1rem;
+        padding: 1rem;
+    }
+}
+
+/* Forms & Inputs styling */
+.form-group {
+    margin-bottom: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.form-group label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-main);
+}
+
+.form-group input, .form-group select, .form-group textarea {
+    background-color: rgba(17, 24, 39, 0.8);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    color: var(--text-main);
+    font-family: var(--font-sans);
+    font-size: 0.95rem;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.form-group select option {
+    background-color: var(--bg-surface-solid);
+    color: var(--text-main);
+}
+
+/* Buttons styling */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    border-radius: 0.5rem;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.95rem;
+}
+
+.btn-primary {
+    background-color: var(--primary);
+    color: var(--text-dark);
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:hover {
+    background-color: #059669;
+    box-shadow: var(--shadow-primary);
+    transform: translateY(-1px);
+}
+
+.btn-secondary {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-danger {
+    background-color: var(--danger);
+    color: white;
+}
+
+.btn-danger:hover {
+    background-color: #dc2626;
+    transform: translateY(-1px);
+}
+
+.btn-sm {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+}
+
+/* Tab controls */
+.tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.5rem;
+}
+
+.tab-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 0.75rem 1.25rem;
+    font-family: var(--font-sans);
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 0.5rem;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.tab-btn:hover {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.tab-btn.active {
+    color: var(--primary);
+    background: var(--primary-glow);
+    font-weight: 600;
+}
+
+/* Tab Panels Visibility */
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Alert Boxes */
+.alert {
+    padding: 1rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.9rem;
+}
+
+.alert-success {
+    background-color: rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.2);
+    color: #34d399;
+}
+
+.alert-danger {
+    background-color: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+}
+
+.alert-warning {
+    background-color: rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.2);
+    color: #fbbf24;
+}
+
+/* Screens Layout routing (visible or hidden) */
+.screen {
+    display: none;
+}
+
+.screen.active {
+    display: block;
+    animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Login screen custom overrides */
+.login-container {
+    max-width: 440px;
+    width: 100%;
+    margin: 6rem auto;
+}
+
+.login-header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.login-header h1 {
+    font-size: 2.25rem;
+    margin-bottom: 0.5rem;
+    background: linear-gradient(135deg, #fff 30%, var(--text-muted) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* Camera components & interfaces */
+.camera-wrapper {
+    position: relative;
+    border: 2px dashed var(--border-color);
+    border-radius: 0.75rem;
+    overflow: hidden;
+    background-color: #020617;
+    aspect-ratio: 4/3;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.camera-preview {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.camera-overlay-box {
+    position: absolute;
+    border: 2px solid var(--primary);
+    border-radius: 8px;
+    width: 70%;
+    height: 50%;
+    pointer-events: none;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.camera-controls {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    margin-top: 0.5rem;
+}
+
+/* Scanner Laser active scan lines */
+.scanner-laser {
+    position: absolute;
+    width: 70%;
+    height: 3px;
+    background-color: var(--primary);
+    box-shadow: 0 0 15px 3px var(--primary);
+    animation: laserScan 2.5s infinite linear;
+    z-index: 10;
+}
+
+@keyframes laserScan {
+    0% { top: 25%; }
+    50% { top: 75%; }
+    100% { top: 25%; }
+}
+
+/* Barcode printable cards layout */
+.barcode-card-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+}
+
+.barcode-card {
+    background: white;
+    color: black;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    width: calc(50% - 0.75rem);
+    min-width: 280px;
+    box-shadow: var(--shadow-md);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #e5e7eb;
+}
+
+.barcode-card h4 {
+    color: #374151;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+    font-weight: 600;
+}
+
+.barcode-card .barcode-subtitle {
+    font-size: 0.75rem;
+    color: #6b7280;
+    margin-bottom: 1rem;
+    font-weight: 500;
+}
+
+.barcode-card svg {
+    max-width: 100%;
+    height: auto;
+}
+
+.barcode-card-actions {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 1.25rem;
+    border-top: 1px solid #f3f4f6;
+    padding-top: 0.75rem;
+}
+
+.barcode-card-actions span {
+    font-size: 0.75rem;
+    color: #9ca3af;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+/* Tables styling */
+.table-responsive {
+    overflow-x: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    background: rgba(17, 24, 39, 0.4);
+    margin-top: 1rem;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 0.9rem;
+}
+
+th {
+    background-color: rgba(255, 255, 255, 0.02);
+    color: var(--text-muted);
+    font-weight: 600;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+}
+
+td {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-main);
+}
+
+tr:hover td {
+    background-color: rgba(255, 255, 255, 0.01);
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.badge-pending {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--accent);
+}
+
+.badge-complete {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--primary);
+}
+
+.badge-referee {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--secondary);
+}
+
+.badge-danger {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+}
+
+.badge-success {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--primary);
+}
+
+.badge-warning {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--accent);
+}
+
+/* Multi-select Composite mixing row styles */
+.truck-select-row {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.truck-select-row.selected {
+    background-color: rgba(16, 185, 129, 0.08) !important;
+}
+
+.truck-select-row input[type="checkbox"] {
+    width: 1.15rem;
+    height: 1.15rem;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+/* Lab Screen Layout styling */
+.scan-trigger-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1.5rem;
+    border: 2px dashed var(--border-color);
+    border-radius: 0.75rem;
+    background: rgba(255, 255, 255, 0.01);
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.scan-trigger-section:hover {
+    border-color: var(--border-color-hover);
+    background: rgba(16, 185, 129, 0.02);
+}
+
+.scan-icon {
+    font-size: 2.5rem;
+    color: var(--primary);
+}
+
+.scan-input-manual {
+    max-width: 400px;
+    width: 100%;
+    margin: 1.5rem auto 0;
+    border-top: 1px solid var(--border-color);
+    padding-top: 1.5rem;
+}
+
+.blind-results-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    animation: fadeIn 0.4s ease-out;
+}
+
+.lab-meta-display {
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    font-family: monospace;
+    font-size: 1.1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Report Panel layout rules */
+.report-header-block {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 2rem;
+    border-bottom: 2px solid var(--border-color);
+    padding-bottom: 1.5rem;
+}
+
+.report-summary-cards {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.report-summary-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    text-align: center;
+}
+
+.report-summary-val {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary);
+    margin-top: 0.25rem;
+}
+
+.report-summary-lbl {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+@media (max-width: 1024px) {
+    .report-summary-cards {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+@media (max-width: 640px) {
+    .report-summary-cards {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* Setting Panel styling */
+.settings-section {
+    border-top: 1px solid var(--border-color);
+    padding-top: 1.5rem;
+    margin-top: 1.5rem;
+}
+
+/* Photo Thumbnail sizes */
+.truck-photo-thumb {
+    width: 60px;
+    height: 45px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.truck-photo-thumb:hover {
+    transform: scale(1.1);
+}
+
+/* Modal lightbox overlay for truck photos */
+.photo-lightbox {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 9999;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+}
+
+.photo-lightbox img {
+    max-width: 85%;
+    max-height: 80%;
+    border-radius: 8px;
+    border: 3px solid white;
+    box-shadow: var(--shadow-lg);
+}
+
+.photo-lightbox-close {
+    position: absolute;
+    top: 2rem;
+    right: 2rem;
+    background: white;
+    color: black;
+    border: none;
+    border-radius: 50%;
+    width: 3rem;
+    height: 3rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    font-size: 1.5rem;
+    font-weight: bold;
+}
+
+/* ==========================================================================
+   PRINT MEDIA RULES
+   Defines special formatting when outputting labels or reports to a printer.
+   ========================================================================== */
+@media print {
+    /* Hide everything on screen except print scopes */
+    body {
+        background: white !important;
+        color: black !important;
+        font-size: 12pt;
+    }
+    
+    header, main, .tabs, .btn, .card-title, .form-group, .alert, .scan-trigger-section, .scan-input-manual, .connection-banner {
+        display: none !important;
+    }
+    
+    #print-section {
+        display: block !important;
+        width: 100% !important;
+        position: absolute;
+        top: 0;
+        left: 0;
+        margin: 0;
+        padding: 0;
+        background: white;
+        color: black;
+    }
+    
+    /* 1. Barcode sticker layout printing */
+    .print-label-view {
+        display: flex !important;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 4in;
+        height: 2.8in;
+        padding: 0.25in;
+        margin: 0.5in auto;
+        border: 2px dashed #000;
+        page-break-inside: avoid;
+        page-break-after: always;
+        text-align: center;
+    }
+    
+    .print-label-view h4 {
+        color: black !important;
+        font-family: var(--font-sans);
+        font-size: 14pt;
+        margin-bottom: 0.1in;
+        font-weight: bold;
+    }
+    
+    .print-label-view p {
+        color: #444 !important;
+        font-size: 9pt;
+        margin-bottom: 0.15in;
+    }
+    
+    .print-label-view svg {
+        width: 80% !important;
+        height: auto;
+    }
+    
+    /* 2. Admin final compiled report printing */
+    .print-report-view {
+        display: block !important;
+        width: 100%;
+        padding: 0.5in;
+    }
+    
+    .print-report-view h2 {
+        color: black !important;
+        font-size: 20pt;
+        margin-bottom: 0.1in;
+        text-align: center;
+    }
+    
+    .print-report-view .report-meta-info {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 0.3in;
+        border-bottom: 2px solid black;
+        padding-bottom: 0.1in;
+        font-size: 10pt;
+    }
+    
+    .print-report-view table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        margin-top: 0.2in;
+    }
+    
+    .print-report-view th, .print-report-view td {
+        border: 1px solid #000 !important;
+        color: black !important;
+        padding: 6px !important;
+        font-size: 9pt !important;
+        text-align: left;
+    }
+    
+    .print-report-view th {
+        background-color: #f3f4f6 !important;
+        font-weight: bold !important;
+    }
+    
+    .print-report-view .print-summary-grid {
+        display: grid !important;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 10px;
+        margin-top: 0.3in;
+        border: 1px solid black;
+        padding: 10px;
+        background-color: #f9fafb;
+    }
+    
+    .print-report-view .print-summary-card {
+        text-align: center;
+    }
+    
+    .print-report-view .print-summary-lbl {
+        font-size: 8pt;
+        text-transform: uppercase;
+        color: #555;
+    }
+    
+    .print-report-view .print-summary-val {
+        font-size: 14pt;
+        font-weight: bold;
+        color: black;
+    }
+
+    .truck-photo-thumb {
+        display: none !important; /* Hide image in basic print rows */
+    }
+
+    .print-signature-section {
+        margin-top: 1.5in;
+        display: flex !important;
+        justify-content: space-between;
+        padding: 0 0.5in;
+        width: 100%;
+        page-break-inside: avoid;
+    }
+    
+    .print-signature-box {
+        text-align: center;
+        border-top: 1.5px solid black;
+        width: 2.2in;
+        padding-top: 6px;
+        font-size: 10pt;
+        color: black;
+    }
+
+    /* 3. STRICT 50mm x 50mm Thermal Label Printing */
+    .print-label-50mm {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 50mm !important;
+        height: 50mm !important;
+        max-width: 50mm !important;
+        max-height: 50mm !important;
+        margin: 0 auto !important;
+        padding: 2mm !important;
+        box-sizing: border-box !important;
+        text-align: center !important;
+        page-break-inside: avoid !important;
+        page-break-after: always !important;
+        overflow: hidden !important;
+        background: white !important;
+        color: black !important;
+    }
+
+    .print-label-50mm .label-header {
+        font-size: 7pt !important;
+        font-weight: 800 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.05em !important;
+        margin-bottom: 1mm !important;
+        line-height: 1.1 !important;
+        color: #000 !important;
+    }
+
+    .print-label-50mm canvas, .print-label-50mm img {
+        width: 36mm !important;
+        height: 36mm !important;
+        display: block !important;
+        margin: 0 auto !important;
+    }
+
+    .print-label-50mm .label-footer {
+        font-size: 7.5pt !important;
+        font-family: monospace !important;
+        font-weight: bold !important;
+        margin-top: 1mm !important;
+        color: #000 !important;
+        letter-spacing: 0.05em !important;
+    }
+
+    /* NOTE: the Weighment Slip is no longer printed through this stylesheet/#print-section.
+       It renders in its own isolated iframe (see printDocumentInFrame in app.js) with its own
+       self-contained styles, so a class-name mismatch here can never again make it unreadable
+       or blank. See app.js: openTruckWeighmentSlip / buildWeighmentSlipPrintHtml. */
+}
+
+/* UI Components for Weighment, Lab 2, and Admin Filters */
+.stage-indicator-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.stage-inbound {
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    color: #f59e0b;
+}
+.stage-outbound {
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.4);
+    color: #10b981;
+}
+
+.date-filter-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+    padding: 0.75rem 1rem;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.date-filter-btn {
+    padding: 0.4rem 0.85rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-color);
+    color: #cbd5e1;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.date-filter-btn.active, .date-filter-btn:hover {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: white;
+}
+
+/* Lab 2 Mixing Group Cards */
+.mixing-groups-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+.mixing-group-card {
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.25);
+}
+.mixing-group-card.ready-to-mix {
+    border-color: #10b981;
+    background: linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(6, 78, 59, 0.25));
+}
+.mixing-progress-bar {
+    width: 100%;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.mixing-progress-fill {
+    height: 100%;
+    background: #3b82f6;
+    transition: width 0.3s ease;
+}
+.mixing-progress-fill.complete {
+    background: #10b981;
+}
+
+/* ==========================================================================
+   MOBILE / APK RESPONSIVE LAYER  (added — keep at end of file)
+   Fixes: page opening zoomed out, sideways scrolling, tables wider than screen
+   ========================================================================== */
+
+/* 1. Nothing may push the page wider than the device */
+html, body {
+    max-width: 100%;
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+}
+img, svg, canvas, video, iframe { max-width: 100%; height: auto; }
+input, select, textarea, button { max-width: 100%; }
+pre, code, td, th { overflow-wrap: anywhere; word-break: break-word; }
+
+/* 2. Tables: never stretch the page, always scroll inside their own box */
+.table-responsive {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+}
+.table-responsive table { min-width: 640px; }
+
+@media (max-width: 900px) {
+    /* Tighter page padding so cards use the full screen width */
+    main { padding: 1rem 0.75rem; }
+    .card { padding: 1.15rem; border-radius: 0.85rem; margin-bottom: 1.15rem; }
+    .card-title { font-size: 1.15rem; margin-bottom: 1rem; }
+
+    header { padding: 0.75rem 1rem; }
+
+    /* Tabs become a horizontal swipe strip instead of overflowing the page */
+    .tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        gap: 0.35rem;
+        margin-bottom: 1.15rem;
+        padding-bottom: 0.35rem;
+    }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab-btn {
+        flex: 0 0 auto;
+        white-space: nowrap;
+        padding: 0.6rem 0.85rem;
+        font-size: 0.85rem;
+    }
+
+    /* All multi-column grids collapse */
+    .grid-2, .grid-3 { grid-template-columns: 1fr; gap: 1rem; }
+    .report-summary-cards { grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
+
+    /* Barcode / label cards stack full width */
+    .barcode-card-container { flex-direction: column; }
+    .barcode-card { min-width: 0; width: 100%; }
+
+    /* Comfortable, thumb-sized controls; 16px stops iOS/WebView auto-zoom */
+    input, select, textarea { font-size: 16px !important; }
+    .btn, button { min-height: 44px; }
+
+    /* Denser tables so less sideways scrolling is needed */
+    .table-responsive table { min-width: 560px; font-size: 0.82rem; }
+    th { padding: 0.55rem 0.6rem; font-size: 0.68rem; }
+    td { padding: 0.6rem; }
+    .truck-photo-thumb { width: 46px; height: 34px; }
+
+    .login-container { max-width: 100%; }
+    .photo-lightbox img { max-width: 94%; }
+    .photo-lightbox-close { top: 1rem; right: 1rem; }
+}
+
+@media (max-width: 480px) {
+    main { padding: 0.75rem 0.6rem; }
+    .card { padding: 0.9rem; }
+    .report-summary-cards { grid-template-columns: 1fr 1fr; }
+    h1 { font-size: 1.4rem; }
+    .logo-text { font-size: 1.1rem; }
+    .header-user-badge { font-size: 0.75rem; }
+}
+
+/* 3. Rows of buttons/filters wrap instead of overflowing */
+@media (max-width: 900px) {
+    .filter-bar, .form-actions, .card-header, .toolbar, .btn-group,
+    .barcode-card-actions, .settings-section .row {
+        flex-wrap: wrap;
+    }
+}
+
+/* Global Loading Overlay & Glassmorphic Spinner */
+.global-loader {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(11, 19, 36, 0.88);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+}
+.loader-content {
+    text-align: center;
+    background: #1e293b;
+    padding: 2.25rem 3rem;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 20px 30px -5px rgba(0, 0, 0, 0.6);
+}
+.spinner {
+    width: 52px;
+    height: 52px;
+    border: 5px solid rgba(16, 185, 129, 0.2);
+    border-top-color: #10b981;
+    border-radius: 50%;
+    animation: loader-spin 0.75s linear infinite;
+    margin: 0 auto 1.25rem auto;
+}
+@keyframes loader-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ==========================================================================
+   MOBILE LAYER v2  +  DASHBOARD POLISH   (keep at very end of file)
+   ========================================================================== */
+
+/* --- A. Tables: scroll sideways, never break words character-by-character --- */
+.table-responsive {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+}
+.table-responsive::-webkit-scrollbar { height: 6px; }
+.table-responsive::-webkit-scrollbar-thumb {
+    background: rgba(16, 185, 129, 0.45);
+    border-radius: 99px;
+}
+.table-responsive table {
+    width: max-content;
+    min-width: 100%;
+}
+.table-responsive th,
+.table-responsive td {
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+}
+/* only genuinely long free text may wrap */
+.table-responsive td.wrap,
+.table-responsive th.wrap { white-space: normal; max-width: 16rem; }
+
+/* --- B. Sticky first column + header so context is never lost while scrolling --- */
+@media (max-width: 900px) {
+    .table-responsive thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #131c2b;
+    }
+    .table-responsive table { font-size: 0.8rem; }
+    .table-responsive th { padding: 0.5rem 0.65rem; font-size: 0.66rem; }
+    .table-responsive td { padding: 0.55rem 0.65rem; }
+    .table-responsive .btn,
+    .table-responsive button { min-height: 34px; padding: 0.35rem 0.6rem; font-size: 0.75rem; }
+    /* hint that the table scrolls */
+    .table-responsive { position: relative; }
+}
+
+/* --- C. Long values inside inputs / cards must not blow up the layout --- */
+input, select, textarea { min-width: 0; }
+.form-group { min-width: 0; }
+
+/* --- C2. ".table-fit": for tables that must fit one screen with NO horizontal scroll
+   (weighment / unloading boards). Overrides the default nowrap/scroll table behaviour:
+   text wraps onto multiple lines instead of forcing the table wider than its box. --- */
+.table-responsive.table-fit { overflow-x: hidden; }
+.table-responsive.table-fit table {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+}
+.table-responsive.table-fit th,
+.table-responsive.table-fit td {
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    padding: 0.55rem 0.5rem;
+    font-size: 0.78rem;
+    vertical-align: middle;
+}
+.table-responsive.table-fit th { font-size: 0.65rem; line-height: 1.25; }
+.table-responsive.table-fit td .btn,
+.table-responsive.table-fit td button {
+    font-size: 0.7rem;
+    padding: 0.3rem 0.45rem;
+    min-height: 30px;
+    white-space: normal;
+}
+@media (max-width: 900px) {
+    /* On narrow screens a fixed-layout table with real content still needs to scroll -
+       trying to cram 9+ columns into a phone width would make every cell unreadable. */
+    .table-responsive.table-fit { overflow-x: auto; }
+    .table-responsive.table-fit table { width: max-content; min-width: 100%; table-layout: auto; }
+    .table-responsive.table-fit th,
+    .table-responsive.table-fit td { white-space: nowrap; }
+}
+
+/* --- C3. Photo preview thumbnail: sits INLINE in the same control row as the camera/select
+   buttons (not stacked in a full-width block below them), so it reads as "next to the field"
+   even in the narrow half-width Moisture/Fineness columns where a side-by-side 2-column split
+   does not have room. The badge + this thumbnail together tell the operator, at a glance and
+   without scrolling, what photo is attached while they type the value above. --- */
+.scale-photo-row { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+
+/* --- C3b. GUARANTEED side-by-side layout: value + controls on the left, photo thumbnail on the
+   right, ALWAYS - a CSS grid (not a wrapping flex row) so the photo column can never get pushed
+   onto its own line below, no matter how narrow the containing column is. --- */
+.value-photo-row {
+    display: grid;
+    grid-template-columns: 1fr 84px;
+    gap: 0.6rem;
+    align-items: start;
+}
+/* Explicit column numbers on BOTH children, not just relied-on DOM order: a grid item with only
+   a definite grid-row (no grid-column) is column-placed in an earlier pass of the auto-placement
+   algorithm than a fully-automatic item, which - non-obviously - can hand it column 1 even though
+   it is second in the markup. That is exactly what put the photo on the LEFT and the value/buttons
+   on the RIGHT here until this was made explicit. */
+.value-photo-row > .value-col { grid-column: 1; min-width: 0; }
+.value-photo-row > .photo-col {
+    grid-column: 2;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 1px;
+}
+.value-photo-row .photo-col .fineness-photo-preview,
+.value-photo-row .photo-col #moisture-photo-preview {
+    width: 84px !important;
+    height: 84px !important;
+    max-height: 84px !important;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--primary);
+    display: none;
+    cursor: zoom-in;
+}
+.photo-col .photo-placeholder {
+    width: 84px;
+    height: 84px;
+    border-radius: 6px;
+    border: 1px dashed var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    opacity: 0.45;
+}
+@media (max-width: 640px) {
+    .value-photo-row { grid-template-columns: 1fr 64px; }
+    .value-photo-row .photo-col .fineness-photo-preview,
+    .value-photo-row .photo-col #moisture-photo-preview,
+    .photo-col .photo-placeholder { width: 64px !important; height: 64px !important; max-height: 64px !important; }
+}
+
+/* --- C4. Live-camera capture panel, relocated next to whichever field triggered it --- */
+.camera-anchor { min-height: 0; }
+
+/* --- Meter auto-read (Lab-1 moisture + fineness weights): scan -> reader fills value -> operator confirms --- */
+#lab1-moisture[readonly], #lab1-fineness-initial[readonly], #lab1-fineness-final[readonly] { background: rgba(16, 185, 129, 0.06); cursor: default; }
+.auto-read-msg { margin-top: 0.5rem; font-size: 0.82rem; font-weight: 600; line-height: 1.4; }
+.auto-read-review {
+    margin-top: 0.6rem;
+    padding: 0.7rem 0.8rem;
+    border: 2px solid var(--primary);
+    border-radius: 8px;
+    background: rgba(16, 185, 129, 0.07);
+}
+.auto-read-review.is-uncertain { border-color: #f59e0b; background: rgba(245, 158, 11, 0.08); }
+.auto-read-read { font-size: 1rem; }
+.auto-read-read strong { font-size: 1.6rem; letter-spacing: 0.02em; }
+.auto-read-crop {
+    display: block;
+    height: 34px;
+    max-width: 100%;
+    margin: 0.4rem 0;
+    padding: 2px 4px;
+    background: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+}
+.auto-read-q { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem; }
+
+/* --- C5. Lab-2 scanned sample: the mixing-group code must be unmistakable at a glance --- */
+.scan-group-code-pill {
+    display: inline-block;
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    padding: 0.15rem 0.6rem;
+    margin: 0 0.2rem;
+    border-radius: 6px;
+    background: rgba(16, 185, 129, 0.25);
+    border: 1px solid rgba(16, 185, 129, 0.6);
+    color: #ecfdf5;
+}
+
+/* --- D. Executive dashboard polish --- */
+.exec-kpi-card {
+    background: linear-gradient(160deg, rgba(30, 41, 59, 0.9), rgba(17, 24, 39, 0.9));
+    border: 1px solid var(--border-color);
+    border-radius: 1rem;
+    padding: 1.15rem 1.25rem;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.exec-kpi-card::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: linear-gradient(180deg, var(--primary), var(--secondary));
+    opacity: 0.9;
+}
+.exec-kpi-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-color-hover);
+    box-shadow: var(--shadow-primary);
+}
+.exec-chart-card,
+.report-summary-card {
+    border-radius: 1rem;
+    border: 1px solid var(--border-color);
+    background: rgba(17, 24, 39, 0.65);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+.exec-chart-card { padding: 1.15rem; }
+.exec-chart-card canvas { max-width: 100% !important; }
+
+.card {
+    transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.card-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    letter-spacing: -0.01em;
+}
+
+/* --- E. Small-screen dashboard layout --- */
+@media (max-width: 900px) {
+    .exec-kpi-grid, .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 0.75rem; }
+    .exec-chart-card { padding: 0.9rem; }
+    .exec-chart-card canvas { height: 240px !important; }
+    .card:hover { transform: none; }
+    .card-title { font-size: 1.05rem; }
+    header .header-user-badge { display: none; }
+}
+@media (max-width: 480px) {
+    .exec-kpi-grid, .kpi-grid { grid-template-columns: 1fr !important; }
+    .report-summary-cards { grid-template-columns: 1fr 1fr; }
+    .btn { font-size: 0.85rem; }
+}
+
+/* --- F. Safe areas for notch / gesture bar inside the APK --- */
+body { padding-bottom: env(safe-area-inset-bottom); }
+header { padding-top: calc(0.75rem + env(safe-area-inset-top)); }
+
+/* ===== Fineness weight-based entry (Lab Station 1) ===== */
+.fineness-step {
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid var(--border-color, rgba(255,255,255,0.12));
+    border-radius: 10px;
+    padding: 0.75rem;
+    margin-top: 0.6rem;
+}
+.fineness-step > label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.fineness-step input[type="number"] {
+    width: 100%;
+}
+.fineness-photo-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+.fineness-photo-preview {
+    display: block;
+    width: 100%;
+    max-height: 180px;
+    object-fit: contain;
+    margin-top: 0.5rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color, rgba(255,255,255,0.12));
+}
+.fineness-result {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 10px;
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    font-size: 0.85rem;
+}
+.fineness-result strong {
+    font-size: 1.35rem;
+    color: var(--primary);
+}

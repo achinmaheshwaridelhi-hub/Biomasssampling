@@ -221,7 +221,9 @@ document.addEventListener('DOMContentLoaded', function() {
         );
     }
 
-    // Encrypts a payload JSON object to an opaque string prefixed with BSW1:
+    // Encrypts an ID to an opaque string prefixed with BSW2:. This is deliberately SHORT: the printed QR gets fewer, bigger
+    // squares (about 33x33 instead of 57x57), which is what lets a phone read it reliably from a small paper label.
+    // (Older labels printed with the longer BSW1: format are still accepted - see decryptPayload.)
     async function encryptPayload(plainId, issuedAtOverride = null) {
         if (!window.crypto || !window.crypto.subtle) {
             return fallbackEncrypt(plainId);
@@ -229,12 +231,7 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             const key = await getCryptoKey();
             const iv = crypto.getRandomValues(new Uint8Array(12)); // 96-bit standard IV
-            const payloadObj = {
-                id: plainId,
-                issuedAt: issuedAtOverride || Date.now()
-            };
-            const plainText = JSON.stringify(payloadObj);
-            const encodedText = new TextEncoder().encode(plainText);
+            const encodedText = new TextEncoder().encode(String(plainId));
             
             const ciphertextBuffer = await crypto.subtle.encrypt(
                 { name: 'AES-GCM', iv: iv },
@@ -247,7 +244,7 @@ document.addEventListener('DOMContentLoaded', function() {
             combined.set(iv, 0);
             combined.set(ciphertextBytes, iv.length);
             
-            return 'BSW1:' + bytesToBase64Url(combined);
+            return 'BSW2:' + bytesToBase64Url(combined);
         } catch (e) {
             console.error('Encryption failed:', e);
             throw new Error('Failed to encrypt QR payload');
@@ -265,6 +262,23 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
         
+        // Compact labels (BSW2:): AES-GCM of the plain ID only
+        if (token.startsWith('BSW2:')) {
+            if (!window.crypto || !window.crypto.subtle) {
+                throw new Error('Encrypted QR codes cannot be verified in non-secure offline browser tabs. Please use a secure connection (HTTPS or localhost).');
+            }
+            try {
+                const combined = base64UrlToBytes(token.substring(5));
+                if (combined.length < 13) throw new Error('Payload too short or corrupt');
+                const key = await getCryptoKey();
+                const decryptedBuffer = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: combined.slice(0, 12) }, key, combined.slice(12));
+                return { id: new TextDecoder().decode(decryptedBuffer), issuedAt: Date.now() };
+            } catch (e) {
+                console.error('Decryption failed:', e);
+                throw new Error('Invalid or tampered sample QR');
+            }
+        }
+
         // Fallback for old CODE128 plain-text stock: if not prefixed with BSW1:, return plain ID directly
         if (!token.startsWith('BSW1:')) {
             // Check if it matches a legacy pattern (S1- or CMP-)
@@ -428,8 +442,14 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // 2. Draw QR code image MUCH BIGGER (480x480) with clean white quiet zone
-            const qrSize = 480;
-            const qrX = (canvas.width - qrSize) / 2;
+            // Enlarge by a WHOLE number and without smoothing, so every square stays razor sharp (a blurry
+            // or unevenly stretched code is what a phone camera struggles to read).
+            const srcSize = canvasElement.width;
+            let factor = Math.max(1, Math.round(480 / srcSize));
+            while (srcSize * factor > 560 && factor > 1) factor--;
+            const qrSize = srcSize * factor;
+            const qrX = Math.round((canvas.width - qrSize) / 2);
+            context.imageSmoothingEnabled = false;
             context.drawImage(canvasElement, qrX, currentY + 10, qrSize, qrSize);
             
             const png = canvas.toDataURL('image/png');
@@ -472,6 +492,64 @@ document.addEventListener('DOMContentLoaded', function() {
         window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
     }
 
+    // ================= ROBUST QR / BARCODE DECODING OF A PHOTO =================
+    // A phone camera photo is 12+ megapixels. The decoder only locks on when each QR square is a few pixels wide, so a dense
+    // printed code in a huge photo (every square a big soft blob) - or in a tiny crop - is missed even though a person can see
+    // it plainly. So the photo is tried as it is, then at several sizes, then with stretched contrast, until one decodes.
+    // Every scanner in the app (labs, unloading, admin) goes through this one function.
+    async function decodeQrImage(file, readerId) {
+        let bitmap = null;
+        try { bitmap = await createImageBitmap(file); } catch (e) { /* older browsers: use an <img> below */ }
+        if (!bitmap) {
+            bitmap = await new Promise(function(resolve, reject) {
+                const url = URL.createObjectURL(file), img = new Image();
+                img.onload = function() { resolve(img); };
+                img.onerror = function() { reject(new Error('Could not open the photo.')); };
+                img.src = url;
+            });
+        }
+        const W = bitmap.width || bitmap.naturalWidth, H = bitmap.height || bitmap.naturalHeight;
+        const longest = Math.max(W, H);
+
+        // 1. Phones with the built-in barcode detector (Android Chrome) use it first: fast and very tolerant.
+        if (typeof window.BarcodeDetector !== 'undefined') {
+            try {
+                const det = new window.BarcodeDetector({ formats: ['qr_code'] });
+                const found = await det.detect(bitmap);
+                if (found && found.length && found[0].rawValue) return found[0].rawValue;
+            } catch (e) { /* fall through to the software decoder */ }
+        }
+
+        const tryBlob = async function(blob) {
+            // html5-qrcode only accepts a real File object (a plain Blob is refused), so wrap it
+            const asFile = (blob instanceof File) ? blob : new File([blob], 'qr.png', { type: blob.type || 'image/png' });
+            try { return await new Html5Qrcode(readerId).scanFile(asFile, false); } catch (e) { return null; }
+        };
+
+        // 2. The photo exactly as taken
+        let text = await tryBlob(file);
+        if (text) return text;
+
+        // 3. Resized (and, for small photos, enlarged a little), plain first and then with stretched contrast
+        const sizes = [1280, 960, 1600, 720, 1100, 2000, 540].filter(function(sz) { return sz < longest || sz <= longest * 2.2; });
+        for (const filter of ['none', 'grayscale(1) contrast(1.8)']) {
+            for (const sz of sizes) {
+                const k = sz / longest, w = Math.max(1, Math.round(W * k)), h = Math.max(1, Math.round(H * k));
+                const c = document.createElement('canvas');
+                c.width = w; c.height = h;
+                const x = c.getContext('2d');
+                x.fillStyle = '#fff'; x.fillRect(0, 0, w, h);
+                x.filter = filter;
+                x.drawImage(bitmap, 0, 0, w, h);
+                const blob = await new Promise(function(r) { c.toBlob(r, 'image/png'); });
+                if (!blob) continue;
+                text = await tryBlob(blob);
+                if (text) return text;
+            }
+        }
+        throw new Error('No QR code could be read in this photo.');
+    }
+
     // Helper: decode barcode from image file or PDF document
     async function scanUploadedFile(file, qrReaderId, successCallback, errorCallback) {
         if (!file) return;
@@ -499,9 +577,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         
                         canvas.toBlob(async (blob) => {
                             const tempFile = new File([blob], "scanned-page.png", { type: "image/png" });
-                            const tempReader = new Html5Qrcode(qrReaderId);
                             try {
-                                const decodedText = await tempReader.scanFile(tempFile, false);
+                                const decodedText = await decodeQrImage(tempFile, qrReaderId);
                                 successCallback(decodedText);
                             } catch (err) {
                                 errorCallback('Could not decode barcode from PDF page. Make sure the barcode is clear and not cropped.');
@@ -515,9 +592,8 @@ document.addEventListener('DOMContentLoaded', function() {
             } else {
                 // Standard image file parsing with multi-engine fallback
                 try {
-                    const rawReader = new Html5Qrcode(qrReaderId);
-                    // Pass 1: Try Html5Qrcode scanFile with internal scaling (renderImage = true) directly on the file
-                    const directText = await rawReader.scanFile(file, true);
+                    // Pass 1: the multi-size decoder (also tries the built-in detector where the browser has one)
+                    const directText = await decodeQrImage(file, qrReaderId);
                     console.log('Successfully scanned using Html5Qrcode scaled scan');
                     successCallback(directText);
                     return;
@@ -731,8 +807,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!file) return;
             try {
                 btnUpload.textContent = '⏳ Processing Image...';
-                const tempScanner = new Html5Qrcode(cfg.readerId);
-                const decodedText = await tempScanner.scanFile(file, false);
+                const decodedText = await decodeQrImage(file, cfg.readerId);
                 btnUpload.textContent = '📷 Snap Photo / Upload Image to Scan';
                 await cfg.onDecode(decodedText);
             } catch (err) {
@@ -783,8 +858,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     return;
                 }
                 try {
-                    const tempScanner = new Html5Qrcode(cfg.readerId);
-                    const decodedText = await tempScanner.scanFile(blob, false);
+                    const decodedText = await decodeQrImage(blob, cfg.readerId);
                     await cfg.onDecode(decodedText);
                 } catch (err) {
                     alert('Barcode scan failed: Could not detect barcode from the captured picture. Please make sure the barcode is in clear focus and try again.');
@@ -923,8 +997,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             let decodedText;
             try {
-                const tempScanner = new Html5Qrcode(cfg.readerId);
-                decodedText = await tempScanner.scanFile(file, true);
+                decodedText = await decodeQrImage(file, cfg.readerId);
             } catch (err) {
                 trigger.style.pointerEvents = '';
                 trigger.style.opacity = '';
@@ -1047,7 +1120,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Unloading works on the TRUCK (Truck ID / vehicle number / the truck QR printed on the weighment slip).
             // A sample-container QR is deliberately not accepted here: it must never lead to a supplier or vehicle.
             const trimmedCode = code.trim();
-            const plainId = /^BSW1F?:/.test(trimmedCode) ? await processScannedCode(trimmedCode) : trimmedCode;
+            const plainId = /^BSW(1F?|2):/.test(trimmedCode) ? await processScannedCode(trimmedCode) : trimmedCode;
             const res = await window.BiomassAPI.getUnloadingStatus(plainId);
             if (!res || res.success === false) throw new Error((res && res.message) || 'Truck not found.');
 
@@ -1936,9 +2009,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const canvasTarget = document.getElementById('qr-canvas-admin-lookup');
             if (canvasTarget) {
                 QRCode.toCanvas(canvasTarget, encrypted, {
-                    errorCorrectionLevel: 'H',
-                    width: 180,
-                    margin: 2
+                    errorCorrectionLevel: 'M',
+                    width: 246,
+                    margin: 4
                 }, function(err) {
                     if (err) console.error('QR canvas rendering error:', err);
                 });
@@ -1956,7 +2029,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                     `;
                     QRCode.toCanvas(document.getElementById('print-qr-target'), encrypted, {
-                        errorCorrectionLevel: 'H', width: 230, margin: 2
+                        errorCorrectionLevel: 'M', width: 410, margin: 4
                     }, function(err) {
                         if (err) console.error(err);
                         setTimeout(() => { window.print(); }, 200);
@@ -2111,9 +2184,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 const s1Canvas = document.getElementById('qr-canvas-s1');
                 if (s1Canvas) {
                     QRCode.toCanvas(s1Canvas, encrypted, {
-                        errorCorrectionLevel: 'H',
-                        width: 180,
-                        margin: 2
+                        errorCorrectionLevel: 'M',
+                        width: 246,
+                        margin: 4
                     }, function(err) {
                         if (err) console.error('QR code generation failed:', err);
                     });
@@ -2179,8 +2252,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (printTarget) {
                     QRCode.toCanvas(printTarget, encrypted, {
                         errorCorrectionLevel: 'M',
-                        width: 140,
-                        margin: 1
+                        width: 410,
+                        margin: 4
                     }, function(err) {
                         if (err) console.error(err);
                         document.body.classList.add('printing-label');
@@ -2454,8 +2527,8 @@ document.addEventListener('DOMContentLoaded', function() {
             let truckQrImg = '';
             try {
                 const truckToken = await encryptPayload(truck.truck_id);
-                const qrUrl = await new Promise(resolve => QRCode.toDataURL(truckToken, { width: 110, margin: 1, errorCorrectionLevel: 'M' }, (e, u) => resolve(e ? '' : u)));
-                if (qrUrl) truckQrImg = `<img src="${qrUrl}" alt="Truck QR" style="width: 84px; height: 84px; float: right; margin-left: 0.75rem;">`;
+                const qrUrl = await new Promise(resolve => QRCode.toDataURL(truckToken, { width: 330, margin: 3, errorCorrectionLevel: 'M' }, (e, u) => resolve(e ? '' : u)));
+                if (qrUrl) truckQrImg = `<img src="${qrUrl}" alt="Truck QR" style="width: 110px; height: 110px; float: right; margin-left: 0.75rem; image-rendering: pixelated;">`;
             } catch (qrErr) { console.warn('Truck QR not rendered:', qrErr); }
 
             const bodyHtml = `
@@ -4986,8 +5059,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 btnScan.disabled = true;
                 btnScan.textContent = '⏳ Reading QR...';
                 try {
-                    const tempScanner = new Html5Qrcode('lab2-qr-reader');
-                    const decodedText = await tempScanner.scanFile(file, true);
+                    const decodedText = await decodeQrImage(file, 'lab2-qr-reader');
                     const plainId = await processScannedCode(decodedText);
                     await handleLab2SampleScan(plainId);
                 } catch (err) {
@@ -5272,9 +5344,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const refEnc = await encryptPayload(batch.lots.referee);
         const vendEnc = await encryptPayload(batch.lots.vendor);
 
-        QRCode.toCanvas(document.getElementById('qr-canvas-lab2-test'), testEnc, { errorCorrectionLevel: 'M', width: 140, margin: 1 });
-        QRCode.toCanvas(document.getElementById('qr-canvas-lab2-ref'), refEnc, { errorCorrectionLevel: 'M', width: 140, margin: 1 });
-        QRCode.toCanvas(document.getElementById('qr-canvas-lab2-vend'), vendEnc, { errorCorrectionLevel: 'M', width: 140, margin: 1 });
+        QRCode.toCanvas(document.getElementById('qr-canvas-lab2-test'), testEnc, { errorCorrectionLevel: 'M', width: 246, margin: 4 });
+        QRCode.toCanvas(document.getElementById('qr-canvas-lab2-ref'), refEnc, { errorCorrectionLevel: 'M', width: 246, margin: 4 });
+        QRCode.toCanvas(document.getElementById('qr-canvas-lab2-vend'), vendEnc, { errorCorrectionLevel: 'M', width: 246, margin: 4 });
 
         const printContainer = document.getElementById('print-section');
         const setupPrint = async (lotId, sampleName) => {
@@ -5289,8 +5361,8 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
             QRCode.toCanvas(document.getElementById('print-qr-target'), encrypted, {
                 errorCorrectionLevel: 'M',
-                width: 120,
-                margin: 1
+                width: 410,
+                margin: 4
             }, function(err) {
                 if (err) console.error(err);
                 document.body.classList.add('printing-label');

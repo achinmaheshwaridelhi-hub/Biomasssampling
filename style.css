@@ -1009,8 +1009,9 @@ tr:hover td {
     }
 
     .print-label-50mm canvas, .print-label-50mm img {
-        width: 36mm !important;
-        height: 36mm !important;
+        width: 42mm !important;
+        height: 42mm !important;
+        image-rendering: pixelated;
         display: block !important;
         margin: 0 auto !important;
     }

@@ -236,7 +236,9 @@ p {
 
 @media (max-width: 768px) {
     .grid-2, .grid-3 {
-        grid-template-columns: 1fr;
+        /* minmax(0,1fr), not 1fr: a plain 1fr column refuses to shrink below its widest child, which pushed the
+           Lab-1 cards ~60px past the right edge of a 390px phone */
+        grid-template-columns: minmax(0, 1fr);
     }
     header {
         flex-direction: column;
@@ -1171,7 +1173,7 @@ pre, code, td, th { overflow-wrap: anywhere; word-break: break-word; }
     }
 
     /* All multi-column grids collapse */
-    .grid-2, .grid-3 { grid-template-columns: 1fr; gap: 1rem; }
+    .grid-2, .grid-3 { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
     .report-summary-cards { grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
 
     /* Barcode / label cards stack full width */

@@ -4090,7 +4090,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // if none is accepted the field falls back to the old way (attach a photo + type the value). The reader never fills a
     // value without that confirmation, and a reading it is not confident about (conf < MoistureOCR.MIN_CONFIDENCE) cannot
     // be accepted at all. Which kinds are switched on is set in moisture-ocr.js (window.MeterAutoRead).
-    const AUTO_READ_MAX_ATTEMPTS = 5;
+    const AUTO_READ_MAX_ATTEMPTS = 3;
 
     function createAutoRead(cfg) {
         const key = cfg.key;
@@ -4689,7 +4689,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // 0. Auto-read (camera -> reader -> operator confirms) for moisture and both fineness weights
         Object.values(autoRead).forEach(a => a.setup());
 
-        // 1. Moisture Buttons & File Inputs (manual fallback only becomes visible after 5 unaccepted auto attempts)
+        // 1. Moisture Buttons & File Inputs (manual fallback only becomes visible after 3 unaccepted auto attempts)
         const btnMoisturePhoto = document.getElementById('btn-moisture-photo');
         if (btnMoisturePhoto) {
             btnMoisturePhoto.onclick = () => startScaleCamera('moisture');
@@ -4905,7 +4905,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Mandatory: photo-verified moisture reading
         if (moistureEditable) {
             if (autoRead['moisture'].mode() === 'auto') {
-                alert('Please scan the moisture meter display with the camera and confirm the reading.\n\n(After 5 attempts without an accepted reading you can attach a photo and type the value manually.)');
+                alert('Please scan the moisture meter display with the camera and confirm the reading.\n\n(After 3 attempts without an accepted reading you can attach a photo and type the value manually.)');
                 return;
             }
             if (!moistureState.photo) {
@@ -4922,7 +4922,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Mandatory: scale photo + both weights before fineness can be recorded
         if (finenessEditable) {
             if (autoRead['fineness-initial'].mode() === 'auto' || autoRead['fineness-final'].mode() === 'auto') {
-                alert('Please scan the scale display with the camera and confirm BOTH the initial and the final weight.\n\n(After 5 attempts without an accepted reading you can attach a photo and type the value manually.)');
+                alert('Please scan the scale display with the camera and confirm BOTH the initial and the final weight.\n\n(After 3 attempts without an accepted reading you can attach a photo and type the value manually.)');
                 return;
             }
             if (!finenessState.initialPhoto) {

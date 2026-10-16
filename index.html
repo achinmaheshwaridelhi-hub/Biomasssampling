@@ -27,7 +27,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20261016_v16">
+    <link rel="stylesheet" href="style.css?v=20261016_v17">
     <!-- Chart.js for Executive Management Dashboard (version pinned; local copy used if the CDN is unreachable) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script>
@@ -1134,8 +1134,8 @@
                                             <input type="number" step="0.001" id="lab1-moisture" placeholder="0.000" required min="0" max="100" inputmode="decimal" style="font-weight: 700; color: #10b981; font-size: 1.25rem; width: 100%;">
 
                                             <!-- AUTO-READ (default): the operator photographs the meter display with the phone camera, the
-                                                 reader fills the value, the operator confirms it. Up to 5 attempts. The scan panel is injected
-                                                 here by createAutoRead() in app.js; the manual controls below only appear after the 5 attempts
+                                                 reader fills the value, the operator confirms it. Up to 3 attempts. The scan panel is injected
+                                                 here by createAutoRead() in app.js; the manual controls below only appear after the 3 attempts
                                                  are used up (or if the reader cannot load / is switched off in moisture-ocr.js). -->
                                             <div id="moisture-auto-host"></div>
 
@@ -1450,14 +1450,14 @@
 
     <!-- Moisture-meter reader (trained offline OCR). Small loaders only; the ~8 MB engine in lib/ocr/ is fetched
          on first use. If these fail to load the app simply falls back to manual photo + typing. -->
-    <script src="lib/ocr/moisture-reader-core.js?v=20261016_v16"></script>
-    <script src="lib/ocr/led-weight-reader.js?v=20261016_v16"></script>
-    <script src="lib/ocr/led-templates.js?v=20261016_v16"></script>
-    <script src="moisture-ocr.js?v=20261016_v16"></script>
+    <script src="lib/ocr/moisture-reader-core.js?v=20261016_v17"></script>
+    <script src="lib/ocr/led-weight-reader.js?v=20261016_v17"></script>
+    <script src="lib/ocr/led-templates.js?v=20261016_v17"></script>
+    <script src="moisture-ocr.js?v=20261016_v17"></script>
 
     <!-- App JavaScript files -->
-    <script src="api.js?v=20261016_v16" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261016_v16" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="api.js?v=20261016_v17" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261016_v17" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

@@ -1183,7 +1183,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 ['Truck ID', `<strong>${esc(res.truck_id)}</strong>`],
                 ['Vehicle Reg.', status === 'REJECTED' ? `<span style="background: #ef4444; color: white; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: bold; border: 1px solid white;">${esc(res.truck_reg_number)} (REJECTED)</span>` : `<strong>${esc(res.truck_reg_number)}</strong>`],
                 ['Invoice / Challan No.', esc(res.invoice_no || res.challan_no || '-')],
-                ['Supplier', esc(res.company_name)],
                 ['Driver', esc(res.driver_name)],
                 ['Moisture %', res.moisture_pct === null ? 'Pending' : (status === 'REJECTED' ? `<strong style="color: #ef4444; font-size: 1.1rem;">${res.moisture_pct}% (Overlimit)</strong>` : `${res.moisture_pct}%`)],
                 ['Fineness %', res.fineness_value === null ? 'Pending' : `${res.fineness_value}%`],
@@ -1426,6 +1425,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (role === 'admin') {
+            autoFreeStorageIfEnabled();
             const activeTab = document.querySelector('#screen-admin .tab-btn.active');
             const dataTab = activeTab ? activeTab.getAttribute('data-tab') : 'admin-dashboard';
             if (dataTab === 'admin-dashboard') {
@@ -1474,6 +1474,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 loadRefereeChallengeTable();
             } else if (targetContentId === 'tab-admin-activity') {
                 renderActivityLogTab();
+            } else if (targetContentId === 'tab-admin-settings') {
+                initStorageCard();
             }
         }
 
@@ -2198,8 +2200,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Attach print & download triggers (Only S1 QR)
                 setupBarcodePrintTriggers(truck.sample1_barcode_id, truck.daily_group_code);
 
-                // Clean registration form
+                // Clean registration form (the reset also clears the auto-print tick: put it back from the saved setting)
                 truckRegForm.reset();
+                const autoBoxAfterReset = document.getElementById('auto-print-label');
+                if (autoBoxAfterReset) { try { autoBoxAfterReset.checked = localStorage.getItem('BIOMASS_AUTOPRINT_LABEL') === '1'; } catch (e) { /* ignore */ } }
                 
                 // Directly and safely reset photo state
                 capturedPhotoBase64 = '';
@@ -2224,6 +2228,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 
                 alert('Truck registered successfully! Encrypted QR code generated.');
+                // Optional: send the label straight to the printer (setting is remembered on this device)
+                const autoBox = document.getElementById('auto-print-label');
+                if (autoBox && autoBox.checked && typeof window.__printSampleLabelNow === 'function') window.__printSampleLabelNow();
             } catch (err) {
                 console.error('Registration failed:', err);
                 alert('Registration failed: ' + (err && err.message ? err.message : err));
@@ -2231,40 +2238,47 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    (function initAutoPrintSetting() {
+        const box = document.getElementById('auto-print-label');
+        if (!box) return;
+        try { box.checked = localStorage.getItem('BIOMASS_AUTOPRINT_LABEL') === '1'; } catch (e) { /* storage blocked: stays off */ }
+        box.addEventListener('change', function () { try { localStorage.setItem('BIOMASS_AUTOPRINT_LABEL', box.checked ? '1' : '0'); } catch (e) { /* ignore */ } });
+    })();
+
     // Helper: set print & download layout trigger buttons (Strict 50mm x 50mm Thermal Label)
     function setupBarcodePrintTriggers(s1Id, dailyGroupCode) {
         const printContainer = document.getElementById('print-section');
         const btnPrint = document.getElementById('btn-print-s1');
         const btnDownload = document.getElementById('btn-download-s1');
 
-        if (btnPrint) {
-            btnPrint.onclick = async function() {
-                const encrypted = await encryptPayload(s1Id);
-                if (printContainer) {
-                    printContainer.innerHTML = `
-                        <div class="print-label-view print-label-50mm" style="text-align: center;">
-                            <canvas id="print-qr-target"></canvas>
-                            <div class="print-label-id" style="font-family: monospace; font-size: 8pt; font-weight: bold; margin-top: 1mm;">${s1Id}</div>
-                        </div>
-                    `;
-                }
-                const printTarget = document.getElementById('print-qr-target');
-                if (printTarget) {
-                    QRCode.toCanvas(printTarget, encrypted, {
-                        errorCorrectionLevel: 'M',
-                        width: 410,
-                        margin: 4
-                    }, function(err) {
-                        if (err) console.error(err);
-                        document.body.classList.add('printing-label');
-                        setTimeout(() => { 
-                            window.print(); 
-                            document.body.classList.remove('printing-label');
-                        }, 250);
-                    });
-                }
-            };
-        }
+        const printNow = async function() {
+            const encrypted = await encryptPayload(s1Id);
+            if (printContainer) {
+                printContainer.innerHTML = `
+                    <div class="print-label-view print-label-50mm" style="text-align: center;">
+                        <canvas id="print-qr-target"></canvas>
+                        <div class="print-label-id" style="font-family: monospace; font-size: 8pt; font-weight: bold; margin-top: 1mm;">${s1Id}</div>
+                    </div>
+                `;
+            }
+            const printTarget = document.getElementById('print-qr-target');
+            if (printTarget) {
+                QRCode.toCanvas(printTarget, encrypted, {
+                    errorCorrectionLevel: 'M',
+                    width: 410,
+                    margin: 4
+                }, function(err) {
+                    if (err) console.error(err);
+                    document.body.classList.add('printing-label'); setLabelPageSize(true);
+                    setTimeout(() => { 
+                        window.print(); 
+                        document.body.classList.remove('printing-label'); setLabelPageSize(false);
+                    }, 250);
+                });
+            }
+        };
+        if (btnPrint) btnPrint.onclick = printNow;
+        window.__printSampleLabelNow = printNow;      // used by "print automatically after registering"
  
         // Download as PNG button
         if (btnDownload) {
@@ -2434,7 +2448,7 @@ document.addEventListener('DOMContentLoaded', function() {
     async function renderUnloadingLog() {
         const tbody = document.getElementById('table-unloading-body');
         if (!tbody) return;
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center;">Loading unloading entries...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">Loading unloading entries...</td></tr>';
         if (window.showGlobalLoader) window.showGlobalLoader('Fetching Unloading Clearances...');
         
         try {
@@ -2447,12 +2461,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 const driver = String(t.driver_name || '').toLowerCase();
                 const reg = String(t.truck_reg_number || '').toLowerCase();
                 const ch = String(t.invoice_no || t.challan_no || '').toLowerCase();
-                const comp = String(t.company_name || '').toLowerCase();
-                return id.includes(filter) || driver.includes(filter) || reg.includes(filter) || ch.includes(filter) || comp.includes(filter);
+                return id.includes(filter) || driver.includes(filter) || reg.includes(filter) || ch.includes(filter);
             });
 
             if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="10" style="text-align: center;">No matching truck entries found for today.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="9" style="text-align: center;">No matching truck entries found for today.</td></tr>`;
                 return;
             }
 
@@ -2484,7 +2497,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 tr.innerHTML = `
                     <td>${dateStr} ${timeStr}</td>
-                    <td>${esc(truck.company_name)}</td>
                     <td><span style="font-family: monospace; font-weight: bold;">${esc(truck.truck_reg_number)}</span></td>
                     <td><span style="font-family: monospace;">${esc(chNo)}</span></td>
                     <td>${gross > 0 ? gross.toLocaleString() : '-'}</td>
@@ -2497,7 +2509,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 tbody.appendChild(tr);
             });
         } catch (e) {
-            tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--danger);">Failed to load unloading log: ${esc(e.message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--danger);">Failed to load unloading log: ${esc(e.message)}</td></tr>`;
         } finally {
             if (window.hideGlobalLoader) window.hideGlobalLoader();
         }
@@ -2556,10 +2568,10 @@ document.addEventListener('DOMContentLoaded', function() {
                             <label>Driver Name</label>
                             <div class="slip-val">${esc(truck.driver_name || 'N/A')}</div>
                         </div>
-                        <div class="slip-cell" style="grid-column: span 2;">
+                        ${truck.company_name ? `<div class="slip-cell" style="grid-column: span 2;">
                             <label>Supplier / Vendor</label>
                             <div class="slip-val">${esc(truck.company_name)}</div>
-                        </div>
+                        </div>` : ''}
                     </div>
                     
                     <table class="slip-weight-table">
@@ -2608,7 +2620,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
             `;
 
-            const filename = `Weighment_Slip_${truck.truck_id}_${shortCode(truck.company_name)}_${compactDate(truck.entry_date)}`;
+            const filename = `Weighment_Slip_${truck.truck_id}${truck.company_name ? '_' + shortCode(truck.company_name) : ''}_${compactDate(truck.entry_date)}`;
             await printDocumentInFrame({ title: filename, bodyHtml, css: SLIP_PRINT_CSS });
         } catch (err) {
             alert('Failed to load weighment slip: ' + err.message);
@@ -2662,7 +2674,7 @@ document.addEventListener('DOMContentLoaded', function() {
     window.triggerWeighmentEdit = async function(id, gross, tare) {
         const card = document.getElementById('weighment-edit-card');
         document.getElementById('weigh-edit-truck-id').value = id;
-        document.getElementById('weigh-edit-title').textContent = `Update Weighment logs for [${id}]`;
+        document.getElementById('weigh-edit-title').textContent = 'Update Weighment logs for ...';
         
         const grossInput = document.getElementById('weigh-edit-gross');
         const tareInput = document.getElementById('weigh-edit-tare');
@@ -2686,6 +2698,12 @@ document.addEventListener('DOMContentLoaded', function() {
             truck = await window.BiomassAPI.getTruckById(id);
         } catch (e) {
             console.warn('Could not fetch truck details for modal:', e);
+        }
+        // The operator confirms the truck physically on the weighbridge, so the heading shows the VEHICLE NUMBER (not the internal Truck ID)
+        if (truck && truck.truck_reg_number) {
+            document.getElementById('weigh-edit-title').textContent = `Update Weighment logs for [${truck.truck_reg_number}]`;
+        } else {
+            document.getElementById('weigh-edit-title').textContent = `Update Weighment logs for [${id}]`;     // details could not be loaded
         }
 
         const hasGross = gross !== null && gross !== undefined && Number(gross) > 0;
@@ -3305,6 +3323,85 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (e) {
             activityBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--danger);">Failed to load logs: ${esc(e.message)}</td></tr>`;
             exceptionsBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--danger);">Failed to load exceptions: ${esc(e.message)}</td></tr>`;
+        }
+    }
+
+    // ================= ADMIN: PHOTO STORAGE SPACE (Settings tab) =================
+    const STORAGE_TRIGGER_PCT = 90, STORAGE_TARGET_PCT = 75, STORAGE_KEEP_DAYS = 60;
+    const fmtMB = (b) => { const m = (Number(b) || 0) / 1048576; return (m >= 100 ? m.toFixed(0) : m.toFixed(1)) + ' MB'; };
+
+    async function refreshStorageCard() {
+        const bar = document.getElementById('storage-bar'), txt = document.getElementById('storage-status-text');
+        if (!bar || !txt) return null;
+        try {
+            const st = await window.BiomassAPI.getStorageStatus();
+            const pct = st.limit ? Math.min(100, st.bytes / st.limit * 100) : 0;
+            bar.style.width = pct.toFixed(1) + '%';
+            bar.style.background = pct >= STORAGE_TRIGGER_PCT ? '#ef4444' : (pct >= STORAGE_TARGET_PCT ? '#f59e0b' : '#10b981');
+            txt.innerHTML = `<b>${fmtMB(st.bytes)}</b> of ${fmtMB(st.limit)} used (<b>${pct.toFixed(1)}%</b>) &middot; ${Number(st.files).toLocaleString()} photo file(s)` +
+                            (st.oldest ? ` &middot; oldest from ${esc(String(st.oldest).slice(0, 10))}` : '');
+            return st;
+        } catch (e) {
+            txt.textContent = 'Could not read the storage usage: ' + e.message + ' (has the updated db/01_schema_v2.sql been run?)';
+            return null;
+        }
+    }
+
+    // Plan, (optionally) ask, then delete the oldest photos. Returns the result or null when nothing was done.
+    async function freeUpStorage(auto) {
+        const out = document.getElementById('storage-result');
+        const say = (html) => { if (out) out.innerHTML = html; };
+        const plan = await window.BiomassAPI.planPhotoCleanup({ targetPercent: STORAGE_TARGET_PCT, keepDays: STORAGE_KEEP_DAYS });
+        const st = plan.status, pct = st.limit ? st.bytes / st.limit * 100 : 0;
+        if (plan.need <= 0) { say(`✅ Nothing to delete: storage is at ${pct.toFixed(1)}%, below the ${STORAGE_TARGET_PCT}% target.`); return null; }
+        if (!plan.items.length) {
+            say(`⚠️ Storage is at ${pct.toFixed(1)}%, but there are no photos old enough to delete (the newest ${STORAGE_KEEP_DAYS} days and open referee challenges are protected). Upgrade the Supabase plan or free space another way.`);
+            return null;
+        }
+        const first = String(plan.items[0].created).slice(0, 10), last = String(plan.items[plan.items.length - 1].created).slice(0, 10);
+        if (!auto) {
+            const msg = `Storage is at ${pct.toFixed(1)}% (${fmtMB(st.bytes)} of ${fmtMB(st.limit)}).\n\n` +
+                `To get down to ${STORAGE_TARGET_PCT}%, the OLDEST ${plan.items.length.toLocaleString()} photo(s) (taken ${first} to ${last}) will be PERMANENTLY deleted, freeing about ${fmtMB(plan.freeBytes)}.\n\n` +
+                (plan.enough ? '' : `(This is all that is old enough; it will not fully reach ${STORAGE_TARGET_PCT}%.)\n\n`) +
+                `The records stay; only the pictures are removed. Photos from the last ${STORAGE_KEEP_DAYS} days and of open referee challenges are never deleted.\n\nThis cannot be undone. Delete them now?`;
+            if (!confirm(msg)) { say('Cancelled. Nothing was deleted.'); return null; }
+        }
+        say('Deleting... 0%');
+        const res = await window.BiomassAPI.runPhotoCleanup(plan.items, (i, n) => say(`Deleting... ${Math.round(i / n * 100)}%`));
+        say(`${res.failed ? '⚠️' : '✅'} Deleted ${res.done.toLocaleString()} old photo(s), freed about ${fmtMB(res.freed)}` + (res.failed ? `; ${res.failed} could not be removed (try again)` : '') +
+            (auto ? ' (automatic)' : '') + '.');
+        return res;
+    }
+
+    function initStorageCard() {
+        const btnRefresh = document.getElementById('btn-storage-refresh'), btnFree = document.getElementById('btn-storage-free'), auto = document.getElementById('storage-auto');
+        if (!btnRefresh || !btnFree) return;
+        btnRefresh.onclick = refreshStorageCard;
+        btnFree.onclick = async function () {
+            btnFree.disabled = true;
+            try { await freeUpStorage(false); } catch (e) { const o = document.getElementById('storage-result'); if (o) o.textContent = 'Could not free space: ' + e.message; }
+            finally { btnFree.disabled = false; await refreshStorageCard(); }
+        };
+        if (auto) {
+            try { auto.checked = localStorage.getItem('BIOMASS_AUTO_FREE_STORAGE') === '1'; } catch (e) { /* storage blocked: stays off */ }
+            auto.onchange = function () { try { localStorage.setItem('BIOMASS_AUTO_FREE_STORAGE', auto.checked ? '1' : '0'); } catch (e) { /* ignore */ } };
+        }
+        refreshStorageCard();
+    }
+
+    // When the Admin signs in (once per page load): if the setting is on and storage is above the trigger, clean up without asking.
+    let autoStorageChecked = false;
+    async function autoFreeStorageIfEnabled() {
+        if (autoStorageChecked) return;
+        autoStorageChecked = true;
+        try {
+            if (localStorage.getItem('BIOMASS_AUTO_FREE_STORAGE') !== '1') return;
+            const st = await window.BiomassAPI.getStorageStatus();
+            if (!st.limit || st.bytes / st.limit * 100 < STORAGE_TRIGGER_PCT) return;
+            const res = await freeUpStorage(true);
+            if (res && res.done) alert(`Photo storage was above ${STORAGE_TRIGGER_PCT}%, so ${res.done.toLocaleString()} of the oldest photos were deleted automatically (about ${fmtMB(res.freed)} freed).`);
+        } catch (e) {
+            console.warn('Automatic storage clean-up skipped:', e);
         }
     }
 
@@ -4784,6 +4881,28 @@ document.addEventListener('DOMContentLoaded', function() {
         setupLab1CameraScanner();
     }
 
+    // While a 50mm label is printed, ask the browser for a 50 x 50 mm page (removed again afterwards) so the thermal
+    // label roll is selected instead of A4. Normal reports keep the default page.
+    function setLabelPageSize(on) {
+        let st = document.getElementById('label-page-size');
+        if (!on) { if (st) st.remove(); return; }
+        if (!st) { st = document.createElement('style'); st.id = 'label-page-size'; document.head.appendChild(st); }
+        st.textContent = '@page { size: 50mm 50mm; margin: 0; }';
+    }
+
+    // A scanned QR whose result is already saved is refused: the entry form is not opened, a banner explains why, and a
+    // pop-up makes sure the operator notices (the server also refuses to overwrite a locked result).
+    function showAlreadySaved(noticeId, what, when) {
+        const box = document.getElementById(noticeId);
+        const msg = 'Data already saved for this QR.';
+        const detail = what + ' result for this QR was already submitted' + (when ? ' at ' + when : '') + ' and is locked. It cannot be entered again.';
+        if (box) {
+            box.innerHTML = '<strong>\u26D4 ' + msg + '</strong><span>' + esc(detail) + '</span>';
+            box.style.display = 'flex';
+        }
+        alert('\u26D4 ' + msg + '\n\n' + detail);
+    }
+
     async function lookupLab1Barcode(barcode) {
         if (!barcode) {
             alert('Please scan or type a barcode ID.');
@@ -4792,12 +4911,26 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const entryCard = document.getElementById('lab1-entry-card');
         const alertBox = document.getElementById('lab1-alert');
+        const dupBox = document.getElementById('lab1-duplicate-notice');
         entryCard.style.display = 'none';
         alertBox.style.display = 'none';
+        if (dupBox) dupBox.style.display = 'none';
 
         try {
             const data = await window.BiomassAPI.getSample1Details(barcode);
             if (data.success) {
+                {
+                    const _u = window.BiomassAPI.getCurrentUser(), _role = _u ? _u.role : '';
+                    const _hasM = data.moisture_pct !== null && data.moisture_pct !== undefined && data.moisture_pct !== '' && Number(data.moisture_pct) > 0;
+                    const _hasF = data.fineness_value !== null && data.fineness_value !== undefined && data.fineness_value !== '' && Number(data.fineness_value) > 0;
+                    const _done = _role === 'lab1m' ? _hasM : _role === 'lab1f' ? _hasF : (_hasM && _hasF);
+                    if (_done) {
+                        resetMoistureModule();
+                        resetFinenessModule();
+                        showAlreadySaved('lab1-duplicate-notice', _role === 'lab1m' ? 'Moisture' : _role === 'lab1f' ? 'Fineness' : 'Moisture and fineness', data.tested_at);
+                        return;
+                    }
+                }
                 entryCard.style.display = 'block';
                 document.getElementById('lab1-blind-code').textContent = '✅ ACTIVE SECURE SAMPLE';
                 document.getElementById('lab1-barcode-id').value = data.sample1_barcode_id;
@@ -4876,7 +5009,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     alertBox.style.display = 'flex';
                 } else {
                     if (submitBtn) submitBtn.disabled = false;
-                    alertBox.style.display = 'none';
+                    if (hasMoisture || hasFineness) {
+                        alertBox.textContent = `Notice: ${hasMoisture ? 'Moisture' : 'Fineness'} is already saved for this QR. Only the remaining part can be entered.`;
+                        alertBox.className = 'alert alert-warning';
+                        alertBox.style.display = 'flex';
+                    } else {
+                        alertBox.style.display = 'none';
+                    }
                 }
 
             } else {
@@ -4976,7 +5115,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert('Submission failed: ' + res.message);
             }
         } catch (err) {
-            alert('Submission error: ' + err.message);
+            if (/already submitted and locked/i.test(String(err.message))) {
+                document.getElementById('lab1-entry-card').style.display = 'none';
+                resetMoistureModule();
+                resetFinenessModule();
+                showAlreadySaved('lab1-duplicate-notice', 'This', null);
+            } else {
+                alert('Submission error: ' + err.message);
+            }
         }
     };
 
@@ -5333,11 +5479,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const groupLabelText = `MIXING GROUP: ${gCodeLab2}`;
         const batchDate = batch.date || '';
 
+        // Supplier initials go on the Vendor and Referee copies only (never on the Test lot), so the stored samples can be
+        // found by the supplier. They come from the server together with the batch.
+        const initials = String(batch.vendor_initials || '').trim().toUpperCase();
         ['test', 'ref', 'vend'].forEach(k => {
             const groupEl = document.getElementById(`lab2-${k}-group-code`);
             const codeEl = document.getElementById(`lab2-${k}-code`);
             if (groupEl) groupEl.textContent = groupLabelText;
-            if (codeEl) codeEl.style.display = 'none';
+            if (codeEl) {
+                if (k !== 'test' && initials) { codeEl.textContent = `SUPPLIER: ${initials}`; codeEl.style.display = ''; }
+                else codeEl.style.display = 'none';
+            }
         });
 
         const testEnc = await encryptPayload(batch.lots.test);
@@ -5349,33 +5501,51 @@ document.addEventListener('DOMContentLoaded', function() {
         QRCode.toCanvas(document.getElementById('qr-canvas-lab2-vend'), vendEnc, { errorCorrectionLevel: 'M', width: 246, margin: 4 });
 
         const printContainer = document.getElementById('print-section');
-        const setupPrint = async (lotId, sampleName) => {
-            const encrypted = await encryptPayload(lotId);
-            printContainer.innerHTML = `
-                <div class="print-label-view print-label-50mm" style="text-align: center;">
+        // One 50 x 50 mm label for a lot (the Vendor / Referee copies also carry the supplier initials).
+        const labelHtml = (lotId, sampleName, withInitials, canvasId) => {
+            const initLine = (withInitials && initials)
+                ? `<div style="font-size: 11pt; font-weight: 800; margin: 0 0 1px 0; color: #000; font-family: monospace; line-height: 1;">${esc(initials)} &middot; ${esc(batchDate)}</div>` : '';
+            return `
+                <div class="print-label-view print-label-50mm${initLine ? ' label-with-initials' : ''}" style="text-align: center;">
                     <div style="font-size: 8pt; font-weight: bold; font-family: monospace; color: #000; line-height: 1;">GROUP: ${gCodeLab2}</div>
                     <div style="font-size: 7pt; font-weight: bold; margin: 1px 0 2px 0; color: #000; font-family: monospace;">${sampleName}</div>
-                    <canvas id="print-qr-target"></canvas>
+                    ${initLine}
+                    <canvas id="${canvasId}"></canvas>
                     <div class="print-label-id" style="font-family: monospace; font-size: 7pt; font-weight: bold; margin-top: 1px;">${lotId}</div>
-                </div>
-            `;
-            QRCode.toCanvas(document.getElementById('print-qr-target'), encrypted, {
-                errorCorrectionLevel: 'M',
-                width: 410,
-                margin: 4
-            }, function(err) {
-                if (err) console.error(err);
-                document.body.classList.add('printing-label');
-                setTimeout(() => { 
-                    window.print(); 
-                    document.body.classList.remove('printing-label');
-                }, 250);
-            });
+                </div>`;
         };
+        const drawQr = (canvasId, text) => new Promise((resolve) => {
+            QRCode.toCanvas(document.getElementById(canvasId), text, { errorCorrectionLevel: 'M', width: 410, margin: 4 }, function(err) {
+                if (err) console.error(err);
+                resolve();
+            });
+        });
+        const sendToPrinter = () => {
+            document.body.classList.add('printing-label'); setLabelPageSize(true);
+            setTimeout(() => {
+                window.print();
+                document.body.classList.remove('printing-label'); setLabelPageSize(false);
+            }, 250);
+        };
+        const setupPrint = async (lotId, sampleName, withInitials) => {
+            const encrypted = await encryptPayload(lotId);
+            printContainer.innerHTML = labelHtml(lotId, sampleName, withInitials, 'print-qr-target');
+            await drawQr('print-qr-target', encrypted);
+            sendToPrinter();
+        };
+        // All three labels in ONE print job (one 50 x 50 mm page each): Test, Referee, Vendor
+        const printAllLots = async () => {
+            const lots = [[batch.lots.test, "TEST LOT (-T)", false], [batch.lots.referee, "REFEREE LOT (-R)", true], [batch.lots.vendor, "VENDOR LOT (-V)", true]];
+            printContainer.innerHTML = lots.map((l, i) => `<div class="label-page">${labelHtml(l[0], l[1], l[2], 'print-qr-' + i)}</div>`).join('');
+            for (let i = 0; i < lots.length; i++) await drawQr('print-qr-' + i, await encryptPayload(lots[i][0]));
+            sendToPrinter();
+        };
+        const btnAll = document.getElementById('btn-print-lab2-all');
+        if (btnAll) btnAll.onclick = printAllLots;
 
         document.getElementById('btn-print-lab2-test').onclick = () => setupPrint(batch.lots.test, "TEST LOT (-T)");
-        document.getElementById('btn-print-lab2-ref').onclick = () => setupPrint(batch.lots.referee, "REFEREE LOT (-R)");
-        document.getElementById('btn-print-lab2-vend').onclick = () => setupPrint(batch.lots.vendor, "VENDOR LOT (-V)");
+        document.getElementById('btn-print-lab2-ref').onclick = () => setupPrint(batch.lots.referee, "REFEREE LOT (-R)", true);
+        document.getElementById('btn-print-lab2-vend').onclick = () => setupPrint(batch.lots.vendor, "VENDOR LOT (-V)", true);
 
         // Download PNG actions
         document.getElementById('btn-download-lab2-test').onclick = () => downloadQrAsPng(
@@ -5387,15 +5557,15 @@ document.addEventListener('DOMContentLoaded', function() {
         );
         document.getElementById('btn-download-lab2-ref').onclick = () => downloadQrAsPng(
             '#qr-canvas-lab2-ref',
-            `REFEREE_${batchDate}_${gCodeLab2}`,
-            `GROUP: ${gCodeLab2} | REFEREE LOT`,
+            `REFEREE_${initials ? initials + '_' : ''}${batchDate}_${gCodeLab2}`,
+            `${initials ? initials + ' | ' : ''}REFEREE LOT  ${gCodeLab2}`,
             "REFEREE LOT",
             true
         );
         document.getElementById('btn-download-lab2-vend').onclick = () => downloadQrAsPng(
             '#qr-canvas-lab2-vend',
-            `VENDOR_${batchDate}_${gCodeLab2}`,
-            `GROUP: ${gCodeLab2} | VENDOR LOT`,
+            `VENDOR_${initials ? initials + '_' : ''}${batchDate}_${gCodeLab2}`,
+            `${initials ? initials + ' | ' : ''}VENDOR LOT  ${gCodeLab2}`,
             "VENDOR LOT",
             true
         );
@@ -5411,8 +5581,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const entryCard = document.getElementById('lab2-entry-card');
         const alertBox = document.getElementById('lab2-alert');
+        const dup2 = document.getElementById('lab2-duplicate-notice');
         entryCard.style.display = 'none';
         alertBox.style.display = 'none';
+        if (dup2) dup2.style.display = 'none';
 
         try {
             const data = await window.BiomassAPI.getCompositeDetails(barcode);
@@ -5431,15 +5603,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 const submitBtn = form ? form.querySelector('button[type="submit"]') : null;
 
                 if (data.is_tested) {
-                    gcvInput.value = data.gcv_value;
-                    ashInput.value = data.ash_pct;
-                    gcvInput.disabled = true;
-                    ashInput.disabled = true;
-                    if (submitBtn) submitBtn.disabled = true;
-                    
-                    alertBox.textContent = `Error: This report has been locked and submitted at ${data.tested_at}. No further edits are allowed.`;
-                    alertBox.className = 'alert alert-danger';
-                    alertBox.style.display = 'flex';
+                    entryCard.style.display = 'none';
+                    showAlreadySaved('lab2-duplicate-notice', 'GCV and ash', data.tested_at);
+                    return;
                 } else {
                     gcvInput.value = '';
                     ashInput.value = '';

@@ -27,7 +27,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20261016_v17">
+    <link rel="stylesheet" href="style.css?v=20261018_v23">
     <!-- Chart.js for Executive Management Dashboard (version pinned; local copy used if the CDN is unreachable) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script>
@@ -426,6 +426,10 @@
                                     <span id="photo-status" class="badge badge-pending">No Photo Attached</span>
                                 </div>
                             </div>
+                            <label style="display: flex; align-items: center; gap: 0.6rem; margin-top: 0.75rem; font-size: 0.9rem; cursor: pointer;">
+                                <input type="checkbox" id="auto-print-label" style="width: 1.1rem; height: 1.1rem; margin: 0;">
+                                <span>🖨️ Print the label automatically after registering <small style="color: var(--text-muted);">(remembered on this device)</small></span>
+                            </label>
                             <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;">
                                 Register Truck & Generate Barcodes
                             </button>
@@ -474,7 +478,7 @@
                                     <div class="barcode-card-actions">
                                         <span><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg> Label Options</span>
                                         <div style="display: flex; gap: 0.25rem;">
-                                            <button class="btn btn-secondary btn-sm" id="btn-print-s1">Print</button>
+                                            <button class="btn btn-secondary btn-sm" id="btn-print-s1">🖨️ Print label</button>
                                             <button class="btn btn-primary btn-sm" id="btn-download-s1">Download</button>
                                         </div>
                                     </div>
@@ -1014,6 +1018,26 @@
 
             <!-- TAB 5: SYSTEM SETTINGS -->
             <div id="tab-admin-settings" class="tab-content">
+                <div class="card" id="storage-card">
+                    <h3 class="card-title">📦 Photo storage (Supabase Storage)</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+                        Evidence photos are kept in Supabase Storage (free plan: 1 GB). When it gets close to full, the oldest photos can be deleted to make room.
+                        The records stay; only the picture is removed. Photos from the last 60 days and photos of lots with an open referee challenge are never deleted.
+                    </p>
+                    <div style="background: rgba(255,255,255,0.08); border-radius: 8px; height: 18px; overflow: hidden; margin-bottom: 0.5rem;">
+                        <div id="storage-bar" style="height: 100%; width: 0%; background: #10b981; transition: width 0.4s;"></div>
+                    </div>
+                    <div id="storage-status-text" style="font-size: 0.9rem; margin-bottom: 1rem;">Checking...</div>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                        <button type="button" class="btn btn-secondary btn-sm" id="btn-storage-refresh">🔄 Refresh</button>
+                        <button type="button" class="btn btn-primary btn-sm" id="btn-storage-free">🧹 Free up space…</button>
+                    </div>
+                    <label style="display: flex; align-items: flex-start; gap: 0.6rem; font-size: 0.88rem; cursor: pointer;">
+                        <input type="checkbox" id="storage-auto" style="width: 1.1rem; height: 1.1rem; margin: 0.15rem 0 0;">
+                        <span>When I sign in as Admin and storage is <b>above 90%</b>, delete the oldest photos automatically (down to 75%) <small style="color: var(--text-muted);">(this device only)</small></span>
+                    </label>
+                    <div id="storage-result" style="margin-top: 0.75rem; font-size: 0.88rem;"></div>
+                </div>
                 <div class="card">
                     <h3 class="card-title">Database &amp; System Infrastructure Status</h3>
                     <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem;">
@@ -1070,7 +1094,6 @@
                         <thead>
                             <tr>
                                 <th>Date &amp; Time</th>
-                                <th>Supplier Name</th>
                                 <th>Vehicle Number</th>
                                 <th>Challan No.</th>
                                 <th>Gross (kg)</th>
@@ -1082,7 +1105,7 @@
                             </tr>
                         </thead>
                         <tbody id="table-unloading-body">
-                            <tr><td colspan="10" style="text-align: center;">Loading unloading entries...</td></tr>
+                            <tr><td colspan="9" style="text-align: center;">Loading unloading entries...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1108,6 +1131,7 @@
                     </div>
 
                     <!-- Blind Entry Form (Hidden until barcode lookup succeeds) -->
+                    <div id="lab1-duplicate-notice" class="alert alert-danger duplicate-notice" role="alert" style="display: none;"></div>
                     <div class="card" id="lab1-entry-card" style="display: none; margin-bottom: 0;">
                         <div id="lab1-alert" class="alert" style="display: none;"></div>
                         <h3 class="card-title">Blind Test Details</h3>
@@ -1321,7 +1345,10 @@
 
                         <!-- Lab 2 Composite Barcode Output Area (Hidden until generated) -->
                         <div id="lab2-composite-output" style="display: none; margin-top: 1rem; border-top: 1px dashed var(--border-color); padding-top: 1rem;">
-                            <h4 style="font-size: 0.9rem; margin-bottom: 0.75rem; color: var(--primary);">Generated Composite Labels:</h4>
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
+                            <h4 style="font-size: 0.9rem; margin: 0; color: var(--primary);">Generated Composite Labels:</h4>
+                            <button type="button" class="btn btn-primary btn-sm" id="btn-print-lab2-all">🖨️ Print all 3 labels</button>
+                        </div>
                             
                             <div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 0.5rem;">
                                 <!-- Test Lot -->
@@ -1331,7 +1358,7 @@
                                     <div class="composite-code-line" id="lab2-test-code">COMPOSITE CODE: --</div>
                                     <canvas id="qr-canvas-lab2-test"></canvas>
                                     <div style="display: flex; gap: 0.5rem; width: 100%; justify-content: center; margin-top: 0.25rem;">
-                                        <button type="button" class="btn btn-secondary btn-sm" id="btn-print-lab2-test">Print</button>
+                                        <button type="button" class="btn btn-secondary btn-sm" id="btn-print-lab2-test">🖨️ Print</button>
                                         <button type="button" class="btn btn-primary btn-sm" id="btn-download-lab2-test">Download</button>
                                     </div>
                                 </div>
@@ -1342,7 +1369,7 @@
                                     <div class="composite-code-line" id="lab2-ref-code">COMPOSITE CODE: --</div>
                                     <canvas id="qr-canvas-lab2-ref"></canvas>
                                     <div style="display: flex; gap: 0.5rem; width: 100%; justify-content: center; margin-top: 0.25rem;">
-                                        <button type="button" class="btn btn-secondary btn-sm" id="btn-print-lab2-ref">Print</button>
+                                        <button type="button" class="btn btn-secondary btn-sm" id="btn-print-lab2-ref">🖨️ Print</button>
                                         <button type="button" class="btn btn-primary btn-sm" id="btn-download-lab2-ref">Download</button>
                                     </div>
                                 </div>
@@ -1353,7 +1380,7 @@
                                     <div class="composite-code-line" id="lab2-vend-code">COMPOSITE CODE: --</div>
                                     <canvas id="qr-canvas-lab2-vend"></canvas>
                                     <div style="display: flex; gap: 0.5rem; width: 100%; justify-content: center; margin-top: 0.25rem;">
-                                        <button type="button" class="btn btn-secondary btn-sm" id="btn-print-lab2-vend">Print</button>
+                                        <button type="button" class="btn btn-secondary btn-sm" id="btn-print-lab2-vend">🖨️ Print</button>
                                         <button type="button" class="btn btn-primary btn-sm" id="btn-download-lab2-vend">Download</button>
                                     </div>
                                 </div>
@@ -1362,6 +1389,7 @@
                     </div>
 
                     <!-- Blind Entry Form (Hidden until barcode lookup succeeds) -->
+                    <div id="lab2-duplicate-notice" class="alert alert-danger duplicate-notice" role="alert" style="display: none;"></div>
                     <div class="card" id="lab2-entry-card" style="display: none; margin-bottom: 0;">
                         <div id="lab2-alert" class="alert" style="display: none;"></div>
                         <h3 class="card-title">Blind Composite Details</h3>
@@ -1412,7 +1440,9 @@
             </div>
         </section>
 
-    <!-- Hidden Printable Output Container -->
+    </main>
+
+    <!-- Hidden Printable Output Container (a sibling of <main>: the print stylesheet hides <main>, so inside it the labels printed blank) -->
     <div id="print-section" style="display: none;"></div>
 
     <!-- Photo Lightbox Modal (For viewing truck photos) -->
@@ -1450,14 +1480,14 @@
 
     <!-- Moisture-meter reader (trained offline OCR). Small loaders only; the ~8 MB engine in lib/ocr/ is fetched
          on first use. If these fail to load the app simply falls back to manual photo + typing. -->
-    <script src="lib/ocr/moisture-reader-core.js?v=20261016_v17"></script>
-    <script src="lib/ocr/led-weight-reader.js?v=20261016_v17"></script>
-    <script src="lib/ocr/led-templates.js?v=20261016_v17"></script>
-    <script src="moisture-ocr.js?v=20261016_v17"></script>
+    <script src="lib/ocr/moisture-reader-core.js?v=20261018_v23"></script>
+    <script src="lib/ocr/led-weight-reader.js?v=20261018_v23"></script>
+    <script src="lib/ocr/led-templates.js?v=20261018_v23"></script>
+    <script src="moisture-ocr.js?v=20261018_v23"></script>
 
     <!-- App JavaScript files -->
-    <script src="api.js?v=20261016_v17" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261016_v17" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="api.js?v=20261018_v23" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261018_v23" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

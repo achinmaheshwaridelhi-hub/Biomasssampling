@@ -29,6 +29,9 @@
     var CACHE_NAME = 'moisture-ocr-' + OCR_VERSION;
     // Below this the reader's own confidence is too low to trust; app.js will not let it be accepted.
     var MIN_CONFIDENCE = 60;
+    // Weights get a stricter bar: on the first fully unseen test set the one wrong weight that slipped through scored 72, while the
+    // correct ones scored 77-96. A weight reading below this is shown as 'not sure' (retake) instead of being offered for acceptance.
+    var WEIGHT_MIN_CONFIDENCE = 75;
 
     var enginePromise = null;
 
@@ -115,7 +118,7 @@
                     // Only if the photo has no red LED display at all do we try the general (slower) reader from meter-reader.html.
                     if (window.LedWeightReader) {
                         var led = window.LedWeightReader.read(loaded.img, dec);
-                        if (led.found) return led.value ? { value: led.value, conf: led.conf, meter: led.meter, crop: led.crop } : null;
+                        if (led.found) return led.value ? { value: led.value, conf: led.conf >= WEIGHT_MIN_CONFIDENCE ? led.conf : Math.min(led.conf, MIN_CONFIDENCE - 1), meter: led.meter, crop: led.crop } : null;
                     }
                     // No red LED display found (e.g. a far-away photo): the general reader is a last resort and its answer is
                     // never trusted enough to accept - the cap keeps it below MIN_CONFIDENCE so the operator is asked to retake.

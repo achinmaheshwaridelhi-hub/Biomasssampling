@@ -27,6 +27,12 @@
     const MOISTURE_REJECT_LIMIT = 14;      // >= 14.000 % is REJECTED (the database enforces the same rule)
     const NETWORK_TIMEOUT_MS = 25000;
     const SESSION_KEY = 'BIOMASS_AUTH';
+    // Evidence photos (gate / meter / scale) go to a PRIVATE Supabase Storage bucket instead of being stored as ~100 KB of
+    // base64 text inside the database; the database keeps only the short path 'ev/<name>'. Set to false to go back to the old
+    // way (photo inside the record). If an upload fails for any reason the photo is saved the old way, so work never stops.
+    const STORE_PHOTOS_IN_STORAGE = true;
+    const EVIDENCE_BUCKET = 'evidence';
+    const STORAGE_LIMIT_BYTES = 1024 * 1024 * 1024;      // Supabase free plan: 1 GB of Storage
 
     const REST = `${SUPABASE_URL}/rest/v1`;
 
@@ -148,6 +154,29 @@
         return data;
     }
 
+    /** Upload one photo (a data: URL) to Storage and return its 'ev/<name>' path; on any failure return the data URL unchanged. */
+    async function uploadEvidence(dataUrl) {
+        if (!STORE_PHOTOS_IN_STORAGE || typeof dataUrl !== 'string' || !/^data:image\//.test(dataUrl)) return dataUrl;
+        try {
+            const blob = await (await _nativeFetch(dataUrl)).blob();
+            const token = await getToken();
+            const d = new Date();
+            const rnd = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
+            const ext = /png/.test(blob.type) ? 'png' : (/webp/.test(blob.type) ? 'webp' : 'jpg');
+            const name = `${d.getUTCFullYear()}/${pad2(d.getUTCMonth() + 1)}/${rnd}.${ext}`;
+            const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${EVIDENCE_BUCKET}/${name}`, {
+                method: 'POST',
+                headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${token}`, 'Content-Type': blob.type || 'image/jpeg', 'x-upsert': 'false', 'cache-control': 'max-age=31536000' },
+                body: blob
+            });
+            if (!res.ok) throw new Error('Storage upload refused (HTTP ' + res.status + ')');
+            return 'ev/' + name;
+        } catch (e) {
+            console.warn('Photo could not be uploaded to Storage; it is saved with the record instead:', e);
+            return dataUrl;
+        }
+    }
+
     // Client-side brake on password guessing (the real limit is Supabase Auth's server-side rate limit).
     let _failCount = 0, _lockedUntil = 0;
 
@@ -247,7 +276,11 @@
         async getCompaniesDetailed() { return (await rpc('bm_list_companies', {})) || []; },
 
         // --- GATE ENTRY --------------------------------------------------------
-        async registerTruck(truckData) { return rpc('bm_register_truck', truckData || {}); },
+        async registerTruck(truckData) {
+            const d = Object.assign({}, truckData || {});
+            if (d.photo_url) d.photo_url = await uploadEvidence(d.photo_url);
+            return rpc('bm_register_truck', d);
+        },
         async checkDuplicateVehicle(reg) { return rpc('bm_check_duplicate_vehicle', { truck_reg_number: reg }); },
 
         async getTrucks(dateFilter) { return (await rpc('bm_get_trucks', trucksPayload(dateFilter))) || []; },
@@ -271,6 +304,9 @@
                 p.fineness_final_photo = extra.fineness_final_photo || '';
             }
             if (extra.override_reason) p.override_reason = extra.override_reason;    // admin only (server checks)
+            for (const k of ['moisture_photo', 'fineness_initial_photo', 'fineness_final_photo']) {
+                if (p[k]) p[k] = await uploadEvidence(p[k]);
+            }
             return rpc('bm_submit_lab1_result', p);       // fineness % is computed by the server from the two weights
         },
 
@@ -439,7 +475,56 @@
         async inspectBarcode(code) { return rpc('bm_admin_inspect', { code: String(code || '').trim() }); },
 
         /** Evidence photos are NOT bulk-loaded. kind: truck | moisture | fineness_initial | fineness_final. Admin only. */
-        async getEvidencePhoto(kind, id) { const r = await rpc('bm_admin_photo', { kind, id }); return r ? r.photo : null; },
+        async getEvidencePhoto(kind, id) {
+            const r = await rpc('bm_admin_photo', { kind, id });
+            const v = r ? r.photo : null;
+            if (v && String(v).startsWith('purged:')) throw new Error('This photo was deleted on ' + String(v).slice(7) + ' to free storage space (the record itself is unchanged).');
+            if (!v || !String(v).startsWith('ev/')) return v;            // empty, or an older photo stored inside the record
+            const token = await getToken();
+            const res = await fetch(`${SUPABASE_URL}/storage/v1/object/authenticated/${EVIDENCE_BUCKET}/${String(v).slice(3)}`,
+                                    { headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${token}` } });
+            if (!res.ok) throw new Error('The photo file could not be loaded from Storage (HTTP ' + res.status + ').');
+            return URL.createObjectURL(await res.blob());
+        },
+
+        // --- STORAGE SPACE (Admin): keep the photo bucket under its limit ---------------------------------
+        async getStorageStatus() { const s = await rpc('bm_admin_storage_status', {}); return Object.assign({ limit: STORAGE_LIMIT_BYTES }, s); },
+
+        /** Which of the OLDEST photos would have to go to bring usage down to targetPercent of the limit?
+         *  Never touches photos newer than keepDays or those of a lot with an open referee challenge (the database decides that). */
+        async planPhotoCleanup(opts) {
+            const o = Object.assign({ targetPercent: 75, keepDays: 60 }, opts || {});
+            const st = await this.getStorageStatus();
+            const need = st.bytes - st.limit * o.targetPercent / 100;
+            if (need <= 0) return { status: st, items: [], freeBytes: 0, need: 0, enough: true, keepDays: o.keepDays, targetPercent: o.targetPercent };
+            const cand = (await rpc('bm_admin_photo_purge_candidates', { keep_days: o.keepDays, limit: 50000 })) || [];
+            const items = []; let free = 0;
+            for (const c of cand) { if (free >= need) break; items.push(c); free += Number(c.bytes) || 0; }
+            return { status: st, items, freeBytes: free, need, enough: free >= need, keepDays: o.keepDays, targetPercent: o.targetPercent };
+        },
+
+        /** Delete the planned photos: file first, then the record is marked 'purged:<date>' (the database refuses to mark a file that still exists). */
+        async runPhotoCleanup(items, onProgress) {
+            let done = 0, failed = 0, freed = 0;
+            for (let i = 0; i < items.length; i++) {
+                const it = items[i];
+                try {
+                    const token = await getToken();
+                    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${EVIDENCE_BUCKET}/${String(it.path).slice(3)}`,
+                                            { method: 'DELETE', headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${token}` } });
+                    if (!res.ok && res.status !== 404) throw new Error('Storage refused the delete (HTTP ' + res.status + ')');
+                    await rpc('bm_admin_mark_photo_purged', { kind: it.kind, id: it.id, path: it.path });
+                    done++; freed += Number(it.bytes) || 0;
+                } catch (e) { failed++; console.warn('Could not remove photo', it.path, e); }
+                if (onProgress) onProgress(i + 1, items.length);
+            }
+            if (done) {
+                try {
+                    await rpc('bm_log_activity', { action: 'PHOTOS_PURGED', details: `${done} old photo(s) deleted to free about ${(freed / 1048576).toFixed(1)} MB of storage (oldest ${String(items[0].created).slice(0, 10)}). Not removed: ${failed}.` });
+                } catch (e) { /* the log line is a courtesy; the cleanup itself already happened */ }
+            }
+            return { done, failed, freed };
+        },
 
         // --- AUDIT LOG ----------------------------------------------------------------
         async logActivity(actionName, detailsText) {

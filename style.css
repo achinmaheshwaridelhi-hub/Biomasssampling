@@ -1011,8 +1011,8 @@ tr:hover td {
     }
 
     .print-label-50mm canvas, .print-label-50mm img {
-        width: 42mm !important;
-        height: 42mm !important;
+        width: 34mm !important;
+        height: 34mm !important;
         image-rendering: pixelated;
         display: block !important;
         margin: 0 auto !important;
@@ -1549,4 +1549,39 @@ header { padding-top: calc(0.75rem + env(safe-area-inset-top)); }
 .fineness-result strong {
     font-size: 1.35rem;
     color: var(--primary);
+}
+
+/* Shown instead of the entry form when a scanned QR already has its result saved */
+.duplicate-notice {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+    font-size: 1rem;
+    border-width: 2px;
+    background-color: rgba(239, 68, 68, 0.14);
+    color: #fca5a5;
+    margin-bottom: 1rem;
+}
+.duplicate-notice strong { font-size: 1.15rem; color: #f87171; }
+
+/* Vendor / Referee label carries an extra line (supplier initials): a slightly smaller QR keeps it inside the 50mm label */
+@media print {
+    .print-label-50mm.label-with-initials canvas { width: 30mm !important; height: 30mm !important; }
+}
+
+/* The Print buttons on the WHITE label cards were light-on-white (invisible): give them dark text and a visible border */
+#btn-print-s1, #btn-admin-lookup-print, #btn-print-lab2-test, #btn-print-lab2-ref, #btn-print-lab2-vend {
+    color: #111827;
+    background-color: #f3f4f6;
+    border: 1px solid #9ca3af;
+}
+#btn-print-s1:hover, #btn-admin-lookup-print:hover, #btn-print-lab2-test:hover, #btn-print-lab2-ref:hover, #btn-print-lab2-vend:hover {
+    background-color: #e5e7eb;
+    border-color: #6b7280;
+}
+
+/* "Print all 3 labels": one 50 x 50 mm page per label */
+@media print {
+    .label-page { height: 50mm; overflow: hidden; page-break-after: always; break-after: page; }
+    .label-page:last-child { page-break-after: auto; break-after: auto; }
 }

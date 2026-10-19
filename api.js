@@ -322,12 +322,19 @@
         async getUnloadingStatus(code) { return rpc('bm_get_unloading_status', { code: String(code || '').trim() }); },
 
         // --- LAB 2 (blind composite) ---------------------------------------------
-        async scanSampleForLab2(barcodeId) { return rpc('bm_lab2_scan_sample', { barcode: String(barcodeId || '').trim() }); },
-        async getLab2MixingGroupsStatus(date) { return rpc('bm_lab2_mixing_groups', { date: date || null }); },
-        /** Atomic, server-verified: every accepted container of the group must be in `scannedBarcodes`. */
-        async createCompositeBatchForGroup(date, groupCode, scannedBarcodes) {
-            return rpc('bm_lab2_create_composite', { date: date || null, group_code: groupCode, scanned: scannedBarcodes || [] });
+        async scanSampleForLab2(barcodeId) { return rpc('bm_lab2_scan_sample', { barcode: String(barcodeId || '').trim() }); }, // Admin only now
+        /** Mixing groups for a date range (default today) + optional search by mixing code / composite reference. */
+        async getLab2MixingGroupsStatus(from, to, q) { return rpc('bm_lab2_mixing_groups', { from: from || null, to: to || from || null, q: q || '' }); },
+        /** Atomic and server-verified: every accepted container of the group must already be scanned in the Fineness login. */
+        async createCompositeBatchForGroup(date, groupCode) {
+            return rpc('bm_lab2_create_composite', { date: date || null, group_code: groupCode });
         },
+        // --- Fineness login: mixing scan + cross-check summary; Admin: reset one group's scans ---
+        async mixingScan(barcodeId) { return rpc('bm_mixing_scan', { barcode: String(barcodeId || '').trim() }); },
+        async getMixingScanSummary(date) { return rpc('bm_mixing_scan_summary', { date: date || null }); },
+        async resetMixingScans(date, groupCode) { return rpc('bm_admin_reset_group_scans', { date, group_code: groupCode }); },
+        /** Unloading / Admin day report: every truck of `date` (default today) with vendor, weights and results. Today's opens from 9 PM. */
+        async getDayReport(date) { return rpc('bm_unloading_day_report', { date: date || null }); },
         async getCompositeBatchByGroupCode(groupCode, date) { return rpc('bm_lab2_get_batch', { group_code: groupCode, date: date || null }); },
         async getCompositeDetails(code) { return rpc('bm_get_composite_details', { code }); },
         async submitCompositeResult(code, gcv, ash, overrideReason) {

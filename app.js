@@ -1027,6 +1027,164 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // ================= FINENESS LOGIN: MIXING SCAN (segregation for the composite) =================
+    // The fineness technician scans each Sample-1 container being sorted for mixing. The answer is only the Mixing Code and
+    // INCLUDE / EXCLUDE (no moisture value, no supplier). Scans are stored in the database; Lab 2 can generate the composite
+    // only when every accepted container of a mixing code has been scanned here. A container cannot be scanned twice, and
+    // only an Admin can reset a group's scans.
+    const mixScan = { last: null };
+
+    function fmtMixTime(t) { return esc(t || ''); }
+
+    function initMixScanCard() {
+        const card = document.getElementById('mixscan-card');
+        if (!card) return;
+        const u = window.BiomassAPI.getCurrentUser();
+        const on = !!u && u.role === 'lab1f';
+        card.style.display = on ? '' : 'none';
+        if (!on) return;
+
+        const dateEl = document.getElementById('mixscan-date');
+        const input = document.getElementById('mixscan-manual-input');
+        dateEl.value = window.BiomassAPI.todayIST();
+        const feedback = document.getElementById('mixscan-feedback');
+        feedback.style.display = 'none';
+
+        setupSnapOnlyScanner({
+            triggerId: 'mixscan-trigger',
+            readerId: 'mixscan-qr-reader',
+            onDecode: async function(decodedText) { await handleMixScan(decodedText); }
+        });
+        const submitManual = () => { const v = input.value.trim(); if (v) { input.value = ''; handleMixScan(v); } };
+        document.getElementById('btn-mixscan-manual').onclick = submitManual;
+        input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); submitManual(); } };
+        dateEl.onchange = () => renderMixScanSummary();
+        document.getElementById('btn-mixscan-refresh').onclick = () => renderMixScanSummary();
+        document.getElementById('btn-mixscan-print').onclick = printMixScanSummary;
+        renderMixScanSummary();
+    }
+
+    function showMixFeedback(kind, html) {
+        const box = document.getElementById('mixscan-feedback');
+        if (!box) return;
+        const colors = {
+            include: ['rgba(16,185,129,0.2)', '#10b981', '#bbf7d0'],
+            exclude: ['rgba(239,68,68,0.2)', '#ef4444', '#fecaca'],
+            dup:     ['rgba(245,158,11,0.2)', '#f59e0b', '#fde68a'],
+            error:   ['rgba(239,68,68,0.2)', '#ef4444', '#fecaca']
+        }[kind];
+        box.style.display = 'block';
+        box.style.background = colors[0];
+        box.style.border = '2px solid ' + colors[1];
+        box.style.color = colors[2];
+        box.innerHTML = html;
+    }
+
+    async function handleMixScan(code) {
+        if (!code) return;
+        try {
+            const plainId = await processScannedCode(code);
+            const res = await window.BiomassAPI.mixingScan(plainId);
+            if (!res || !res.success) {
+                showMixFeedback('error', `<div style="font-weight:800;">⚠️ ${esc((res && res.message) || 'Scan could not be recorded')}</div>` +
+                    (res && res.daily_group_code ? `<div>Mixing Code: <span class="scan-group-code-pill">${esc(res.daily_group_code)}</span></div>` : ''));
+                return;
+            }
+            const pr = res.progress || {};
+            const pill = `<span class="scan-group-code-pill" style="font-size:1.35rem;">${esc(res.daily_group_code)}</span>`;
+            const prog = `<div style="margin-top:0.4rem; font-size:0.88rem;">Accepted containers of <strong>${esc(res.daily_group_code)}</strong> scanned: <strong>${esc(pr.accepted_scanned)} / ${esc(pr.accepted_total)}</strong>` +
+                (pr.accepted_total > 0 && pr.accepted_scanned >= pr.accepted_total ? ' &mdash; <strong>all done, Lab 2 can now generate this composite ✅</strong>' : '') + '</div>';
+            if (res.duplicate) {
+                showMixFeedback('dup', `<div style="font-weight:800; font-size:1.1rem;">⚠️ ALREADY SCANNED at ${fmtMixTime(res.scanned_time)}</div>` +
+                    `<div>${esc(res.sample1_barcode_id)} &rarr; Mixing Code ${pill} &mdash; <strong>${res.include ? 'INCLUDE' : 'EXCLUDE'}</strong>. This scan was not counted again.</div>${prog}`);
+                alert(`⚠️ This container (${res.sample1_barcode_id}) was already scanned at ${res.scanned_time}.`);
+            } else if (res.include) {
+                showMixFeedback('include', `<div style="font-weight:800; font-size:1.25rem;">✅ INCLUDE in the mix</div>` +
+                    `<div style="margin-top:0.25rem;">Mixing Code: ${pill}</div>` +
+                    `<div style="font-size:0.85rem;">${esc(res.sample1_barcode_id)} &bull; scanned ${fmtMixTime(res.scanned_time)}</div>${prog}`);
+            } else {
+                showMixFeedback('exclude', `<div style="font-weight:800; font-size:1.25rem;">⛔ EXCLUDE &mdash; set this container aside</div>` +
+                    `<div style="margin-top:0.25rem;">Mixing Code: ${pill}</div>` +
+                    `<div style="font-size:0.85rem;">${esc(res.sample1_barcode_id)} &bull; scanned ${fmtMixTime(res.scanned_time)} &bull; <strong>Do NOT add it to the mixture.</strong></div>`);
+            }
+            const dateEl = document.getElementById('mixscan-date');
+            if (dateEl && res.entry_date) dateEl.value = res.entry_date;     // show the day this container belongs to
+            await renderMixScanSummary();
+        } catch (err) {
+            showMixFeedback('error', `<div style="font-weight:800;">⚠️ ${esc(err.message || err)}</div>`);
+        }
+    }
+
+    async function renderMixScanSummary() {
+        const box = document.getElementById('mixscan-summary');
+        if (!box) return;
+        const dateEl = document.getElementById('mixscan-date');
+        const date = (dateEl && dateEl.value) || window.BiomassAPI.todayIST();
+        try {
+            const res = await window.BiomassAPI.getMixingScanSummary(date);
+            mixScan.last = res;
+            const groups = (res && res.groups) || [];
+            if (!groups.length) { box.innerHTML = `<div style="color:#94a3b8; font-style:italic; padding:0.5rem;">No samples registered for ${esc(date)}.</div>`; return; }
+            box.innerHTML = groups.slice().sort((a, b) => (a.composite_generated ? 1 : 0) - (b.composite_generated ? 1 : 0)).map(g => {  // open groups first
+                const complete = g.accepted_total > 0 && g.accepted_scanned >= g.accepted_total;
+                const badge = g.composite_generated ? '<span class="badge badge-success">COMPOSITE GENERATED</span>'
+                    : g.pending_total > 0 ? `<span class="badge badge-pending">${esc(g.pending_total)} awaiting Lab 1</span>`
+                    : g.accepted_total === 0 ? '<span class="badge badge-pending">nothing to mix</span>'
+                    : complete ? '<span class="badge badge-success">ALL SCANNED</span>' : '<span class="badge badge-pending">IN PROGRESS</span>';
+                const rows = g.scanned.map(x => `<tr><td>${esc(x.id)}</td><td style="font-weight:700; color:${x.include ? '#10b981' : '#ef4444'};">${x.include ? 'INCLUDE' : 'EXCLUDE'}</td><td>${esc(x.time)}</td></tr>`).join('');
+                const toScan = g.to_scan.length ? `<div style="margin-top:0.4rem; font-size:0.9rem; color:#fde68a;">⏳ Still to scan: <strong>${g.to_scan.length}</strong> truck${g.to_scan.length > 1 ? 's' : ''}</div>` : '';
+                const aside = g.rejected_to_set_aside.length ? `<div style="margin-top:0.3rem; font-size:0.9rem; color:#fca5a5;">⛔ Rejected, not scanned yet: <strong>${g.rejected_to_set_aside.length}</strong> truck${g.rejected_to_set_aside.length > 1 ? 's' : ''} - keep out of the mix</div>` : '';
+                return `<div style="border:1px solid var(--border-color); border-radius:8px; padding:0.6rem 0.75rem; margin-bottom:0.6rem; background:rgba(15,23,42,0.6);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                        <div><span class="group-code-badge">${esc(g.group_code)}</span>
+                        <span style="font-size:0.82rem; color:#cbd5e1; margin-left:0.4rem;">Include: <strong>${esc(g.accepted_scanned)}/${esc(g.accepted_total)}</strong> &nbsp; Excluded: <strong>${esc(g.rejected_scanned)}/${esc(g.rejected_total)}</strong></span></div>
+                        ${badge}
+                    </div>
+                    ${g.scanned.length ? `<div class="table-responsive" style="margin-top:0.4rem;"><table style="min-width:0; width:100%; font-size:0.82rem;"><thead><tr><th>Container</th><th>Action</th><th>Scanned at</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div style="font-size:0.82rem; color:#94a3b8; margin-top:0.3rem;">Nothing scanned yet.</div>'}
+                    ${toScan}${aside}
+                </div>`;
+            }).join('');
+        } catch (err) {
+            box.innerHTML = `<div style="color:#ef4444; padding:0.5rem;">Could not load the summary: ${esc(err.message)}</div>`;
+        }
+    }
+
+    function printMixScanSummary() {
+        const res = mixScan.last;
+        if (!res || !res.groups || !res.groups.length) { alert('There is nothing to print yet.'); return; }
+        const body = `<h2 style="margin:0 0 4px 0;">Mixing scan summary</h2><div style="margin-bottom:10px;">Date: <b>${esc(res.date)}</b> &nbsp; Printed: ${esc(new Date().toLocaleString())}</div>` +
+            res.groups.map(g => `
+                <h3 style="margin:14px 0 4px 0;">Mixing Code ${esc(g.group_code)} &nbsp; <span style="font-weight:400; font-size:10pt;">Include scanned ${esc(g.accepted_scanned)}/${esc(g.accepted_total)} &bull; Excluded scanned ${esc(g.rejected_scanned)}/${esc(g.rejected_total)}${g.composite_generated ? ' &bull; composite generated' : ''}</span></h3>
+                <table border="1" cellpadding="4" style="font-size:10pt;"><thead><tr><th align="left">Container</th><th align="left">Action</th><th align="left">Scanned at</th></tr></thead><tbody>
+                ${g.scanned.map(x => `<tr><td>${esc(x.id)}</td><td><b>${x.include ? 'INCLUDE' : 'EXCLUDE'}</b></td><td>${esc(x.time)}</td></tr>`).join('') || '<tr><td colspan="3">Nothing scanned</td></tr>'}
+                </tbody></table>
+                ${g.to_scan.length ? `<div style="margin-top:4px;"><b>Still to scan:</b> ${g.to_scan.length} truck(s)</div>` : ''}
+                ${g.rejected_to_set_aside.length ? `<div style="margin-top:2px;"><b>Rejected, not scanned yet (keep out of the mix):</b> ${g.rejected_to_set_aside.length} truck(s)</div>` : ''}`).join('');
+        printDocumentInFrame({ title: `Mixing_scan_summary_${compactDate(res.date)}`, bodyHtml: body });
+    }
+
+    // Admin > Settings: reset the scans of one mixing code (only possible before its composite is generated)
+    function initMixResetCard() {
+        const btn = document.getElementById('btn-mixreset');
+        if (!btn) return;
+        const dateEl = document.getElementById('mixreset-date'), codeEl = document.getElementById('mixreset-code'), out = document.getElementById('mixreset-result');
+        if (!dateEl.value) dateEl.value = window.BiomassAPI.todayIST();
+        btn.onclick = async function () {
+            const date = dateEl.value, code = codeEl.value.trim().toUpperCase();
+            out.textContent = '';
+            if (!date || !code) { out.textContent = 'Choose the date and type the mixing code.'; return; }
+            if (!confirm(`Reset ALL mixing scans of Mixing Code [${code}] on ${date}?\n\nThe fineness technician will have to scan those containers again before Lab 2 can generate the composite.`)) return;
+            btn.disabled = true;
+            try {
+                const r = await window.BiomassAPI.resetMixingScans(date, code);
+                out.textContent = `✅ ${r.removed} scan(s) removed for ${code} (${date}).`;
+                codeEl.value = '';
+            } catch (e) {
+                out.textContent = '⚠️ ' + e.message;
+            } finally { btn.disabled = false; }
+        };
+    }
+
     function setupLab2CameraScanner() {
         setupSnapOnlyScanner({
             triggerId: 'lab2-scan-trigger',
@@ -1056,7 +1214,125 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
     // ================= AFTER WEIGHMENT / UNLOADING AREA =================
+    // ================= UNLOADING: DAILY REPORT (screen + Excel) =================
+    const dayReport = { data: null };
+
+    function initDayReportCard() {
+        const dateEl = document.getElementById('dayreport-date');
+        if (!dateEl) return;
+        const today = window.BiomassAPI.todayIST();
+        const shift = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+        dateEl.max = today;
+        if (!dateEl.value) dateEl.value = today;
+        document.getElementById('btn-dayreport-generate').onclick = () => loadDayReport();
+        document.getElementById('btn-dayreport-today').onclick = () => { dateEl.value = window.BiomassAPI.todayIST(); loadDayReport(); };
+        document.getElementById('btn-dayreport-yesterday').onclick = () => { dateEl.value = shift(window.BiomassAPI.todayIST(), -1); loadDayReport(); };
+        document.getElementById('btn-dayreport-excel').onclick = downloadDayReportExcel;
+        dateEl.onchange = () => { dayReport.data = null; document.getElementById('dayreport-table-wrap').style.display = 'none'; document.getElementById('btn-dayreport-excel').style.display = 'none'; document.getElementById('dayreport-note').textContent = ''; };
+    }
+
+    const dr = (v, d) => (v === null || v === undefined || v === '') ? null : Number(v).toFixed(d);
+
+    async function loadDayReport() {
+        const note = document.getElementById('dayreport-note'), wrap = document.getElementById('dayreport-table-wrap'), body = document.getElementById('dayreport-body');
+        const xl = document.getElementById('btn-dayreport-excel');
+        const date = document.getElementById('dayreport-date').value || window.BiomassAPI.todayIST();
+        note.style.color = ''; note.textContent = 'Loading...';
+        wrap.style.display = 'none'; xl.style.display = 'none'; dayReport.data = null;
+        try {
+            const res = await window.BiomassAPI.getDayReport(date);
+            dayReport.data = res;
+            const rows = res.rows || [];
+            if (!rows.length) { note.textContent = `No trucks were registered on ${res.date}.`; return; }
+            const accepted = rows.filter(r => r.acceptance_status === 'ACCEPTED').length, rejected = rows.filter(r => r.acceptance_status === 'REJECTED').length;
+            const netKg = rows.reduce((a, r) => a + (Number(r.net_weight) || 0), 0);
+            note.innerHTML = `<strong>${esc(res.date)}</strong> &bull; ${rows.length} truck(s) &bull; ${accepted} accepted / ${rejected} rejected &bull; total net weight <strong>${(netKg / 1000).toFixed(3)} MT</strong>` +
+                ` <span style="color:#94a3b8;">(generated ${esc(res.generated_at)} IST)</span>`;
+            body.innerHTML = rows.map((r, i) => {
+                const rej = r.acceptance_status === 'REJECTED';
+                const cell = (v, d) => rej && (v === null || v === undefined) ? '<span style="color:#ef4444;">N/A</span>' : (dr(v, d) !== null ? dr(v, d) : '<span style="color:#f59e0b;">Pending</span>');
+                const wt = v => Number(v) > 0 ? Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '<span style="color:#f59e0b;">-</span>';
+                return `<tr${rej ? ' style="background:rgba(239,68,68,0.08);"' : ''}><td>${i + 1}</td><td><strong>${esc(r.truck_reg_number)}</strong></td><td>${esc(r.company_name)}</td>` +
+                    `<td>${wt(r.gross_weight)}</td><td>${wt(r.tare_weight)}</td><td>${wt(r.net_weight)}</td>` +
+                    `<td>${cell(r.moisture_pct, 2)}</td><td>${cell(r.gcv, 0)}</td><td>${cell(r.fineness_value, 2)}</td><td>${cell(r.ash, 2)}</td>` +
+                    `<td style="font-weight:700; color:${rej ? '#ef4444' : r.acceptance_status === 'ACCEPTED' ? '#10b981' : '#f59e0b'};">${esc(r.acceptance_status)}</td></tr>`;
+            }).join('');
+            wrap.style.display = ''; xl.style.display = '';
+        } catch (err) {
+            note.style.color = '#f59e0b';
+            note.textContent = '⏰ ' + err.message;
+        }
+    }
+
+    async function downloadDayReportExcel() {
+        const res = dayReport.data;
+        if (!res || !(res.rows || []).length) { alert('Generate the report first.'); return; }
+        if (typeof ExcelJS === 'undefined') { alert('Excel export library failed to load. Please check your internet connection and try again.'); return; }
+        const rows = res.rows;
+        const cols = [['S.No.', 7], ['Truck No.', 15], ['Vendor', 28], ['Gross Wt (kg)', 14], ['Tare Wt (kg)', 14], ['Net Wt (kg)', 14], ['Net Wt (MT)', 12],
+                      ['Moisture %', 11], ['GCV (kcal/kg)', 14], ['Fineness %', 11], ['Ash %', 9], ['Result', 12]];
+        const wb = new ExcelJS.Workbook();
+        wb.creator = 'BiomassBlind'; wb.created = new Date();
+        const sheet = wb.addWorksheet('Day Report', { views: [{ state: 'frozen', ySplit: 4 }] });
+        const border = st => ({ top: { style: st }, left: { style: st }, bottom: { style: st }, right: { style: st } });
+        const band = (row, argb) => { for (let c = 1; c <= cols.length; c++) sheet.getCell(row, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } }; };
+        sheet.mergeCells(1, 1, 1, cols.length);
+        Object.assign(sheet.getCell(1, 1), { value: `Biomass Procurement — Daily Report for ${res.date}` });
+        sheet.getCell(1, 1).font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } };
+        sheet.getCell(1, 1).alignment = { vertical: 'middle', horizontal: 'center' };
+        sheet.getRow(1).height = 28; band(1, 'FF059669');
+        sheet.mergeCells(2, 1, 2, cols.length);
+        sheet.getCell(2, 1).value = `Trucks: ${rows.length}    |    Generated: ${res.generated_at} IST`;
+        sheet.getCell(2, 1).font = { italic: true, size: 10, color: { argb: 'FF374151' } };
+        sheet.getCell(2, 1).alignment = { vertical: 'middle', horizontal: 'center' };
+        band(2, 'FFE5E7EB'); sheet.getRow(3).height = 6;
+        cols.forEach(([h, w], i) => {
+            const c = sheet.getCell(4, i + 1);
+            c.value = h; c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+            c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF111827' } };
+            c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }; c.border = border('thin');
+            sheet.getColumn(i + 1).width = w;
+        });
+        sheet.getRow(4).height = 24;
+        const num = v => (v === null || v === undefined || v === '') ? null : Number(v);
+        let r = 5;
+        rows.forEach((x, i) => {
+            const rej = x.acceptance_status === 'REJECTED';
+            const na = rej ? 'N/A (REJECTED)' : 'Pending';
+            const w = v => Number(v) > 0 ? Number(v) : '-';
+            const vals = [i + 1, x.truck_reg_number, x.company_name, w(x.gross_weight), w(x.tare_weight), w(x.net_weight),
+                          Number(x.net_weight) > 0 ? Number((Number(x.net_weight) / 1000).toFixed(3)) : '-',
+                          num(x.moisture_pct) ?? na, num(x.gcv) ?? na, num(x.fineness_value) ?? na, num(x.ash) ?? na, x.acceptance_status];
+            vals.forEach((v, k) => {
+                const c = sheet.getCell(r, k + 1);
+                c.value = v; c.border = border('hair');
+                c.alignment = { vertical: 'middle', horizontal: (k === 1 || k === 2) ? 'left' : 'center' };
+                if (typeof v === 'number' && k >= 3 && k <= 5) c.numFmt = '#,##0.###';
+                if (rej) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+                else if (r % 2 === 0) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
+            });
+            r++;
+        });
+        sheet.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: cols.length } };
+        r += 1;
+        const acc = rows.filter(x => x.acceptance_status === 'ACCEPTED'), rej = rows.filter(x => x.acceptance_status === 'REJECTED');
+        const totalKg = rows.reduce((a, x) => a + (Number(x.net_weight) || 0), 0);
+        [['Total trucks', rows.length], ['Accepted / Rejected', `${acc.length} / ${rej.length}`],
+         ['Total net weight (kg)', Number(totalKg.toFixed(3))], ['Total net weight (MT)', Number((totalKg / 1000).toFixed(3))]].forEach(([label, val]) => {
+            sheet.getCell(r, 2).value = label; sheet.getCell(r, 2).font = { bold: true };
+            sheet.getCell(r, 3).value = val; sheet.getCell(r, 3).alignment = { horizontal: 'left' };
+            r++;
+        });
+        const buffer = await wb.xlsx.writeBuffer();
+        const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+        const link = document.createElement('a');
+        link.href = url; link.download = `Daily_Report_${compactDate(res.date)}.xlsx`;
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }
+
     function initUnloadingScreen() {
+        initDayReportCard();
         setupUnloadingCameraScanner();
         renderUnloadingLog();
 
@@ -1476,6 +1752,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 renderActivityLogTab();
             } else if (targetContentId === 'tab-admin-settings') {
                 initStorageCard();
+                initMixResetCard();
             }
         }
 
@@ -2344,9 +2621,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const filtered = trucks.filter(t => {
                 const id = String(t.truck_id || '').toLowerCase();
-                const comp = String(t.company_name || '').toLowerCase();
                 const reg = String(t.truck_reg_number || '').toLowerCase();
-                const matchesSearch = id.includes(filter) || comp.includes(filter) || reg.includes(filter);
+                // Search is by truck id / vehicle number only: the supplier is not shown in this table, so it must not filter it either
+                const matchesSearch = id.includes(filter) || reg.includes(filter);
 
                 const hasTareWeight = t.tare_weight !== null && t.tare_weight !== undefined && t.tare_weight !== '' && Number(t.tare_weight) > 0;
                 // If filter is 'all', show completed as well; otherwise show pending
@@ -4879,6 +5156,7 @@ document.addEventListener('DOMContentLoaded', function() {
         resetFinenessModule();
         renderLab1History();
         setupLab1CameraScanner();
+        initMixScanCard();
     }
 
     // While a 50mm label is printed, ask the browser for a 50 x 50 mm page (removed again afterwards) so the thermal
@@ -5160,11 +5438,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
     // ================= LAB 2 STATION 2 CONTROLLER (BLIND Composite GCV & Ash) =================
+    // Mixing scans are done in the FINENESS login (see the mixscan code in the Lab-1 section). Here Lab 2 only
+    // generates (once) and reprints the composite labels, for any date range / mixing code.
     const lab2State = {
-        scannedSamples: new Set(),
-        // Always "today in India" — recomputed on every use, so it is right after midnight and independent of the
+        // Always "today in India" - recomputed on every use, so it is right after midnight and independent of the
         // device's time zone (the old UTC-based value was yesterday between 00:00 and 05:30 IST).
-        get activeDate() { return window.BiomassAPI.todayIST(); }
+        get today() { return window.BiomassAPI.todayIST(); },
+        groups: []
     };
 
     function initLab2Screen() {
@@ -5174,287 +5454,160 @@ document.addEventListener('DOMContentLoaded', function() {
         if (compositeOutput) compositeOutput.style.display = 'none';
         renderLab2History();
         setupLab2CameraScanner();
-        setupLab2ScanWorkflow();
+        setupLab2Filter();
         renderLab2MixingGroups();
-    }
-
-    function setupLab2ScanWorkflow() {
-        const btnScan = document.getElementById('btn-lab2-scan-sample');
-        const inputManual = document.getElementById('lab2-sample-manual-input');
-        const btnManual = document.getElementById('btn-lab2-sample-manual-submit');
-
-        // Hidden capture file input for sample camera snaps
-        let scanFileInput = document.getElementById('lab2-sample-file-input');
-        if (!scanFileInput && btnScan) {
-            scanFileInput = document.createElement('input');
-            scanFileInput.type = 'file';
-            scanFileInput.id = 'lab2-sample-file-input';
-            scanFileInput.accept = 'image/*';
-            scanFileInput.setAttribute('capture', 'environment');
-            scanFileInput.style.display = 'none';
-            btnScan.parentNode.insertBefore(scanFileInput, btnScan.nextSibling);
-        }
-
-        if (btnScan && scanFileInput) {
-            btnScan.onclick = () => scanFileInput.click();
-            scanFileInput.onchange = async (e) => {
-                const file = e.target.files[0];
-                scanFileInput.value = '';
-                if (!file) return;
-
-                btnScan.disabled = true;
-                btnScan.textContent = '⏳ Reading QR...';
-                try {
-                    const decodedText = await decodeQrImage(file, 'lab2-qr-reader');
-                    const plainId = await processScannedCode(decodedText);
-                    await handleLab2SampleScan(plainId);
-                } catch (err) {
-                    alert('Could not decode sample QR from image: ' + err.message);
-                } finally {
-                    btnScan.disabled = false;
-                    btnScan.innerHTML = '📷 Snap / Scan Sample Container';
-                }
-            };
-        }
-
-        if (btnManual && inputManual) {
-            btnManual.onclick = () => {
-                const val = inputManual.value.trim();
-                if (val) {
-                    handleLab2SampleScan(val);
-                    inputManual.value = '';
-                }
-            };
-            inputManual.onkeydown = (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const val = inputManual.value.trim();
-                    if (val) {
-                        handleLab2SampleScan(val);
-                        inputManual.value = '';
-                    }
-                }
-            };
+        if (!lab2State.timer) {
+            lab2State.timer = setInterval(() => {
+                const scr = document.getElementById('screen-lab2');
+                if (scr && scr.classList.contains('active') && !document.hidden) renderLab2MixingGroups();
+            }, 30000);
         }
     }
 
-    async function handleLab2SampleScan(code) {
-        if (!code) return;
-        const feedback = document.getElementById('lab2-scan-feedback');
-        const scanHistory = document.getElementById('lab2-sample-scan-history');
-
-        try {
-            const plainId = await processScannedCode(code);
-            const res = await window.BiomassAPI.scanSampleForLab2(plainId);
-            if (!res || !res.success) throw new Error((res && res.message) || 'Verification failed');
-
-            lab2State.scannedSamples.add(res.sample_barcode_id);
-
-            if (feedback) {
-                feedback.style.display = 'block';
-                if (res.acceptance_status === 'REJECTED') {
-                    feedback.style.background = 'rgba(239, 68, 68, 0.2)';
-                    feedback.style.border = '2px solid #ef4444';
-                    feedback.style.color = '#fca5a5';
-                    feedback.innerHTML = `
-                        <div style="font-weight: 800; font-size: 1.1rem; color: #ef4444; margin-bottom: 0.25rem;">
-                            ⛔ REJECTED SAMPLE DETECTED: [${res.sample_barcode_id}]
-                        </div>
-                        <div><strong>Moisture Level:</strong> ${res.moisture_pct}% (&ge; 14.0% rejection limit)</div>
-                        <div style="margin-top: 0.5rem; font-weight: bold; color: #fff; background: #dc2626; padding: 0.4rem 0.6rem; border-radius: 4px;">
-                            ⚠️ CRITICAL ACTION: SEGREGATE THIS CONTAINER IMMEDIATELY! DO NOT ADD TO COMPOSITE MIXTURE!
-                        </div>
-                    `;
-                } else if (res.acceptance_status === 'PENDING') {
-                    // Lab-1 has not recorded a moisture result for this container yet. The server also refuses
-                    // to include it in a composite until it does - this just makes that visible immediately.
-                    feedback.style.background = 'rgba(245, 158, 11, 0.2)';
-                    feedback.style.border = '2px solid #f59e0b';
-                    feedback.style.color = '#fde68a';
-                    feedback.innerHTML = `
-                        <div style="font-weight: 800; font-size: 1.1rem; color: #f59e0b; margin-bottom: 0.25rem;">
-                            ⏳ MOISTURE RESULT PENDING: [${res.sample_barcode_id}]
-                        </div>
-                        <div><strong>Mixing Group:</strong> <span class="scan-group-code-pill">${esc(res.daily_group_code)}</span></div>
-                        <div style="margin-top: 0.4rem; color: #e2e8f0;">
-                            Lab Station 1 has not recorded a moisture result for this container yet. It cannot be added to a composite until it does.
-                        </div>
-                    `;
-                } else {
-                    feedback.style.background = 'rgba(16, 185, 129, 0.2)';
-                    feedback.style.border = '2px solid #10b981';
-                    feedback.style.color = '#86efac';
-                    feedback.innerHTML = `
-                        <div style="font-weight: 800; font-size: 1.1rem; color: #10b981; margin-bottom: 0.25rem;">
-                            ✅ ACCEPTED SAMPLE: [${res.sample_barcode_id}]
-                        </div>
-                        <div><strong>Mixing Group:</strong> <span class="scan-group-code-pill">${esc(res.daily_group_code)}</span> <strong>Moisture:</strong> ${res.moisture_pct}%</div>
-                        <div style="margin-top: 0.4rem; color: #e2e8f0;">
-                            Sample verified and approved. Add to composite sample container for <span class="scan-group-code-pill">${esc(res.daily_group_code)}</span>.
-                        </div>
-                    `;
-                }
-            }
-
-            if (scanHistory) {
-                const entry = document.createElement('div');
-                const isRej = res.acceptance_status === 'REJECTED';
-                entry.style.cssText = `padding: 0.35rem 0.5rem; border-radius: 4px; background: ${isRej ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)'}; border-left: 3px solid ${isRej ? '#ef4444' : '#10b981'};`;
-                const moistTxt = res.moisture_pct !== null && res.moisture_pct !== undefined ? `${res.moisture_pct}%` : 'pending';
-                entry.innerHTML = `<strong>${esc(res.sample_barcode_id)}</strong> &rarr; Group <strong>${esc(res.daily_group_code)}</strong> (${esc(res.acceptance_status)}: ${moistTxt}) &bull; <small>${new Date().toLocaleTimeString()}</small>`;
-                scanHistory.prepend(entry);
-            }
-
-            await renderLab2MixingGroups();
-
-        } catch (err) {
-            if (feedback) {
-                feedback.style.display = 'block';
-                feedback.style.background = 'rgba(239, 68, 68, 0.2)';
-                feedback.style.border = '2px solid #ef4444';
-                feedback.style.color = '#fca5a5';
-                feedback.innerHTML = `⚠️ Scan verification error: ${esc(err.message)}`;
-            }
-        }
+    function setupLab2Filter() {
+        const from = document.getElementById('lab2-filter-from'), to = document.getElementById('lab2-filter-to'), q = document.getElementById('lab2-filter-q');
+        if (!from || !to || !q) return;
+        const today = lab2State.today;
+        from.value = today; to.value = today; q.value = '';       // default view: today
+        const apply = () => renderLab2MixingGroups();
+        document.getElementById('btn-lab2-filter-apply').onclick = apply;
+        document.getElementById('btn-refresh-lab2-groups').onclick = apply;
+        document.getElementById('btn-lab2-filter-today').onclick = () => { const t = lab2State.today; from.value = t; to.value = t; q.value = ''; apply(); };
+        q.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); apply(); } };
+        // Picking a new "From" date after the "To" date moves "To" along with it
+        from.onchange = () => { if (to.value && to.value < from.value) to.value = from.value; };
     }
 
     async function renderLab2MixingGroups() {
         const container = document.getElementById('lab2-mixing-groups-container');
         if (!container) return;
+        const fromEl = document.getElementById('lab2-filter-from'), toEl = document.getElementById('lab2-filter-to'), qEl = document.getElementById('lab2-filter-q');
+        const note = document.getElementById('lab2-filter-note');
+        const today = lab2State.today;
+        const from = (fromEl && fromEl.value) || today;
+        const to = (toEl && toEl.value) || from;
+        const q = ((qEl && qEl.value) || '').trim();
 
         try {
-            const res = await window.BiomassAPI.getLab2MixingGroupsStatus(lab2State.activeDate);
-            if (!res.success || !res.groups || res.groups.length === 0) {
-                container.innerHTML = '<div style="color: #94a3b8; font-style: italic; padding: 1rem;">No truck entries recorded for today yet. Active mixing groups will appear as trucks enter.</div>';
+            const res = await window.BiomassAPI.getLab2MixingGroupsStatus(from, to, q);
+            const groups = (res && res.groups) || [];
+            lab2State.groups = groups;
+            const span = from === to ? from : `${from} to ${to}`;
+            if (note) note.textContent = `${groups.length} mixing code(s) for ${span}` + (q ? ` matching "${q}"` : '') + '.';
+            if (!res.success || groups.length === 0) {
+                container.innerHTML = '<div style="color: #94a3b8; font-style: italic; padding: 1rem; grid-column: 1 / -1;">' +
+                    (q ? 'No mixing code matches that search in the chosen dates.' : 'No sample entries recorded for the chosen dates.') + '</div>';
                 return;
             }
 
             container.innerHTML = '';
-            res.groups.forEach(group => {
-                const acceptedInGroup = group.trucks.filter(t => t.acceptance_status === 'ACCEPTED');
-                const scannedAcceptedCount = acceptedInGroup.filter(t => lab2State.scannedSamples.has(t.sample1_barcode_id)).length;
-                const allAcceptedScanned = (group.accepted_count > 0) && (scannedAcceptedCount >= group.accepted_count);
-
+            groups.forEach(group => {
+                const acc = group.accepted_count, rej = group.rejected_count, pen = group.pending_count;
+                const scanned = group.scanned_accepted || 0;
                 const card = document.createElement('div');
                 card.className = 'mixing-group-card';
-                if (group.is_batch_created) {
-                    card.style.borderColor = '#10b981';
-                }
+                if (group.is_batch_created) card.style.borderColor = '#10b981';
 
                 let actionHtml = '';
                 if (group.is_batch_created) {
                     actionHtml = `
                         <div style="color: #10b981; font-weight: bold; font-size: 0.85rem; margin-top: 0.5rem;">
-                            ✅ Composite Generated (${group.batch_ref_id})
+                            ✅ Composite generated (${esc(group.batch_ref_id)}) - cannot be generated again
                         </div>
-                        <button class="btn btn-secondary btn-sm mt-2" onclick="window.reprintLab2Batch('${group.group_code}')" style="width: 100%;">
-                            🖨️ View / Print Composite QR Codes
-                        </button>
-                    `;
-                } else if (group.pending_count > 0) {
+                        <div style="font-size: 0.82rem; color: #cbd5e1; background: rgba(16,185,129,0.1); border-radius: 6px; padding: 0.4rem 0.6rem;">
+                            <strong>${esc(group.mixed_samples_count != null ? group.mixed_samples_count : acc)}</strong> sample(s) mixed
+                            (of ${esc(group.total_registered)} registered; ${esc(rej)} rejected and left out${pen > 0 ? '; ' + esc(pen) + ' arrived later, not mixed' : ''})
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm mt-2 lab2-reprint" style="width: 100%;">🖨️ View / Reprint Composite QR Codes</button>`;
+                } else if (pen > 0) {
                     actionHtml = `
-                        <div style="color: #f59e0b; font-size: 0.82rem; margin-top: 0.5rem;">
-                            ⏳ Waiting for Lab 1 moisture results (${group.pending_count} pending).
-                        </div>
-                        <button class="btn btn-secondary btn-sm mt-2" disabled style="width: 100%; opacity: 0.5; cursor: not-allowed;">
-                            🔒 Locked (Lab 1 Incomplete)
-                        </button>
-                    `;
-                } else if (group.accepted_count === 0) {
-                    actionHtml = `
-                        <div style="color: #ef4444; font-size: 0.82rem; margin-top: 0.5rem;">
-                            ⛔ All ${group.rejected_count} consignments in this group were REJECTED.
-                        </div>
-                    `;
-                } else if (!allAcceptedScanned) {
-                    const remaining = group.accepted_count - scannedAcceptedCount;
+                        <div style="color: #f59e0b; font-size: 0.82rem; margin-top: 0.5rem;">⏳ Waiting for Lab 1 moisture results (${pen} pending).</div>
+                        <button type="button" class="btn btn-secondary btn-sm mt-2" disabled style="width: 100%; opacity: 0.5; cursor: not-allowed;">🔒 Locked (Lab 1 incomplete)</button>`;
+                } else if (acc === 0) {
+                    actionHtml = `<div style="color: #ef4444; font-size: 0.82rem; margin-top: 0.5rem;">⛔ All ${rej} consignments in this group were REJECTED.</div>`;
+                } else if (!group.all_scanned) {
+                    const remaining = acc - scanned;
                     actionHtml = `
                         <div style="color: #cbd5e1; font-size: 0.82rem; margin-top: 0.5rem;">
-                            Scan physical accepted containers: <strong>${scannedAcceptedCount} / ${group.accepted_count}</strong> scanned.
+                            Scanned in the Fineness login: <strong>${scanned} / ${acc}</strong> accepted container(s).
                         </div>
-                        <button class="btn btn-secondary btn-sm mt-2" disabled style="width: 100%; opacity: 0.6; cursor: not-allowed;" title="Scan remaining accepted containers first">
-                            🔒 Scan ${remaining} more container${remaining > 1 ? 's' : ''} to Unlock
-                        </button>
-                    `;
+                        <button type="button" class="btn btn-secondary btn-sm mt-2" disabled style="width: 100%; opacity: 0.6; cursor: not-allowed;">
+                            🔒 Waiting for ${remaining} more scan${remaining > 1 ? 's' : ''} in the Fineness login
+                        </button>`;
                 } else {
                     actionHtml = `
-                        <div style="color: #10b981; font-size: 0.85rem; font-weight: bold; margin-top: 0.5rem;">
-                            🎉 All ${group.accepted_count} accepted containers verified!
-                        </div>
-                        <button class="btn btn-primary btn-sm mt-2" onclick="window.generateLab2CompositeForGroup('${group.group_code}')" style="width: 100%; background: linear-gradient(135deg, #10b981 0%, #059669 100%); font-weight: bold;">
-                            ⚗️ Generate Composite Mix (${group.group_code})
-                        </button>
-                    `;
+                        <div style="color: #10b981; font-size: 0.85rem; font-weight: bold; margin-top: 0.5rem;">🎉 All ${acc} accepted containers scanned in the Fineness login!</div>
+                        <button type="button" class="btn btn-primary btn-sm mt-2 lab2-generate" style="width: 100%; background: linear-gradient(135deg, #10b981 0%, #059669 100%); font-weight: bold;">
+                            ⚗️ Generate Composite Mix (${esc(group.group_code)})
+                        </button>`;
                 }
 
                 card.innerHTML = `
                     <div class="mixing-group-header">
                         <div>
-                            <div class="group-code-badge">${group.group_code}</div>
-                            <span style="font-size: 0.8rem; color: #94a3b8; margin-left: 0.4rem;">${group.total_registered} Consignment(s)</span>
+                            <div class="group-code-badge">${esc(group.group_code)}</div>
+                            <span style="font-size: 0.8rem; color: #94a3b8; margin-left: 0.4rem;">${esc(group.date)} &bull; ${esc(group.total_registered)} consignment(s)</span>
                         </div>
-                        <span class="badge ${group.is_batch_created ? 'badge-success' : 'badge-pending'}">
-                            ${group.is_batch_created ? 'COMPILED' : 'ACTIVE'}
-                        </span>
+                        <span class="badge ${group.is_batch_created ? 'badge-success' : 'badge-pending'}">${group.is_batch_created ? 'COMPILED' : 'ACTIVE'}</span>
                     </div>
-                    
                     <div class="mixing-group-stats">
-                        <div class="group-stat-pill stat-accepted">
-                            <strong>${group.accepted_count}</strong> Accepted
-                        </div>
-                        <div class="group-stat-pill stat-rejected">
-                            <strong>${group.rejected_count}</strong> Rejected
-                        </div>
-                        <div class="group-stat-pill stat-pending">
-                            <strong>${group.pending_count}</strong> Pending
-                        </div>
+                        <div class="group-stat-pill stat-accepted"><strong>${acc}</strong> Approved</div>
+                        <div class="group-stat-pill stat-rejected"><strong>${rej}</strong> Rejected</div>
+                        <div class="group-stat-pill stat-pending"><strong>${pen}</strong> Pending</div>
                     </div>
-                    
                     <div style="font-size: 0.8rem; color: #cbd5e1; margin-top: 0.5rem; display: flex; justify-content: space-between;">
-                        <span>Physical Intake Progress:</span>
-                        <strong>${scannedAcceptedCount} / ${group.accepted_count}</strong>
+                        <span>Fineness-login scan progress:</span>
+                        <strong>${scanned} / ${acc}</strong>
                     </div>
                     <div class="progress-bar-container" style="background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; margin-top: 0.25rem; overflow: hidden;">
-                        <div style="background: #10b981; height: 100%; width: ${group.accepted_count > 0 ? (scannedAcceptedCount / group.accepted_count * 100) : 0}%;"></div>
+                        <div style="background: #10b981; height: 100%; width: ${acc > 0 ? Math.min(100, scanned / acc * 100) : 0}%;"></div>
                     </div>
-                    
-                    ${actionHtml}
-                `;
+                    ${actionHtml}`;
+                const gen = card.querySelector('.lab2-generate'), rep = card.querySelector('.lab2-reprint');
+                if (gen) gen.onclick = () => window.generateLab2CompositeForGroup(group.group_code, group.date, gen);
+                if (rep) rep.onclick = () => window.reprintLab2Batch(group.group_code, group.date);
                 container.appendChild(card);
             });
         } catch (err) {
-            container.innerHTML = `<div style="color: #ef4444; padding: 1rem;">Failed to load mixing groups: ${esc(err.message)}</div>`;
+            if (note) note.textContent = '';
+            container.innerHTML = `<div style="color: #ef4444; padding: 1rem; grid-column: 1 / -1;">Failed to load mixing groups: ${esc(err.message)}</div>`;
         }
     }
 
-    window.generateLab2CompositeForGroup = async function(groupCode) {
-        if (!confirm(`Confirm generation of Composite Mixture QR codes for Group [${groupCode}]?\n\nThis will compile accepted consignments and generate Test (-T), Referee (-R), and Vendor (-V) sealed sample labels.`)) return;
+    window.generateLab2CompositeForGroup = async function(groupCode, date, btn) {
+        const g = lab2State.groups.find(x => x.group_code === groupCode && x.date === date);
+        const detail = g ? `\n\n${g.accepted_count} approved sample(s) will be mixed; ${g.rejected_count} rejected sample(s) are left out.` : '';
+        if (!confirm(`Generate Composite Mixture QR codes for Mixing Code [${groupCode}] (${date})?${detail}\n\nThis can be done ONLY ONCE. Afterwards the labels can only be reprinted.`)) return;
 
+        if (btn) btn.disabled = true;
         if (window.showGlobalLoader) window.showGlobalLoader(`Compiling Composite Mixture for [${groupCode}]...`);
         try {
-            // The server re-checks everything (no pending results, at least one accepted sample, no earlier composite)
-            // and refuses unless EVERY accepted container of this group is in the list of physically scanned samples.
-            const res = await window.BiomassAPI.createCompositeBatchForGroup(
-                lab2State.activeDate, groupCode, Array.from(lab2State.scannedSamples));
+            // The server re-checks everything: no pending results, at least one accepted sample, no earlier composite, and that
+            // EVERY accepted container of this group was scanned in the Fineness login.
+            const res = await window.BiomassAPI.createCompositeBatchForGroup(date, groupCode);
             if (!res || !res.success) throw new Error((res && res.message) || 'Composite could not be created');
 
-            alert(`Composite Batch ${res.batch.composite_ref_id} created successfully for Group [${groupCode}]!`);
+            alert(`Composite Batch ${res.batch.composite_ref_id} created successfully for Mixing Code [${groupCode}]!`);
             await renderLab2MixingGroups();
-            await renderLab2CompositeOutput(res.batch, groupCode);
+            const grp = lab2State.groups.find(x => x.group_code === groupCode && x.date === date);
+            await renderLab2CompositeOutput(res.batch, groupCode, grp);
         } catch (err) {
             alert('Generation failed: ' + err.message);
+            if (btn) btn.disabled = false;
+            renderLab2MixingGroups();
         } finally {
             if (window.hideGlobalLoader) window.hideGlobalLoader();
         }
     };
 
-    window.reprintLab2Batch = async function(groupCode) {
+    window.reprintLab2Batch = async function(groupCode, date) {
         try {
-            const batch = await window.BiomassAPI.getCompositeBatchByGroupCode(groupCode, lab2State.activeDate);
+            const batch = await window.BiomassAPI.getCompositeBatchByGroupCode(groupCode, date);
             if (batch) {
-                await renderLab2CompositeOutput(batch, groupCode);
+                const grp = lab2State.groups.find(x => x.group_code === groupCode && x.date === date);
+                await renderLab2CompositeOutput(batch, groupCode, grp);
             } else {
-                alert('Composite batch record not found for Group ' + groupCode);
+                alert('Composite batch record not found for Mixing Code ' + groupCode);
             }
         } catch (err) {
             alert('Failed to retrieve batch: ' + err.message);
@@ -5463,7 +5616,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Renders the Test/Referee/Vendor QR outputs for a composite batch on the Lab 2 screen,
     // formatted for strict 50mm x 50mm thermal paper label rolls
-    async function renderLab2CompositeOutput(batch, groupCode) {
+    async function renderLab2CompositeOutput(batch, groupCode, grp) {
         if (!batch.lots) {
             batch.lots = {
                 test: batch.test_lot || batch.composite_barcode_id || `${batch.composite_ref_id}-T`,
@@ -5474,6 +5627,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const outputDiv = document.getElementById('lab2-composite-output');
         if (outputDiv) outputDiv.style.display = 'block';
+        if (outputDiv) {
+            let sum = document.getElementById('lab2-output-summary');
+            if (!sum) { sum = document.createElement('div'); sum.id = 'lab2-output-summary'; sum.style.cssText = 'font-size:0.88rem; color:#e2e8f0; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.4); border-radius:8px; padding:0.6rem 0.8rem; margin-bottom:0.75rem;'; outputDiv.insertBefore(sum, outputDiv.firstChild); }
+            const mixed = batch.mixed_samples_count != null ? batch.mixed_samples_count : (grp ? grp.mixed_samples_count : null);
+            sum.innerHTML = `<strong>Mixing Code ${esc(String(batch.daily_group_code || groupCode || '').toUpperCase())}</strong> &bull; ${esc(batch.date || '')} &bull; Composite ${esc(batch.composite_ref_id || '')}` +
+                (grp ? `<br>Approved: <strong>${esc(grp.accepted_count)}</strong> &nbsp; Rejected: <strong>${esc(grp.rejected_count)}</strong> &nbsp; Total registered: <strong>${esc(grp.total_registered)}</strong> &nbsp; <strong>Total samples mixed: ${esc(mixed != null ? mixed : grp.accepted_count)}</strong>`
+                       : (mixed != null ? `<br>Total samples mixed: <strong>${esc(mixed)}</strong>` : ''));
+        }
 
         const gCodeLab2 = String(batch.daily_group_code || groupCode || 'N/A').trim().toUpperCase();
         const groupLabelText = `MIXING GROUP: ${gCodeLab2}`;

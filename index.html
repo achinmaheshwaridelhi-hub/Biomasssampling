@@ -27,7 +27,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20261018_v23">
+    <link rel="stylesheet" href="style.css?v=20261019_v25">
     <!-- Chart.js for Executive Management Dashboard (version pinned; local copy used if the CDN is unreachable) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script>
@@ -582,7 +582,7 @@
                         </div>
                     </div>
                     <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
-                        <input type="text" id="weigh-search" placeholder="Search by Truck ID, Company, or Vehicle Reg..." style="flex: 1; padding: 0.75rem; border-radius: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white;">
+                        <input type="text" id="weigh-search" placeholder="Search by Truck ID or Vehicle Reg..." style="flex: 1; padding: 0.75rem; border-radius: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: white;">
                     </div>
                     
                     <div class="table-responsive table-fit">
@@ -1038,6 +1038,21 @@
                     </label>
                     <div id="storage-result" style="margin-top: 0.75rem; font-size: 0.88rem;"></div>
                 </div>
+                <div class="card" id="mixreset-card">
+                    <h3 class="card-title">&#129514; Mixing scans &mdash; reset a mixing code</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+                        The Fineness technician cannot undo a mixing scan. If a container was scanned by mistake, reset <b>all</b> scans of that mixing code here so they can be scanned again.
+                        Not possible once the composite has been generated.
+                    </p>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end;">
+                        <label style="display: flex; flex-direction: column; font-size: 0.75rem; gap: 2px;">Date
+                            <input type="date" id="mixreset-date" style="padding: 0.45rem;"></label>
+                        <label style="display: flex; flex-direction: column; font-size: 0.75rem; gap: 2px;">Mixing code
+                            <input type="text" id="mixreset-code" maxlength="10" placeholder="e.g. 7K3" style="padding: 0.45rem; text-transform: uppercase;"></label>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btn-mixreset">Reset scans of this mixing code</button>
+                    </div>
+                    <div id="mixreset-result" style="margin-top: 0.6rem; font-size: 0.88rem;"></div>
+                </div>
                 <div class="card">
                     <h3 class="card-title">Database &amp; System Infrastructure Status</h3>
                     <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem;">
@@ -1071,6 +1086,30 @@
 
         <!-- SCREEN: AFTER WEIGHMENT / UNLOADING AREA -->
         <section id="screen-unloading" class="screen">
+            <!-- Daily report (Excel) -->
+            <div class="card" id="dayreport-card" style="margin-bottom: 1.5rem;">
+                <h3 class="card-title" style="margin-bottom: 0.25rem;">&#128197; Daily Report &mdash; trucks, weights &amp; test results</h3>
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.9rem;">
+                    Truck no., vendor, gross / tare / net weight, GCV, fineness and ash for every truck of a day. Today&rsquo;s report opens after <strong>9:00 PM</strong>;
+                    any earlier day can be opened at any time. Download it as an Excel file.
+                </p>
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end;">
+                    <label style="display: flex; flex-direction: column; font-size: 0.75rem; color: #94a3b8; gap: 2px;">Report date
+                        <input type="date" id="dayreport-date" style="padding: 0.45rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;"></label>
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-dayreport-generate">&#128202; Generate report</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-dayreport-today">Today</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-dayreport-yesterday">Yesterday</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-dayreport-excel" style="display: none;">&#11015;&#65039; Download Excel</button>
+                </div>
+                <div id="dayreport-note" style="font-size: 0.85rem; margin-top: 0.7rem;"></div>
+                <div id="dayreport-table-wrap" class="table-responsive" style="display: none; margin-top: 0.6rem;">
+                    <table style="min-width: 900px; font-size: 0.85rem;">
+                        <thead><tr><th>#</th><th>Truck No.</th><th>Vendor</th><th>Gross (kg)</th><th>Tare (kg)</th><th>Net (kg)</th><th>Moisture %</th><th>GCV</th><th>Fineness %</th><th>Ash %</th><th>Result</th></tr></thead>
+                        <tbody id="dayreport-body"></tbody>
+                    </table>
+                </div>
+            </div>
+
             <div class="card" style="margin-bottom: 1.5rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
                     <div>
@@ -1128,6 +1167,38 @@
                             </div>
                         </div>
                         <div id="lab1-qr-reader" style="display:none;"></div>
+                    </div>
+
+                    <!-- Mixing scan: Fineness login only. Shows the mixing code + INCLUDE / EXCLUDE for each container the technician segregates. -->
+                    <div class="card" id="mixscan-card" style="display: none; margin-bottom: 0; border: 1px solid rgba(245, 158, 11, 0.55);">
+                        <h3 class="card-title">&#129514; Mixing Scan &mdash; segregate for composite</h3>
+                        <p style="font-size: 0.85rem; margin-bottom: 0.9rem; color: #94a3b8;">
+                            Scan each Sample-1 container you are sorting for mixing. The screen shows its <strong>Mixing Code</strong> and whether to
+                            <strong style="color:#10b981;">INCLUDE</strong> it in the mix or <strong style="color:#ef4444;">EXCLUDE</strong> it (set aside).
+                            Lab Station 2 can generate the composite only after <em>all</em> accepted containers of that mixing code are scanned here.
+                        </p>
+                        <div class="scan-trigger-section" id="mixscan-trigger">
+                            <div class="scan-icon">&#128247;</div>
+                            <div>
+                                <h4 style="margin-bottom: 0.25rem;">Snap Photo to Scan Container for Mixing</h4>
+                                <p style="font-size: 0.85rem;">Tap to open your camera and take a photo of the container label</p>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; margin: 0.6rem 0; flex-wrap: wrap;">
+                            <input type="text" id="mixscan-manual-input" placeholder="Or type / USB-scan S1-XXXXXX" autocomplete="off" style="flex: 2; min-width: 180px; padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+                            <button type="button" class="btn btn-secondary" id="btn-mixscan-manual" style="flex: 1; min-width: 80px;">Check</button>
+                        </div>
+                        <div id="mixscan-feedback" style="display: none; padding: 0.9rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.95rem; line-height: 1.5;"></div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem;">
+                            <h4 style="font-size: 0.95rem; color: #e2e8f0; margin: 0;">Scan summary &mdash; cross-check</h4>
+                            <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
+                                <input type="date" id="mixscan-date" style="padding: 0.3rem 0.4rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+                                <button type="button" class="btn btn-secondary btn-sm" id="btn-mixscan-refresh">&#128260; Refresh</button>
+                                <button type="button" class="btn btn-secondary btn-sm" id="btn-mixscan-print">&#128424;&#65039; Print</button>
+                            </div>
+                        </div>
+                        <div id="mixscan-summary" style="margin-top: 0.6rem;"></div>
                     </div>
 
                     <!-- Blind Entry Form (Hidden until barcode lookup succeeds) -->
@@ -1309,38 +1380,27 @@
 
                     <!-- Blind Scan-Driven Composite Mixing Panel -->
                     <div class="card" style="margin-bottom: 0;">
-                        <h3 class="card-title">Blind Sample Verification &amp; Composite Mixing</h3>
+                        <h3 class="card-title">Composite Mixing &mdash; Generate &amp; Reprint</h3>
                         <p style="font-size: 0.85rem; margin-bottom: 1rem; color: #94a3b8;">
-                            Scan physical Sample-1 containers one-by-one. The system will reveal each container's Mixing Group Code and Lab-1 Moisture status. <strong>Segregate any REJECTED samples immediately!</strong> Composite codes can only be generated after all accepted samples of that group are scanned.
+                            The containers are scanned in the <strong>Fineness login</strong>. A mixing code unlocks here once <strong>all its accepted samples</strong> have been scanned there.
+                            A composite can be generated <strong>only once</strong> per mixing code; after that you can only reprint its labels.
                         </p>
 
-                        <!-- Scan Input Section -->
-                        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
-                            <button type="button" class="btn btn-primary" id="btn-lab2-scan-sample" style="flex: 2; min-width: 220px; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                                📷 Snap Photo to Scan Sample Container
-                            </button>
-                            <input type="text" id="lab2-sample-manual-input" placeholder="Or type/USB scan S1-XXXXXX" style="flex: 2; min-width: 200px; padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
-                            <button type="button" class="btn btn-secondary" id="btn-lab2-sample-manual-submit" style="flex: 1; min-width: 90px;">Verify</button>
+                        <!-- Filter: date range + mixing-code search (default: today) -->
+                        <div id="lab2-filter-bar" style="display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 0.6rem;">
+                            <label style="display: flex; flex-direction: column; font-size: 0.75rem; color: #94a3b8; gap: 2px;">From
+                                <input type="date" id="lab2-filter-from" style="padding: 0.45rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;"></label>
+                            <label style="display: flex; flex-direction: column; font-size: 0.75rem; color: #94a3b8; gap: 2px;">To
+                                <input type="date" id="lab2-filter-to" style="padding: 0.45rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;"></label>
+                            <label style="display: flex; flex-direction: column; font-size: 0.75rem; color: #94a3b8; gap: 2px; flex: 1; min-width: 150px;">Mixing code
+                                <input type="search" id="lab2-filter-q" placeholder="e.g. 7K3" maxlength="24" autocomplete="off" style="padding: 0.45rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px; text-transform: uppercase;"></label>
+                            <button type="button" class="btn btn-primary btn-sm" id="btn-lab2-filter-apply">&#128269; Search</button>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btn-lab2-filter-today">Today</button>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh-lab2-groups">&#128260; Refresh</button>
                         </div>
-
-                        <!-- Live Scan Feedback Alert (Large color banner) -->
-                        <div id="lab2-scan-feedback" style="display: none; padding: 0.9rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.92rem; line-height: 1.5;"></div>
-
-                        <!-- Active Mixing Groups Stream -->
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.25rem; margin-bottom: 0.5rem;">
-                            <h4 style="font-size: 0.95rem; color: #e2e8f0; margin: 0;">Active Mixing Groups (Today)</h4>
-                            <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh-lab2-groups" style="font-size: 0.75rem;">🔄 Refresh Groups</button>
-                        </div>
+                        <div id="lab2-filter-note" style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 0.4rem;"></div>
                         <div id="lab2-mixing-groups-container" class="mixing-groups-grid">
-                            <div style="color: #94a3b8; font-size: 0.85rem; padding: 1rem; text-align: center; grid-column: 1 / -1;">
-                                Scan Sample-1 containers above to begin sorting into groups...
-                            </div>
-                        </div>
-
-                        <!-- Scan History Log -->
-                        <div style="margin-top: 1rem; border-top: 1px dashed var(--border-color); padding-top: 0.75rem;">
-                            <h5 style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.4rem;">Scanned Container Verification Log</h5>
-                            <div id="lab2-sample-scan-history" style="max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.82rem;"></div>
+                            <div style="color: #94a3b8; font-size: 0.85rem; padding: 1rem; text-align: center; grid-column: 1 / -1;">Loading mixing groups...</div>
                         </div>
 
                         <!-- Lab 2 Composite Barcode Output Area (Hidden until generated) -->
@@ -1480,14 +1540,14 @@
 
     <!-- Moisture-meter reader (trained offline OCR). Small loaders only; the ~8 MB engine in lib/ocr/ is fetched
          on first use. If these fail to load the app simply falls back to manual photo + typing. -->
-    <script src="lib/ocr/moisture-reader-core.js?v=20261018_v23"></script>
-    <script src="lib/ocr/led-weight-reader.js?v=20261018_v23"></script>
-    <script src="lib/ocr/led-templates.js?v=20261018_v23"></script>
-    <script src="moisture-ocr.js?v=20261018_v23"></script>
+    <script src="lib/ocr/moisture-reader-core.js?v=20261019_v25"></script>
+    <script src="lib/ocr/led-weight-reader.js?v=20261019_v25"></script>
+    <script src="lib/ocr/led-templates.js?v=20261019_v25"></script>
+    <script src="moisture-ocr.js?v=20261019_v25"></script>
 
     <!-- App JavaScript files -->
-    <script src="api.js?v=20261018_v23" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261018_v23" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="api.js?v=20261019_v25" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261019_v25" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

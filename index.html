@@ -27,7 +27,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20261019_v25">
+    <link rel="stylesheet" href="style.css?v=20261019_v27">
     <!-- Chart.js for Executive Management Dashboard (version pinned; local copy used if the CDN is unreachable) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script>
@@ -116,6 +116,10 @@
                 <button class="tab-btn" data-tab="admin-register">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                     Truck Registration
+                </button>
+                <button class="tab-btn" data-tab="admin-bottom" id="tab-btn-bottom">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.31"></path><path d="M14 9.3V1.99"></path><path d="M8.5 2h7"></path><path d="M14 9.3a6.5 6.5 0 1 1-4 0"></path><path d="M5.52 16h12.96"></path></svg>
+                    Bottom Samples <span id="bottom-tab-badge" class="bottom-badge" style="display: none;">0</span>
                 </button>
                 <button class="tab-btn" data-tab="admin-weighment" id="tab-btn-weighment">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
@@ -398,10 +402,24 @@
                     <div class="card" style="margin-bottom: 0;">
                         <h3 class="card-title">Register Incoming Truck</h3>
                         <form id="truck-reg-form">
-                            <div class="form-group">
+                            <div class="form-group" style="position: relative;">
                                 <label for="reg-company">Biomass Supplier (Company)</label>
-                                <input type="text" id="reg-company" list="companies-list" placeholder="Start typing or select..." required>
+                                <div id="reg-lot-filter" class="lot-filter" role="group" aria-label="Filter suppliers by lot">
+                                    <span>Show:</span>
+                                    <button type="button" class="active" data-lot="">All</button>
+                                    <button type="button" data-lot="LOT2/3">LOT2/3</button>
+                                    <button type="button" data-lot="LOT4">LOT4</button>
+                                </div>
+                                <div style="position: relative;">
+                                    <input type="text" id="reg-company" placeholder="Start typing the vendor name or PO number..." autocomplete="off" style="width: 100%;" required>
+                                    <div id="reg-vendor-list" class="vendor-list" style="display: none; top: 100%;"></div>
+                                </div>
                                 <datalist id="companies-list"></datalist>
+                                <div id="reg-vendor-info" style="display: none; margin-top: 0.5rem; padding: 0.5rem 0.75rem; border-radius: 8px; font-size: 0.88rem;"></div>
+                            </div>
+                            <div class="form-group" id="reg-lot-group" style="display: none;">
+                                <label for="reg-lot">New supplier &mdash; which Lot?</label>
+                                <select id="reg-lot"><option value="">-- Select Lot --</option><option value="LOT2/3">LOT2/3</option><option value="LOT4">LOT4</option></select>
                             </div>
                             <div class="form-group">
                                 <label for="reg-driver">Driver Name</label>
@@ -566,6 +584,34 @@
                             </tbody>
                         </table>
                     </div>
+                </div>
+            </div>
+
+            <!-- TAB 1b: BOTTOM SAMPLES (requests from the unloading area) -->
+            <div id="tab-admin-bottom" class="tab-content">
+                <div class="card" id="bottom-label-card" style="display: none; border: 2px solid #10b981;">
+                    <h3 class="card-title">New sample QR generated</h3>
+                    <p style="font-size: 0.85rem; margin-bottom: 0.75rem;">Truck <strong id="bottom-label-truck"></strong>. Print this label and attach it to the new sample container. It looks like any other sample label.</p>
+                    <div class="barcode-card" style="max-width: 320px;">
+                        <canvas id="qr-canvas-bottom"></canvas>
+                        <div style="font-family: monospace; font-weight: 800; margin-top: 0.4rem; color: #111;" id="bottom-label-date"></div>
+                        <div style="font-family: monospace; font-size: 0.8rem; color: #111;" id="bottom-label-id"></div>
+                        <div style="display: flex; gap: 0.4rem; justify-content: center; margin-top: 0.6rem;">
+                            <button type="button" class="btn btn-secondary btn-sm" id="btn-print-bottom">🖨️ Print label</button>
+                            <button type="button" class="btn btn-primary btn-sm" id="btn-download-bottom">Download</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
+                        <h3 class="card-title" style="margin: 0;">Bottom sample requests</h3>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btn-bottom-refresh">🔄 Refresh</button>
+                    </div>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+                        When the unloading team asks for a truck to be sampled separately, it appears here highlighted. Generating the QR creates a new sample for that truck
+                        (it is tested on its own for GCV and ash) and takes the truck's original sample out of the composite mixture.
+                    </p>
+                    <div id="bottom-list"></div>
                 </div>
             </div>
 
@@ -908,6 +954,16 @@
                                     <input type="file" id="inspector-file-input" accept="image/*,application/pdf" class="form-control" style="font-size: 0.8rem; padding: 0.25rem; margin-top: 0.25rem;">
                                 </div>
                             </div>
+
+                            <!-- Find everything linked to a MIXING CODE -->
+                            <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 2px solid rgba(245, 158, 11, 0.5);">
+                                <h4 style="margin: 0 0 0.25rem; color: #f59e0b;">&#129514; Find by Mixing Code</h4>
+                                <p style="font-size: 0.82rem; margin-bottom: 0.6rem;">Type a mixing code to list every truck linked to it (any date): vendor, moisture, fineness, results and more.</p>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <input type="text" id="inspector-mix-input" placeholder="Mixing code, e.g. 7K3" maxlength="12" autocomplete="off" style="flex: 1; text-transform: uppercase; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; padding: 0.5rem; border-radius: 6px;">
+                                    <button type="button" class="btn btn-primary" id="btn-inspector-mix">Search</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -917,6 +973,16 @@
                         <div id="inspector-result-content">
                             <!-- Dynamically Rendered -->
                         </div>
+                    </div>
+                </div>
+                <div class="card" id="mixsearch-result-card" style="display: none; margin-top: 1.5rem;">
+                    <h3 class="card-title" id="mixsearch-title">Trucks linked to this mixing code</h3>
+                    <div id="mixsearch-summary" class="mixsearch-info"></div>
+                    <div class="table-responsive">
+                        <table class="mixsearch-table" style="min-width: 0; font-size: 0.8rem;">
+                            <thead id="mixsearch-head"></thead>
+                            <tbody id="mixsearch-body"></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -1038,6 +1104,20 @@
                     </label>
                     <div id="storage-result" style="margin-top: 0.75rem; font-size: 0.88rem;"></div>
                 </div>
+                <div class="card" id="bottompw-card">
+                    <h3 class="card-title">&#129514; Bottom-sampling password</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+                        The unloading team must type this password <b>every time</b> before a bottom-sample request is sent. Only you can set or change it.
+                        It is stored scrambled (never readable) and every use is logged.
+                    </p>
+                    <div id="bottompw-status" style="font-size: 0.88rem; margin-bottom: 0.7rem;"></div>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end;">
+                        <label style="display: flex; flex-direction: column; font-size: 0.75rem; gap: 2px;">New password (min. 6 characters)
+                            <input type="password" id="bottompw-input" autocomplete="new-password" maxlength="100" style="padding: 0.45rem;"></label>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btn-bottompw-save">Save password</button>
+                    </div>
+                    <div id="bottompw-result" style="margin-top: 0.6rem; font-size: 0.88rem;"></div>
+                </div>
                 <div class="card" id="mixreset-card">
                     <h3 class="card-title">&#129514; Mixing scans &mdash; reset a mixing code</h3>
                     <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
@@ -1103,8 +1183,8 @@
                 </div>
                 <div id="dayreport-note" style="font-size: 0.85rem; margin-top: 0.7rem;"></div>
                 <div id="dayreport-table-wrap" class="table-responsive" style="display: none; margin-top: 0.6rem;">
-                    <table style="min-width: 900px; font-size: 0.85rem;">
-                        <thead><tr><th>#</th><th>Truck No.</th><th>Vendor</th><th>Gross (kg)</th><th>Tare (kg)</th><th>Net (kg)</th><th>Moisture %</th><th>GCV</th><th>Fineness %</th><th>Ash %</th><th>Result</th></tr></thead>
+                    <table style="min-width: 1100px; font-size: 0.85rem;">
+                        <thead><tr><th>#</th><th>Truck No.</th><th>Vendor</th><th>Lot / PO</th><th>Gross (kg)</th><th>Tare (kg)</th><th>Net (kg)</th><th>Moisture %</th><th>GCV</th><th>Fineness %</th><th>Ash %</th><th>GCV / Ash from</th><th>Result</th></tr></thead>
                         <tbody id="dayreport-body"></tbody>
                     </table>
                 </div>
@@ -1153,8 +1233,8 @@
 
         <!-- SCREEN: LAB 1 (MOISTURE & FINENESS) -->
         <section id="screen-lab1" class="screen">
-            <div class="grid-2">
-                <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+            <div class="lab-layout" id="lab1-layout">
+                <div class="lab-col-a" style="display: flex; flex-direction: column; gap: 1.5rem;">
                     <div class="card" style="margin-bottom: 0;">
                         <h3 class="card-title" id="lab1-station-title">Lab Station 1 — Moisture &amp; Fineness</h3>
                         
@@ -1167,38 +1247,6 @@
                             </div>
                         </div>
                         <div id="lab1-qr-reader" style="display:none;"></div>
-                    </div>
-
-                    <!-- Mixing scan: Fineness login only. Shows the mixing code + INCLUDE / EXCLUDE for each container the technician segregates. -->
-                    <div class="card" id="mixscan-card" style="display: none; margin-bottom: 0; border: 1px solid rgba(245, 158, 11, 0.55);">
-                        <h3 class="card-title">&#129514; Mixing Scan &mdash; segregate for composite</h3>
-                        <p style="font-size: 0.85rem; margin-bottom: 0.9rem; color: #94a3b8;">
-                            Scan each Sample-1 container you are sorting for mixing. The screen shows its <strong>Mixing Code</strong> and whether to
-                            <strong style="color:#10b981;">INCLUDE</strong> it in the mix or <strong style="color:#ef4444;">EXCLUDE</strong> it (set aside).
-                            Lab Station 2 can generate the composite only after <em>all</em> accepted containers of that mixing code are scanned here.
-                        </p>
-                        <div class="scan-trigger-section" id="mixscan-trigger">
-                            <div class="scan-icon">&#128247;</div>
-                            <div>
-                                <h4 style="margin-bottom: 0.25rem;">Snap Photo to Scan Container for Mixing</h4>
-                                <p style="font-size: 0.85rem;">Tap to open your camera and take a photo of the container label</p>
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 0.5rem; margin: 0.6rem 0; flex-wrap: wrap;">
-                            <input type="text" id="mixscan-manual-input" placeholder="Or type / USB-scan S1-XXXXXX" autocomplete="off" style="flex: 2; min-width: 180px; padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
-                            <button type="button" class="btn btn-secondary" id="btn-mixscan-manual" style="flex: 1; min-width: 80px;">Check</button>
-                        </div>
-                        <div id="mixscan-feedback" style="display: none; padding: 0.9rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.95rem; line-height: 1.5;"></div>
-
-                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem;">
-                            <h4 style="font-size: 0.95rem; color: #e2e8f0; margin: 0;">Scan summary &mdash; cross-check</h4>
-                            <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
-                                <input type="date" id="mixscan-date" style="padding: 0.3rem 0.4rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
-                                <button type="button" class="btn btn-secondary btn-sm" id="btn-mixscan-refresh">&#128260; Refresh</button>
-                                <button type="button" class="btn btn-secondary btn-sm" id="btn-mixscan-print">&#128424;&#65039; Print</button>
-                            </div>
-                        </div>
-                        <div id="mixscan-summary" style="margin-top: 0.6rem;"></div>
                     </div>
 
                     <!-- Blind Entry Form (Hidden until barcode lookup succeeds) -->
@@ -1337,8 +1385,43 @@
                     </div>
                 </div>
 
-                <!-- Lab History (Blind) -->
-                <div class="card" style="margin-bottom: 0;">
+                <!-- Second feature of the Fineness login: mixing scan (hidden for the other Lab-1 logins) -->
+                <div class="lab-col-b" id="lab1-col-b" style="display: none; flex-direction: column; gap: 1.5rem;">
+                    <!-- Mixing scan: Fineness login only. Shows the mixing code + INCLUDE / EXCLUDE for each container the technician segregates. -->
+                    <div class="card" id="mixscan-card" style="display: none; margin-bottom: 0; border: 1px solid rgba(245, 158, 11, 0.55);">
+                        <h3 class="card-title">&#129514; Mixing Scan &mdash; segregate for composite</h3>
+                        <p style="font-size: 0.85rem; margin-bottom: 0.9rem; color: #94a3b8;">
+                            Scan each Sample-1 container you are sorting for mixing. The screen shows its <strong>Mixing Code</strong> and whether to
+                            <strong style="color:#10b981;">INCLUDE</strong> it in the mix or <strong style="color:#ef4444;">EXCLUDE</strong> it (set aside).
+                            Lab Station 2 can generate the composite only after <em>all</em> accepted containers of that mixing code are scanned here.
+                        </p>
+                        <div class="scan-trigger-section" id="mixscan-trigger">
+                            <div class="scan-icon">&#128247;</div>
+                            <div>
+                                <h4 style="margin-bottom: 0.25rem;">Snap Photo to Scan Container for Mixing</h4>
+                                <p style="font-size: 0.85rem;">Tap to open your camera and take a photo of the container label</p>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; margin: 0.6rem 0; flex-wrap: wrap;">
+                            <input type="text" id="mixscan-manual-input" placeholder="Or type / USB-scan S1-XXXXXX" autocomplete="off" style="flex: 2; min-width: 180px; padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+                            <button type="button" class="btn btn-secondary" id="btn-mixscan-manual" style="flex: 1; min-width: 80px;">Check</button>
+                        </div>
+                        <div id="mixscan-feedback" style="display: none; padding: 0.9rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.95rem; line-height: 1.5;"></div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem;">
+                            <h4 style="font-size: 0.95rem; color: #e2e8f0; margin: 0;">Scan summary &mdash; cross-check</h4>
+                            <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
+                                <input type="date" id="mixscan-date" style="padding: 0.3rem 0.4rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+                                <button type="button" class="btn btn-secondary btn-sm" id="btn-mixscan-refresh">&#128260; Refresh</button>
+                                <button type="button" class="btn btn-secondary btn-sm" id="btn-mixscan-print">&#128424;&#65039; Print</button>
+                            </div>
+                        </div>
+                        <div id="mixscan-summary" style="margin-top: 0.6rem;"></div>
+                    </div>
+                </div>
+
+                <!-- Lab History (Blind): at the bottom when two features are shown -->
+                <div class="card lab-hist" style="margin-bottom: 0;">
                     <h3 class="card-title">Today's Station 1 Submissions</h3>
                     <p style="font-size: 0.85rem; margin-bottom: 1.5rem;">Verification list of locked samples submitted by your account. Identity mappings are completely blind.</p>
                     <div class="table-responsive">
@@ -1362,8 +1445,8 @@
 
         <!-- SCREEN: LAB 2 (GCV & ASH) -->
         <section id="screen-lab2" class="screen">
-            <div class="grid-2">
-                <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+            <div class="lab-layout with-two" id="lab2-layout">
+                <div class="lab-col-a" style="display: flex; flex-direction: column; gap: 1.5rem;">
                     <div class="card" style="margin-bottom: 0;">
                         <h3 class="card-title">Lab Station 2 — Composite GCV & Ash</h3>
                         
@@ -1378,6 +1461,37 @@
                         <div id="lab2-qr-reader" style="display:none;"></div>
                     </div>
 
+                    <!-- Blind Entry Form (Hidden until barcode lookup succeeds) -->
+                    <div id="lab2-duplicate-notice" class="alert alert-danger duplicate-notice" role="alert" style="display: none;"></div>
+                    <div class="card" id="lab2-entry-card" style="display: none; margin-bottom: 0;">
+                        <div id="lab2-alert" class="alert" style="display: none;"></div>
+                        <h3 class="card-title">Blind Composite Details</h3>
+                        <div class="lab-meta-display" style="margin-bottom: 1.5rem;">
+                            <span>COMPOSITE STATUS:</span>
+                            <span id="lab2-blind-code" style="font-weight: bold; color: var(--secondary);">VERIFIED</span>
+                        </div>
+                        
+                        <form id="lab2-entry-form">
+                            <input type="hidden" id="lab2-barcode-id">
+                            <div class="grid-2">
+                                <div class="form-group">
+                                    <label for="lab2-gcv">GCV Value (kcal/kg)</label>
+                                    <input type="number" id="lab2-gcv" placeholder="e.g. 3800" required min="0" step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label for="lab2-ash">Ash Content (%)</label>
+                                    <input type="number" step="0.01" id="lab2-ash" placeholder="0.00" required min="0" max="100">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;">
+                                Lock & Submit Results
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Second feature of Lab 2: composite mixing (generate once / reprint) -->
+                <div class="lab-col-b" style="display: flex; flex-direction: column; gap: 1.5rem;">
                     <!-- Blind Scan-Driven Composite Mixing Panel -->
                     <div class="card" style="margin-bottom: 0;">
                         <h3 class="card-title">Composite Mixing &mdash; Generate &amp; Reprint</h3>
@@ -1447,38 +1561,10 @@
                             </div>
                         </div>
                     </div>
-
-                    <!-- Blind Entry Form (Hidden until barcode lookup succeeds) -->
-                    <div id="lab2-duplicate-notice" class="alert alert-danger duplicate-notice" role="alert" style="display: none;"></div>
-                    <div class="card" id="lab2-entry-card" style="display: none; margin-bottom: 0;">
-                        <div id="lab2-alert" class="alert" style="display: none;"></div>
-                        <h3 class="card-title">Blind Composite Details</h3>
-                        <div class="lab-meta-display" style="margin-bottom: 1.5rem;">
-                            <span>COMPOSITE STATUS:</span>
-                            <span id="lab2-blind-code" style="font-weight: bold; color: var(--secondary);">VERIFIED</span>
-                        </div>
-                        
-                        <form id="lab2-entry-form">
-                            <input type="hidden" id="lab2-barcode-id">
-                            <div class="grid-2">
-                                <div class="form-group">
-                                    <label for="lab2-gcv">GCV Value (kcal/kg)</label>
-                                    <input type="number" id="lab2-gcv" placeholder="e.g. 3800" required min="0" step="0.01">
-                                </div>
-                                <div class="form-group">
-                                    <label for="lab2-ash">Ash Content (%)</label>
-                                    <input type="number" step="0.01" id="lab2-ash" placeholder="0.00" required min="0" max="100">
-                                </div>
-                            </div>
-                            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;">
-                                Lock & Submit Results
-                            </button>
-                        </form>
-                    </div>
                 </div>
 
-                <!-- Lab History (Blind) -->
-                <div class="card" style="margin-bottom: 0;">
+                <!-- Lab History (Blind): at the bottom -->
+                <div class="card lab-hist" style="margin-bottom: 0;">
                     <h3 class="card-title">Today's Station 2 Submissions</h3>
                     <p style="font-size: 0.85rem; margin-bottom: 1.5rem;">Verification list of locked composite samples submitted by your account. Mappings are completely blind.</p>
                     <div class="table-responsive">
@@ -1504,6 +1590,23 @@
 
     <!-- Hidden Printable Output Container (a sibling of <main>: the print stylesheet hides <main>, so inside it the labels printed blank) -->
     <div id="print-section" style="display: none;"></div>
+
+    <!-- Bottom-sample request (Unloading): needs the bottom-sampling password -->
+    <div id="bottom-req-modal" style="display: none; position: fixed; inset: 0; z-index: 99990; background: rgba(2,6,23,0.8); align-items: center; justify-content: center; padding: 1rem;">
+        <div class="card" style="max-width: 440px; width: 100%; margin: 0; border: 2px solid #f59e0b;">
+            <h3 class="card-title" style="margin-bottom: 0.4rem;">Request bottom sample</h3>
+            <p style="font-size: 0.9rem; margin-bottom: 0.9rem;">Truck <strong id="bottom-req-truck"></strong>. The chemistry team will test this truck's sample separately, not in the composite mixture. Enter the bottom-sampling password to continue.</p>
+            <label style="display: block; font-size: 0.8rem; margin-bottom: 0.2rem;">Bottom-sampling password</label>
+            <input type="password" id="bottom-req-pw" autocomplete="off" style="width: 100%; padding: 0.55rem; margin-bottom: 0.7rem;">
+            <label style="display: block; font-size: 0.8rem; margin-bottom: 0.2rem;">Reason (optional)</label>
+            <input type="text" id="bottom-req-reason" maxlength="300" placeholder="e.g. too much dust / stones" style="width: 100%; padding: 0.55rem; margin-bottom: 0.7rem;">
+            <div id="bottom-req-msg" style="font-size: 0.88rem; margin-bottom: 0.6rem; min-height: 1.2em;"></div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" id="btn-bottom-req-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btn-bottom-req-send" disabled>Send request</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Photo Lightbox Modal (For viewing truck photos) -->
     <div id="lightbox" class="photo-lightbox" onclick="this.style.display='none'">
@@ -1540,14 +1643,14 @@
 
     <!-- Moisture-meter reader (trained offline OCR). Small loaders only; the ~8 MB engine in lib/ocr/ is fetched
          on first use. If these fail to load the app simply falls back to manual photo + typing. -->
-    <script src="lib/ocr/moisture-reader-core.js?v=20261019_v25"></script>
-    <script src="lib/ocr/led-weight-reader.js?v=20261019_v25"></script>
-    <script src="lib/ocr/led-templates.js?v=20261019_v25"></script>
-    <script src="moisture-ocr.js?v=20261019_v25"></script>
+    <script src="lib/ocr/moisture-reader-core.js?v=20261019_v27"></script>
+    <script src="lib/ocr/led-weight-reader.js?v=20261019_v27"></script>
+    <script src="lib/ocr/led-templates.js?v=20261019_v27"></script>
+    <script src="moisture-ocr.js?v=20261019_v27"></script>
 
     <!-- App JavaScript files -->
-    <script src="api.js?v=20261019_v25" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261019_v25" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="api.js?v=20261019_v27" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261019_v27" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

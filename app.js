@@ -14,6 +14,12 @@ document.addEventListener('DOMContentLoaded', function() {
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/`/g, '&#96;');
     }
 
+    // "2026-10-19" -> "19-10-2026" (the date printed on every sample label)
+    function dmy(d) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || ''));
+        return m ? `${m[3]}-${m[2]}-${m[1]}` : String(d || '');
+    }
+
     // ================= UNIFIED, ISOLATED PDF/PRINT ENGINE =================
     // Every "Print" / "Export PDF" button in the app builds its document HTML, then calls this.
     // It shows the document ON-SCREEN in its own overlay (an iframe with a self-contained
@@ -1042,6 +1048,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const u = window.BiomassAPI.getCurrentUser();
         const on = !!u && u.role === 'lab1f';
         card.style.display = on ? '' : 'none';
+        const colB = document.getElementById('lab1-col-b'), layout = document.getElementById('lab1-layout');
+        if (colB) colB.style.display = on ? 'flex' : 'none';
+        if (layout) layout.classList.toggle('with-two', on);      // two features side by side, history underneath
         if (!on) return;
 
         const dateEl = document.getElementById('mixscan-date');
@@ -1246,15 +1255,17 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!rows.length) { note.textContent = `No trucks were registered on ${res.date}.`; return; }
             const accepted = rows.filter(r => r.acceptance_status === 'ACCEPTED').length, rejected = rows.filter(r => r.acceptance_status === 'REJECTED').length;
             const netKg = rows.reduce((a, r) => a + (Number(r.net_weight) || 0), 0);
-            note.innerHTML = `<strong>${esc(res.date)}</strong> &bull; ${rows.length} truck(s) &bull; ${accepted} accepted / ${rejected} rejected &bull; total net weight <strong>${(netKg / 1000).toFixed(3)} MT</strong>` +
+            const accKg = rows.filter(r => r.acceptance_status === 'ACCEPTED').reduce((a, r) => a + (Number(r.net_weight) || 0), 0);
+            const rejKg = rows.filter(r => r.acceptance_status === 'REJECTED').reduce((a, r) => a + (Number(r.net_weight) || 0), 0);
+            note.innerHTML = `<strong>${esc(dmy(res.date))}</strong> &bull; ${rows.length} truck(s) &bull; ${accepted} accepted / ${rejected} rejected &bull; net weight: all <strong>${(netKg / 1000).toFixed(3)} MT</strong> (accepted ${(accKg / 1000).toFixed(3)} MT, rejected ${(rejKg / 1000).toFixed(3)} MT)` +
                 ` <span style="color:#94a3b8;">(generated ${esc(res.generated_at)} IST)</span>`;
             body.innerHTML = rows.map((r, i) => {
                 const rej = r.acceptance_status === 'REJECTED';
                 const cell = (v, d) => rej && (v === null || v === undefined) ? '<span style="color:#ef4444;">N/A</span>' : (dr(v, d) !== null ? dr(v, d) : '<span style="color:#f59e0b;">Pending</span>');
                 const wt = v => Number(v) > 0 ? Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '<span style="color:#f59e0b;">-</span>';
-                return `<tr${rej ? ' style="background:rgba(239,68,68,0.08);"' : ''}><td>${i + 1}</td><td><strong>${esc(r.truck_reg_number)}</strong></td><td>${esc(r.company_name)}</td>` +
+                return `<tr${rej ? ' style="background:rgba(239,68,68,0.08);"' : ''}><td>${i + 1}</td><td><strong>${esc(r.truck_reg_number)}</strong></td><td>${esc(r.company_name)}</td><td>${esc(r.lot || '')}<br><small style="color:#94a3b8;">PO ${esc(r.po_number || '-')}</small></td>` +
                     `<td>${wt(r.gross_weight)}</td><td>${wt(r.tare_weight)}</td><td>${wt(r.net_weight)}</td>` +
-                    `<td>${cell(r.moisture_pct, 2)}</td><td>${cell(r.gcv, 0)}</td><td>${cell(r.fineness_value, 2)}</td><td>${cell(r.ash, 2)}</td>` +
+                    `<td>${cell(r.moisture_pct, 2)}</td><td>${cell(r.gcv, 0)}</td><td>${cell(r.fineness_value, 2)}</td><td>${cell(r.ash, 2)}</td><td>${esc(r.gcv_source || '-')}</td>` +
                     `<td style="font-weight:700; color:${rej ? '#ef4444' : r.acceptance_status === 'ACCEPTED' ? '#10b981' : '#f59e0b'};">${esc(r.acceptance_status)}</td></tr>`;
             }).join('');
             wrap.style.display = ''; xl.style.display = '';
@@ -1269,15 +1280,15 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!res || !(res.rows || []).length) { alert('Generate the report first.'); return; }
         if (typeof ExcelJS === 'undefined') { alert('Excel export library failed to load. Please check your internet connection and try again.'); return; }
         const rows = res.rows;
-        const cols = [['S.No.', 7], ['Truck No.', 15], ['Vendor', 28], ['Gross Wt (kg)', 14], ['Tare Wt (kg)', 14], ['Net Wt (kg)', 14], ['Net Wt (MT)', 12],
-                      ['Moisture %', 11], ['GCV (kcal/kg)', 14], ['Fineness %', 11], ['Ash %', 9], ['Result', 12]];
+        const cols = [['S.No.', 7], ['Truck No.', 15], ['Vendor', 28], ['Lot', 10], ['PO No.', 14], ['Gross Wt (kg)', 14], ['Tare Wt (kg)', 14], ['Net Wt (kg)', 14], ['Net Wt (MT)', 12],
+                      ['Moisture %', 11], ['GCV (kcal/kg)', 14], ['Fineness %', 11], ['Ash %', 9], ['GCV / Ash from', 16], ['Result', 12]];
         const wb = new ExcelJS.Workbook();
         wb.creator = 'BiomassBlind'; wb.created = new Date();
         const sheet = wb.addWorksheet('Day Report', { views: [{ state: 'frozen', ySplit: 4 }] });
         const border = st => ({ top: { style: st }, left: { style: st }, bottom: { style: st }, right: { style: st } });
         const band = (row, argb) => { for (let c = 1; c <= cols.length; c++) sheet.getCell(row, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } }; };
         sheet.mergeCells(1, 1, 1, cols.length);
-        Object.assign(sheet.getCell(1, 1), { value: `Biomass Procurement — Daily Report for ${res.date}` });
+        Object.assign(sheet.getCell(1, 1), { value: `Biomass Procurement — Daily Report for ${dmy(res.date)}` });
         sheet.getCell(1, 1).font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } };
         sheet.getCell(1, 1).alignment = { vertical: 'middle', horizontal: 'center' };
         sheet.getRow(1).height = 28; band(1, 'FF059669');
@@ -1300,14 +1311,14 @@ document.addEventListener('DOMContentLoaded', function() {
             const rej = x.acceptance_status === 'REJECTED';
             const na = rej ? 'N/A (REJECTED)' : 'Pending';
             const w = v => Number(v) > 0 ? Number(v) : '-';
-            const vals = [i + 1, x.truck_reg_number, x.company_name, w(x.gross_weight), w(x.tare_weight), w(x.net_weight),
+            const vals = [i + 1, x.truck_reg_number, x.company_name, x.lot || '-', x.po_number || '-', w(x.gross_weight), w(x.tare_weight), w(x.net_weight),
                           Number(x.net_weight) > 0 ? Number((Number(x.net_weight) / 1000).toFixed(3)) : '-',
-                          num(x.moisture_pct) ?? na, num(x.gcv) ?? na, num(x.fineness_value) ?? na, num(x.ash) ?? na, x.acceptance_status];
+                          num(x.moisture_pct) ?? na, num(x.gcv) ?? na, num(x.fineness_value) ?? na, num(x.ash) ?? na, x.gcv_source || '-', x.acceptance_status];
             vals.forEach((v, k) => {
                 const c = sheet.getCell(r, k + 1);
                 c.value = v; c.border = border('hair');
                 c.alignment = { vertical: 'middle', horizontal: (k === 1 || k === 2) ? 'left' : 'center' };
-                if (typeof v === 'number' && k >= 3 && k <= 5) c.numFmt = '#,##0.###';
+                if (typeof v === 'number' && k >= 5 && k <= 7) c.numFmt = '#,##0.###';
                 if (rej) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
                 else if (r % 2 === 0) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
             });
@@ -1317,8 +1328,10 @@ document.addEventListener('DOMContentLoaded', function() {
         r += 1;
         const acc = rows.filter(x => x.acceptance_status === 'ACCEPTED'), rej = rows.filter(x => x.acceptance_status === 'REJECTED');
         const totalKg = rows.reduce((a, x) => a + (Number(x.net_weight) || 0), 0);
+        const accKgX = acc.reduce((a, x) => a + (Number(x.net_weight) || 0), 0), rejKgX = rej.reduce((a, x) => a + (Number(x.net_weight) || 0), 0);
         [['Total trucks', rows.length], ['Accepted / Rejected', `${acc.length} / ${rej.length}`],
-         ['Total net weight (kg)', Number(totalKg.toFixed(3))], ['Total net weight (MT)', Number((totalKg / 1000).toFixed(3))]].forEach(([label, val]) => {
+         ['Total net weight (kg)', Number(totalKg.toFixed(3))], ['Total net weight (MT)', Number((totalKg / 1000).toFixed(3))],
+         ['Accepted net weight (MT)', Number((accKgX / 1000).toFixed(3))], ['Rejected net weight (MT)', Number((rejKgX / 1000).toFixed(3))]].forEach(([label, val]) => {
             sheet.getCell(r, 2).value = label; sheet.getCell(r, 2).font = { bold: true };
             sheet.getCell(r, 3).value = val; sheet.getCell(r, 3).alignment = { horizontal: 'left' };
             r++;
@@ -1418,7 +1431,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else {
                     banner.innerHTML = `
                         <strong>🚚 UNLOADING PERMITTED</strong><br>
-                        Moisture passed (<strong>${res.moisture_pct}%</strong> is below the ${res.moisture_limit}% limit). Proceed with biomass unloading.<br>
+                        ${res.moisture_limit === null || res.moisture_limit === undefined ? 'No moisture rejection applies to this consignment.' : `Moisture passed (<strong>${res.moisture_pct}%</strong> is below the ${res.moisture_limit}% limit).`} Proceed with biomass unloading.<br>
                         <small style="color:#cbd5e1;">Final tare weight will automatically confirm unloading when captured at exit weighbridge.</small><br>
                         <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="window.openTruckWeighmentSlip('${res.truck_id}')">🖨️ View Inbound Weighment Slip</button>
                     `;
@@ -1440,7 +1453,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             TRUCK NO: <span style="background: #ef4444; color: white; padding: 0.2rem 0.6rem; border-radius: 4px; border: 1px solid #ffffff; font-size: 1.2rem; display: inline-block; margin-top: 0.25rem;">${esc(res.truck_reg_number)}</span>
                         </div>
                         <strong>UNLOADING STRICTLY FORBIDDEN</strong><br>
-                        Moisture level is <strong>${res.moisture_pct}%</strong> (Maximum allowed: ${res.moisture_limit}%). Net weight is recorded as 0. Do not unload this truck.<br>
+                        Moisture level is <strong>${res.moisture_pct}%</strong> (Maximum allowed: ${res.moisture_limit}%). Do not unload this truck. Weights are recorded exactly as weighed (Net: <strong>${Number(res.net_weight || 0).toLocaleString()} kg</strong>).<br>
                         <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="window.openTruckWeighmentSlip('${res.truck_id}')" style="background:#dc2626; color:white; border:none;">🖨️ Print Rejection Slip</button>
                     `;
                 } else {
@@ -1625,6 +1638,114 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // ================= ADMIN & ENTRY DASHBOARD CONTROLLERS =================
     let companiesSet = new Set();
+    let companyRecords = [];       // [{name, po_number, lot}] - one entry per vendor + PO + lot
+    const companyLabel = (r) => `${r.name} (PO ${r.po_number || 'not set'} \u00B7 ${r.lot})`;
+    const normName = (v) => String(v || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+    // What did the operator pick / type in the supplier box?
+    //   exact    : an entry chosen from the list  -> its name, PO and lot
+    //   one      : a typed name that exists under exactly one lot (the lot filter above the box counts)
+    //   ambiguous: a typed name that exists under more than one lot (must choose from the list)
+    //   otherlot : the name exists, but not under the lot chosen in the filter
+    //   new      : a name that is not in the list (the operator must choose its lot)
+    let vendorLotFilter = '';          // the constant filter above the supplier box: '' = all lots
+    function resolveVendorInput(val) {
+        const v = String(val || '').trim();
+        const exact = companyRecords.find(r => companyLabel(r) === v);
+        if (exact) return { kind: 'exact', rec: exact };
+        const allSame = companyRecords.filter(r => normName(r.name) === normName(v));
+        const same = vendorLotFilter ? allSame.filter(r => r.lot === vendorLotFilter) : allSame;
+        if (same.length === 1) return { kind: 'one', rec: same[0] };
+        if (same.length > 1) return { kind: 'ambiguous', recs: same };
+        if (allSame.length) return { kind: 'otherlot', recs: allSame };
+        return { kind: 'new' };
+    }
+    function updateVendorInfo() {
+        const input = document.getElementById('reg-company'), box = document.getElementById('reg-vendor-info'), lotGrp = document.getElementById('reg-lot-group');
+        if (!input || !box) return;
+        const v = input.value.trim();
+        if (lotGrp) lotGrp.style.display = 'none';
+        if (!v) { box.style.display = 'none'; return; }
+        const r = resolveVendorInput(v);
+        box.style.display = 'block';
+        if (r.kind === 'exact' || r.kind === 'one') {
+            const hasBoth = companyRecords.filter(x => normName(x.name) === normName(r.rec.name)).length > 1;
+            box.style.background = r.rec.lot === 'LOT4' ? 'rgba(59,130,246,0.18)' : 'rgba(16,185,129,0.15)';
+            box.style.border = '1px solid ' + (r.rec.lot === 'LOT4' ? '#3b82f6' : '#10b981');
+            box.innerHTML = `Selected: <strong>${esc(r.rec.name)}</strong> &mdash; PO <strong>${esc(r.rec.po_number || 'not set')}</strong> &mdash; <strong>${esc(r.rec.lot)}</strong>` +
+                (hasBoth ? '<br><span style="color:#fbbf24;">This vendor also exists under another Lot / PO &mdash; check that this is the right one.</span>' : '');
+        } else if (r.kind === 'ambiguous') {
+            box.style.background = 'rgba(245,158,11,0.18)'; box.style.border = '1px solid #f59e0b';
+            box.innerHTML = '⚠️ This vendor exists under more than one Lot / PO. <strong>Pick the right one from the list</strong> or press LOT2/3 / LOT4 above the box.';
+        } else if (r.kind === 'otherlot') {
+            box.style.background = 'rgba(245,158,11,0.18)'; box.style.border = '1px solid #f59e0b';
+            box.innerHTML = `⚠️ This vendor is <strong>not under ${esc(vendorLotFilter)}</strong>. It exists as: ` + r.recs.map(x => `<strong>${esc(x.lot)}</strong> (PO ${esc(x.po_number || 'not set')})`).join(', ') +
+                '. Press <strong>All</strong> or the right lot above the box.';
+        } else {
+            box.style.background = 'rgba(148,163,184,0.15)'; box.style.border = '1px solid #94a3b8';
+            box.innerHTML = 'New supplier (not in the list). Choose its Lot below.';
+            if (lotGrp) lotGrp.style.display = '';
+            const lotSel = document.getElementById('reg-lot');
+            if (lotSel && vendorLotFilter) lotSel.value = vendorLotFilter;      // the filter above the box decides the lot of a new supplier
+        }
+    }
+
+    // Wide, searchable supplier list (the browser's own drop-down cannot show the whole "NAME (PO ... - LOT)" text)
+    let vendorShown = [], vendorActive = -1;
+    function renderVendorList(showAll) {
+        const box = document.getElementById('reg-vendor-list'), input = document.getElementById('reg-company');
+        if (!box || !input) return;
+        const q = showAll ? '' : input.value.replace(/\s*\(PO .*$/, '').trim().toLowerCase();
+        vendorShown = companyRecords.filter(r => (!vendorLotFilter || r.lot === vendorLotFilter) && (!q || (r.name + ' ' + (r.po_number || '')).toLowerCase().includes(q))).slice(0, 300);
+        vendorActive = -1;
+        box.innerHTML = vendorShown.length
+            ? vendorShown.map((r, i) => `<div class="vendor-item" data-i="${i}"><span class="vendor-name">${esc(r.name)}</span>` +
+                `<span class="vendor-meta"><span class="lot-tag ${r.lot === 'LOT4' ? 'lot-4' : 'lot-23'}">${esc(r.lot)}</span> &nbsp;PO ${esc(r.po_number || 'not set')}</span></div>`).join('')
+            : '<div class="vendor-empty">No vendor matches' + (vendorLotFilter ? ' under ' + esc(vendorLotFilter) : '') + '. You can still type a new supplier name.</div>';
+    }
+    function showVendorList(showAll) { const box = document.getElementById('reg-vendor-list'); if (box) { renderVendorList(showAll); box.style.display = 'block'; } }
+    function hideVendorList() { const box = document.getElementById('reg-vendor-list'); if (box) box.style.display = 'none'; }
+    function pickVendor(i) {
+        const rec = vendorShown[i], input = document.getElementById('reg-company');
+        if (!rec || !input) return;
+        input.value = companyLabel(rec);
+        hideVendorList();
+        updateVendorInfo();
+    }
+    (function wireVendorInput() {
+        const input = document.getElementById('reg-company'), box = document.getElementById('reg-vendor-list'), filter = document.getElementById('reg-lot-filter');
+        if (!input || !box) return;
+        input.addEventListener('input', () => { updateVendorInfo(); showVendorList(false); });
+        input.addEventListener('change', updateVendorInfo);
+        input.addEventListener('focus', () => showVendorList(false));
+        input.addEventListener('blur', () => setTimeout(hideVendorList, 180));
+        input.addEventListener('keydown', (e) => {
+            const open = box.style.display !== 'none';
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                if (!open) showVendorList(false);
+                if (!vendorShown.length) return;
+                e.preventDefault();
+                vendorActive = (vendorActive + (e.key === 'ArrowDown' ? 1 : -1) + vendorShown.length) % vendorShown.length;
+                [...box.querySelectorAll('.vendor-item')].forEach((el, i) => el.classList.toggle('active', i === vendorActive));
+                const act = box.querySelector('.vendor-item.active'); if (act) act.scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'Enter' && open && vendorActive >= 0) {
+                e.preventDefault(); pickVendor(vendorActive);
+            } else if (e.key === 'Escape') { hideVendorList(); }
+        });
+        box.addEventListener('mousedown', (e) => {                    // mousedown: it fires before the input loses focus
+            const it = e.target.closest('.vendor-item');
+            if (it) { e.preventDefault(); pickVendor(Number(it.getAttribute('data-i'))); }
+        });
+        if (filter) filter.addEventListener('click', (e) => {
+            const b = e.target.closest('button[data-lot]');
+            if (!b) return;
+            vendorLotFilter = b.getAttribute('data-lot') || '';
+            [...filter.querySelectorAll('button')].forEach(x => x.classList.toggle('active', x === b));
+            updateVendorInfo();
+            showVendorList(false);
+            input.focus();
+        });
+    })();
 
     function initAdminDashboard(role) {
         const tabs = document.querySelectorAll('#screen-admin .tab-btn');
@@ -1634,7 +1755,7 @@ document.addEventListener('DOMContentLoaded', function() {
         tabs.forEach(tab => {
             const dataTab = tab.getAttribute('data-tab');
             if (role === 'entry') {
-                if (dataTab !== 'admin-register') {
+                if (dataTab !== 'admin-register' && dataTab !== 'admin-bottom') {
                     tab.style.display = 'none';
                 } else {
                     tab.style.display = 'flex';
@@ -1654,7 +1775,7 @@ document.addEventListener('DOMContentLoaded', function() {
         tabContents.forEach(content => {
             const id = content.getAttribute('id');
             if (role === 'entry') {
-                if (id !== 'tab-admin-register') {
+                if (id !== 'tab-admin-register' && id !== 'tab-admin-bottom') {
                     content.style.setProperty('display', 'none', 'important');
                 } else {
                     content.style.display = '';
@@ -1698,6 +1819,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (role === 'admin' || role === 'entry') {
             loadRecentRegistrations();
+            initBottomSamples();
         }
 
         if (role === 'admin') {
@@ -1715,10 +1837,14 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         function handleTabClick(e) {
-            // SECURITY: Block tab clicking for Entry Operator and Weighment Operator roles
-            if (role === 'entry' || role === 'weighment') {
+            // SECURITY: Weighment never switches tabs; Entry may only switch between Truck Registration and Bottom Samples
+            if (role === 'weighment') {
                 e.preventDefault();
                 return;
+            }
+            if (role === 'entry') {
+                const dt = e.currentTarget.getAttribute('data-tab');
+                if (dt !== 'admin-register' && dt !== 'admin-bottom') { e.preventDefault(); return; }
             }
 
             const clickedTab = e.currentTarget;
@@ -1740,6 +1866,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else if (role === 'entry') {
                     loadRecentRegistrations();
                 }
+            } else if (targetContentId === 'tab-admin-bottom') {
+                renderBottomList();
             } else if (targetContentId === 'tab-admin-weighment') {
                 renderWeighmentLog();
             } else if (targetContentId === 'tab-admin-reports') {
@@ -1753,6 +1881,7 @@ document.addEventListener('DOMContentLoaded', function() {
             } else if (targetContentId === 'tab-admin-settings') {
                 initStorageCard();
                 initMixResetCard();
+                initBottomPasswordCard();
             }
         }
 
@@ -2041,16 +2170,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const datalist = document.getElementById('companies-list');
             datalist.innerHTML = '';
+            // The supplier list shows each vendor with its PO and lot in brackets (a vendor can exist under both lots)
+            try { companyRecords = await window.BiomassAPI.getCompaniesDetailed(); } catch (e) { companyRecords = []; }
             
             if (compSelect) compSelect.innerHTML = '<option value="">-- Choose Supplier --</option>';
             if (reportSelect) reportSelect.innerHTML = '<option value="">-- Choose Supplier --</option>';
             if (commSelect) commSelect.innerHTML = '<option value="ALL">All Suppliers / Consolidated</option>';
 
+            renderVendorList();
             sortedCompanies.forEach(company => {
-                // Datalist options
-                const opt = document.createElement('option');
-                opt.value = company;
-                datalist.appendChild(opt);
+                // (datalist options are built from companyRecords above)
 
                 // Dropdown options
                 if (compSelect) {
@@ -2305,6 +2434,8 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div>
                                 <canvas id="print-qr-target"></canvas>
                             </div>
+                            <div style="font-family: monospace; font-weight: 800; margin-top: 4px; color: #000;">${esc(dmy(truck.entry_date))}</div>
+                            <div style="font-family: monospace; font-size: 9pt; color: #000;">${esc(truck.sample1_barcode_id)}</div>
                         </div>
                     `;
                     QRCode.toCanvas(document.getElementById('print-qr-target'), encrypted, {
@@ -2318,7 +2449,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (btnDownload) {
                 btnDownload.onclick = function() {
-                    downloadQrAsPng('#qr-canvas-admin-lookup', `Sample_1_${truck.sample1_barcode_id}`, '', truck.sample1_barcode_id, false);
+                    downloadQrAsPng('#qr-canvas-admin-lookup', `Sample_1_${truck.sample1_barcode_id}`, dmy(truck.entry_date), truck.sample1_barcode_id, false);
                 };
             }
 
@@ -2435,8 +2566,29 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.warn('Duplicate check warning:', dupErr);
             }
 
+            const vend = resolveVendorInput(document.getElementById('reg-company').value);
+            if (vend.kind === 'ambiguous') {
+                alert('This vendor exists under more than one Lot / PO.\n\nPick the correct entry from the supplier list, or press LOT2/3 / LOT4 above the supplier box.');
+                return;
+            }
+            if (vend.kind === 'otherlot') {
+                alert('This vendor is not under ' + vendorLotFilter + '.\n\nPress All or the right lot above the supplier box, then pick the vendor from the list.');
+                return;
+            }
+            let regLot = '', regPo = '', regName = document.getElementById('reg-company').value.trim();
+            if (vend.kind === 'new') {
+                regLot = document.getElementById('reg-lot').value || vendorLotFilter;
+                if (!regLot) { alert('This is a new supplier. Please choose its Lot (LOT2/3 or LOT4).'); return; }
+            } else {
+                regName = vend.rec.name; regLot = vend.rec.lot; regPo = vend.rec.po_number || '';
+                const both = companyRecords.filter(x => normName(x.name) === normName(vend.rec.name)).length > 1;
+                if (both && !confirm(`Please verify before registering:\n\nVendor: ${vend.rec.name}\nPO number: ${vend.rec.po_number || 'not set'}\nLot: ${vend.rec.lot}\n\nIs this the correct Lot / PO for this truck?`)) return;
+            }
+
             const data = {
-                company_name: document.getElementById('reg-company').value.trim(),
+                company_name: regName,
+                lot: regLot,
+                po_number: regPo,
                 driver_name: document.getElementById('reg-driver').value.trim(),
                 truck_reg_number: vehicle,
                 invoice_no: document.getElementById('reg-invoice').value.trim(),
@@ -2475,10 +2627,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (resBox) resBox.style.display = 'block';
                 
                 // Attach print & download triggers (Only S1 QR)
-                setupBarcodePrintTriggers(truck.sample1_barcode_id, truck.daily_group_code);
+                setupBarcodePrintTriggers(truck.sample1_barcode_id, truck.daily_group_code, truck.entry_date);
 
                 // Clean registration form (the reset also clears the auto-print tick: put it back from the saved setting)
                 truckRegForm.reset();
+                updateVendorInfo();
                 const autoBoxAfterReset = document.getElementById('auto-print-label');
                 if (autoBoxAfterReset) { try { autoBoxAfterReset.checked = localStorage.getItem('BIOMASS_AUTOPRINT_LABEL') === '1'; } catch (e) { /* ignore */ } }
                 
@@ -2522,50 +2675,44 @@ document.addEventListener('DOMContentLoaded', function() {
         box.addEventListener('change', function () { try { localStorage.setItem('BIOMASS_AUTOPRINT_LABEL', box.checked ? '1' : '0'); } catch (e) { /* ignore */ } });
     })();
 
-    // Helper: set print & download layout trigger buttons (Strict 50mm x 50mm Thermal Label)
-    function setupBarcodePrintTriggers(s1Id, dailyGroupCode) {
+    // Print one sample label (50 x 50 mm): QR + the sample date (DD-MM-YYYY) + the code text.
+    window.printSampleLabel = async function(s1Id, dateStr) {
         const printContainer = document.getElementById('print-section');
+        const encrypted = await encryptPayload(s1Id);
+        if (printContainer) {
+            printContainer.innerHTML = `
+                <div class="print-label-view print-label-50mm" style="text-align: center;">
+                    <canvas id="print-qr-target"></canvas>
+                    <div style="font-family: monospace; font-size: 9pt; font-weight: 800; margin-top: 0.5mm; color: #000;">${esc(dmy(dateStr))}</div>
+                    <div class="print-label-id" style="font-family: monospace; font-size: 8pt; font-weight: bold; margin-top: 0.5mm;">${esc(s1Id)}</div>
+                </div>
+            `;
+        }
+        const printTarget = document.getElementById('print-qr-target');
+        if (printTarget) {
+            QRCode.toCanvas(printTarget, encrypted, { errorCorrectionLevel: 'M', width: 410, margin: 4 }, function(err) {
+                if (err) console.error(err);
+                document.body.classList.add('printing-label'); setLabelPageSize(true);
+                setTimeout(() => {
+                    window.print();
+                    document.body.classList.remove('printing-label'); setLabelPageSize(false);
+                }, 250);
+            });
+        }
+    };
+
+    // Helper: set print & download layout trigger buttons (Strict 50mm x 50mm Thermal Label)
+    function setupBarcodePrintTriggers(s1Id, dailyGroupCode, dateStr) {
         const btnPrint = document.getElementById('btn-print-s1');
         const btnDownload = document.getElementById('btn-download-s1');
-
-        const printNow = async function() {
-            const encrypted = await encryptPayload(s1Id);
-            if (printContainer) {
-                printContainer.innerHTML = `
-                    <div class="print-label-view print-label-50mm" style="text-align: center;">
-                        <canvas id="print-qr-target"></canvas>
-                        <div class="print-label-id" style="font-family: monospace; font-size: 8pt; font-weight: bold; margin-top: 1mm;">${s1Id}</div>
-                    </div>
-                `;
-            }
-            const printTarget = document.getElementById('print-qr-target');
-            if (printTarget) {
-                QRCode.toCanvas(printTarget, encrypted, {
-                    errorCorrectionLevel: 'M',
-                    width: 410,
-                    margin: 4
-                }, function(err) {
-                    if (err) console.error(err);
-                    document.body.classList.add('printing-label'); setLabelPageSize(true);
-                    setTimeout(() => { 
-                        window.print(); 
-                        document.body.classList.remove('printing-label'); setLabelPageSize(false);
-                    }, 250);
-                });
-            }
-        };
+        const printNow = () => window.printSampleLabel(s1Id, dateStr);
         if (btnPrint) btnPrint.onclick = printNow;
         window.__printSampleLabelNow = printNow;      // used by "print automatically after registering"
- 
+
         // Download as PNG button
         if (btnDownload) {
             btnDownload.onclick = function() {
-                downloadQrAsPng(
-                    '#qr-canvas-s1', 
-                    `Sample_1_${s1Id}`, 
-                    '',
-                    s1Id
-                );
+                downloadQrAsPng('#qr-canvas-s1', `Sample_1_${s1Id}`, dmy(dateStr), s1Id);
             };
         }
     }
@@ -2722,6 +2869,42 @@ document.addEventListener('DOMContentLoaded', function() {
         searchUnloadingInput.addEventListener('input', renderUnloadingLog);
     }
 
+    // Bottom sampling (Unloading): the button only opens a password prompt; the server checks the password every time.
+    function bottomButtonHtml(truck) {
+        if (truck.acceptance_status === 'REJECTED') return '';
+        if (truck.bottom_request === 'REQUESTED') return ' <span class="badge badge-warning" style="background:#f59e0b; color:#fff; padding:4px 8px; border-radius:4px;">🧪 Bottom sample requested</span>';
+        if (truck.bottom_request === 'GENERATED') return ' <span class="badge badge-success" style="background:#0ea5e9; color:#fff; padding:4px 8px; border-radius:4px;">🧪 Bottom sample taken</span>';
+        return ` <button type="button" class="btn btn-secondary btn-sm" style="margin-left:4px;" onclick="window.openBottomRequest('${esc(truck.truck_id)}', '${String(truck.truck_reg_number || '').replace(/[^A-Za-z0-9 \-]/g, '')}')" title="Ask the chemistry team to test this truck separately">🧪 Bottom sample</button>`;
+    }
+    window.openBottomRequest = function(truckId, reg) {
+        const modal = document.getElementById('bottom-req-modal');
+        const pw = document.getElementById('bottom-req-pw'), reason = document.getElementById('bottom-req-reason');
+        const msg = document.getElementById('bottom-req-msg'), send = document.getElementById('btn-bottom-req-send');
+        document.getElementById('bottom-req-truck').textContent = reg || truckId;
+        pw.value = ''; reason.value = ''; msg.textContent = ''; send.disabled = true;
+        modal.style.display = 'flex';
+        pw.focus();
+        pw.oninput = () => { send.disabled = pw.value.length === 0; };
+        pw.onkeydown = (e) => { if (e.key === 'Enter' && !send.disabled) send.click(); };
+        document.getElementById('btn-bottom-req-cancel').onclick = () => { pw.value = ''; modal.style.display = 'none'; };
+        send.onclick = async () => {
+            send.disabled = true; msg.style.color = ''; msg.textContent = 'Checking...';
+            try {
+                const res = await window.BiomassAPI.requestBottomSample(truckId, pw.value, reason.value);
+                if (res && res.success) {
+                    pw.value = ''; modal.style.display = 'none';
+                    alert('Bottom sample request sent to the Entry desk for truck ' + (reg || truckId) + '.');
+                    renderUnloadingLog();
+                } else {
+                    msg.style.color = '#ef4444'; msg.textContent = (res && res.message) || 'The request was not sent.';
+                    pw.value = ''; pw.focus();
+                }
+            } catch (err) {
+                msg.style.color = '#ef4444'; msg.textContent = err.message || String(err);
+            }
+        };
+    };
+
     async function renderUnloadingLog() {
         const tbody = document.getElementById('table-unloading-body');
         if (!tbody) return;
@@ -2781,7 +2964,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td style="color: var(--primary); font-weight: bold;">${tare > 0 ? net.toLocaleString() : '-'}</td>
                     <td>${moistureStr}</td>
                     <td>${statusBadge}</td>
-                    <td><button type="button" class="btn btn-secondary btn-sm" onclick="window.openTruckWeighmentSlip('${esc(truck.truck_id)}')" title="View & Print Slip">🖨️ Slip</button></td>
+                    <td><button type="button" class="btn btn-secondary btn-sm" onclick="window.openTruckWeighmentSlip('${esc(truck.truck_id)}')" title="View & Print Slip">🖨️ Slip</button>
+                        ${bottomButtonHtml(truck)}</td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -2871,9 +3055,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <td>${tare > 0 ? 'Phase 2 Tare Confirmed' : 'Material In Yard'}</td>
                             </tr>
                             <tr style="background: rgba(0,0,0,0.05); font-weight: bold;">
-                                <td>Net Biomass Delivered</td>
+                                <td>${status === 'REJECTED' ? 'Net Weight (Rejected Consignment)' : 'Net Biomass Delivered'}</td>
                                 <td style="font-size: 1.15rem; color: #0284c7;">${tare > 0 ? net.toLocaleString() + ' kg (' + (net/1000).toFixed(2) + ' MT)' : '—'}</td>
-                                <td>${status === 'REJECTED' ? 'REJECTED (Net 0 kg)' : (tare > 0 ? 'Discharged' : 'Pending')}</td>
+                                <td>${status === 'REJECTED' ? 'REJECTED (actual weighed net)' : (tare > 0 ? 'Discharged' : 'Pending')}</td>
                             </tr>
                             <tr>
                                 <td>Gate Moisture %</td>
@@ -5664,10 +5848,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const printContainer = document.getElementById('print-section');
         // One 50 x 50 mm label for a lot (the Vendor / Referee copies also carry the supplier initials).
         const labelHtml = (lotId, sampleName, withInitials, canvasId) => {
-            const initLine = (withInitials && initials)
-                ? `<div style="font-size: 11pt; font-weight: 800; margin: 0 0 1px 0; color: #000; font-family: monospace; line-height: 1;">${esc(initials)} &middot; ${esc(batchDate)}</div>` : '';
+            const initLine = `<div style="font-size: 11pt; font-weight: 800; margin: 0 0 1px 0; color: #000; font-family: monospace; line-height: 1;">${(withInitials && initials) ? esc(initials) + ' &middot; ' : ''}${esc(dmy(batchDate))}</div>`;
             return `
-                <div class="print-label-view print-label-50mm${initLine ? ' label-with-initials' : ''}" style="text-align: center;">
+                <div class="print-label-view print-label-50mm label-with-initials" style="text-align: center;">
                     <div style="font-size: 8pt; font-weight: bold; font-family: monospace; color: #000; line-height: 1;">GROUP: ${gCodeLab2}</div>
                     <div style="font-size: 7pt; font-weight: bold; margin: 1px 0 2px 0; color: #000; font-family: monospace;">${sampleName}</div>
                     ${initLine}
@@ -5712,21 +5895,21 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('btn-download-lab2-test').onclick = () => downloadQrAsPng(
             '#qr-canvas-lab2-test',
             `TEST_${batchDate}_${gCodeLab2}`,
-            `GROUP: ${gCodeLab2} | TEST LOT`,
+            `GROUP: ${gCodeLab2} | TEST LOT ${dmy(batchDate)}`,
             "TEST LOT",
             true
         );
         document.getElementById('btn-download-lab2-ref').onclick = () => downloadQrAsPng(
             '#qr-canvas-lab2-ref',
             `REFEREE_${initials ? initials + '_' : ''}${batchDate}_${gCodeLab2}`,
-            `${initials ? initials + ' | ' : ''}REFEREE LOT  ${gCodeLab2}`,
+            `${initials ? initials + ' | ' : ''}REFEREE LOT ${gCodeLab2} ${dmy(batchDate)}`,
             "REFEREE LOT",
             true
         );
         document.getElementById('btn-download-lab2-vend').onclick = () => downloadQrAsPng(
             '#qr-canvas-lab2-vend',
             `VENDOR_${initials ? initials + '_' : ''}${batchDate}_${gCodeLab2}`,
-            `${initials ? initials + ' | ' : ''}VENDOR LOT  ${gCodeLab2}`,
+            `${initials ? initials + ' | ' : ''}VENDOR LOT ${gCodeLab2} ${dmy(batchDate)}`,
             "VENDOR LOT",
             true
         );
@@ -5835,7 +6018,196 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ================= BARCODE INSPECTOR TAB (ADMIN) =================
+    // ================= BOTTOM SAMPLES (Entry / Admin) =================
+    let bottomPollTimer = null;
+    function initBottomSamples() {
+        const refreshBtn = document.getElementById('btn-bottom-refresh');
+        if (refreshBtn) refreshBtn.onclick = () => renderBottomList();
+        refreshBottomBadge();
+        if (!bottomPollTimer) {
+            bottomPollTimer = setInterval(() => {
+                if (document.hidden) return;
+                refreshBottomBadge();
+                const pane = document.getElementById('tab-admin-bottom');
+                if (pane && pane.classList.contains('active')) renderBottomList();
+            }, 20000);
+        }
+    }
+    async function refreshBottomBadge() {
+        const badge = document.getElementById('bottom-tab-badge'), tab = document.getElementById('tab-btn-bottom');
+        if (!badge || !tab) return;
+        try {
+            const rows = await window.BiomassAPI.getBottomRequests();
+            const n = rows.filter(r => r.status === 'REQUESTED').length;
+            badge.textContent = String(n);
+            badge.style.display = n ? 'inline-block' : 'none';
+            tab.classList.toggle('bottom-alert', n > 0);
+        } catch (e) { /* ignore: the next poll retries */ }
+    }
+    async function renderBottomList() {
+        const box = document.getElementById('bottom-list');
+        if (!box) return;
+        try {
+            const rows = await window.BiomassAPI.getBottomRequests();
+            const n = rows.filter(r => r.status === 'REQUESTED').length;
+            const badge = document.getElementById('bottom-tab-badge'), tab = document.getElementById('tab-btn-bottom');
+            if (badge) { badge.textContent = String(n); badge.style.display = n ? 'inline-block' : 'none'; }
+            if (tab) tab.classList.toggle('bottom-alert', n > 0);
+            if (!rows.length) { box.innerHTML = '<div style="color:#94a3b8; font-style:italic; padding:0.5rem;">No bottom sample requests.</div>'; return; }
+            box.innerHTML = '';
+            rows.forEach(r => {
+                const pending = r.status === 'REQUESTED';
+                const card = document.createElement('div');
+                card.className = 'bottom-req-card' + (pending ? ' pending' : '');
+                card.innerHTML = `
+                    <div>
+                        <div style="font-size:${pending ? '1.25rem' : '1rem'}; font-weight:800;">${pending ? '🔔 ' : '✅ '}${esc(r.truck_reg_number)}</div>
+                        <div style="font-size:0.85rem; color:#cbd5e1;">${esc(r.company_name)} &bull; Driver: ${esc(r.driver_name || '-')}</div>
+                        <div style="font-size:0.8rem; color:#94a3b8;">Requested ${esc(dmy(r.requested_date))} ${esc(r.requested_time || '')}${r.reason ? ' &bull; Reason: ' + esc(r.reason) : ''}</div>
+                    </div>
+                    <div></div>`;
+                const holder = card.lastElementChild;
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                if (pending) {
+                    btn.className = 'btn btn-primary';
+                    btn.textContent = '🖨️ Generate QR & print label';
+                    btn.onclick = () => generateBottomLabel(r, btn);
+                } else {
+                    btn.className = 'btn btn-secondary btn-sm';
+                    btn.textContent = '🖨️ Reprint label';
+                    btn.onclick = () => reprintBottomLabel(r, btn);
+                }
+                holder.appendChild(btn);
+                box.appendChild(card);
+            });
+        } catch (err) {
+            box.innerHTML = `<div style="color:#ef4444; padding:0.5rem;">Could not load the requests: ${esc(err.message)}</div>`;
+        }
+    }
+    async function showBottomLabel(res, truckReg) {
+        const card = document.getElementById('bottom-label-card');
+        document.getElementById('bottom-label-truck').textContent = truckReg || '';
+        document.getElementById('bottom-label-date').textContent = dmy(res.entry_date);
+        document.getElementById('bottom-label-id').textContent = res.sample1_barcode_id;
+        const enc = await encryptPayload(res.sample1_barcode_id);
+        QRCode.toCanvas(document.getElementById('qr-canvas-bottom'), enc, { errorCorrectionLevel: 'M', width: 246, margin: 4 }, function(err) { if (err) console.error(err); });
+        document.getElementById('btn-print-bottom').onclick = () => window.printSampleLabel(res.sample1_barcode_id, res.entry_date);
+        document.getElementById('btn-download-bottom').onclick = () => downloadQrAsPng('#qr-canvas-bottom', `Sample_${res.sample1_barcode_id}`, dmy(res.entry_date), res.sample1_barcode_id);
+        card.style.display = 'block';
+        card.scrollIntoView({ behavior: 'smooth' });
+    }
+    async function generateBottomLabel(r, btn) {
+        if (!confirm(`Generate a NEW sample QR for truck ${r.truck_reg_number}?\n\nThe truck's existing sample stays valid for moisture and fineness, but it is taken out of the composite mixture. This cannot be undone.`)) return;
+        btn.disabled = true;
+        try {
+            const res = await window.BiomassAPI.generateBottomSample(r.truck_id);
+            if (!res || !res.success) throw new Error((res && res.message) || 'Could not generate the sample');
+            await showBottomLabel(res, r.truck_reg_number);
+            await renderBottomList();
+            const auto = document.getElementById('auto-print-label');
+            if (auto && auto.checked) window.printSampleLabel(res.sample1_barcode_id, res.entry_date);
+        } catch (err) {
+            alert('Could not generate the bottom sample: ' + err.message);
+            btn.disabled = false;
+        }
+    }
+    async function reprintBottomLabel(r, btn) {
+        btn.disabled = true;
+        try {
+            const res = await window.BiomassAPI.reprintBottomSample(r.truck_id);
+            await showBottomLabel(res, r.truck_reg_number);
+        } catch (err) {
+            alert(err.message);
+        } finally { btn.disabled = false; }
+    }
+
+    // Admin > Settings: the bottom-sampling password
+    async function initBottomPasswordCard() {
+        const status = document.getElementById('bottompw-status'), input = document.getElementById('bottompw-input'), btn = document.getElementById('btn-bottompw-save'), out = document.getElementById('bottompw-result');
+        if (!btn) return;
+        const show = async () => {
+            try {
+                const st = await window.BiomassAPI.getBottomStatus();
+                status.innerHTML = (st.password_set ? '✅ A password is set.' : '⚠️ <strong>No password is set yet</strong> - the unloading team cannot request bottom samples.') +
+                    ` Requests waiting: <strong>${st.pending_requests}</strong> &bull; generated so far: <strong>${st.generated}</strong>.`;
+            } catch (e) { status.textContent = ''; }
+        };
+        btn.onclick = async () => {
+            out.textContent = '';
+            if (input.value.length < 6) { out.textContent = 'Use at least 6 characters.'; return; }
+            btn.disabled = true;
+            try {
+                await window.BiomassAPI.setBottomPassword(input.value);
+                input.value = ''; out.textContent = '✅ Password saved. Tell it only to the people who may request bottom samples.';
+                show();
+            } catch (e) { out.textContent = '⚠️ ' + e.message; }
+            finally { btn.disabled = false; }
+        };
+        show();
+    }
+
+    // Admin > Barcode Inspector: everything linked to a mixing code
+    function initMixSearch() {
+        const input = document.getElementById('inspector-mix-input'), btn = document.getElementById('btn-inspector-mix');
+        if (!input || !btn || btn.dataset.wired) return;
+        btn.dataset.wired = '1';
+        const go = async () => {
+            const code = input.value.trim().toUpperCase();
+            const card = document.getElementById('mixsearch-result-card'), body = document.getElementById('mixsearch-body'), sum = document.getElementById('mixsearch-summary');
+            if (!code) { alert('Type a mixing code first.'); return; }
+            btn.disabled = true;
+            try {
+                const res = await window.BiomassAPI.searchMixingCode(code);
+                const rows = res.rows || [];
+                card.style.display = 'block';
+                document.getElementById('mixsearch-title').textContent = `Trucks linked to mixing code ${code}`;
+                if (!rows.length) { sum.innerHTML = `<span style="color:#f59e0b;">No truck is linked to the mixing code <strong>${esc(code)}</strong>.</span>`; body.innerHTML = ''; document.getElementById('mixsearch-head').innerHTML = ''; return; }
+                const uniq = (f) => [...new Set(rows.map(f))];
+                const dates = uniq(r => r.entry_date), vendors = uniq(r => r.company_name), lots = uniq(r => r.lot), pos = uniq(r => r.po_number || '');
+                // Facts that are the same on every row are shown once at the top; only values that differ get a column.
+                const tiles = [['Mixing code', esc(code)]];
+                const varCols = [];
+                if (dates.length === 1) tiles.push(['Entry date', esc(dmy(dates[0]))]); else varCols.push(['Entry date', r => `${esc(dmy(r.entry_date))}<br><small style="color:#94a3b8;">${esc(r.entry_time || '')}</small>`]);
+                if (vendors.length === 1) tiles.push(['Vendor', esc(vendors[0])]); else varCols.push(['Vendor', r => esc(r.company_name)]);
+                if (lots.length === 1) tiles.push(['Lot', esc(lots[0])]); else varCols.push(['Lot', r => esc(r.lot)]);
+                if (pos.length === 1) tiles.push(['PO number', esc(pos[0] || 'not set')]); else varCols.push(['PO', r => esc(r.po_number || '-')]);
+                tiles.push(['Records', String(rows.length)]);
+                sum.innerHTML = tiles.map(t => `<div class="tile"><small>${t[0]}</small><strong>${t[1]}</strong></div>`).join('') +
+                    (dates.length > 1 ? '<div class="tile" style="grid-column: 1 / -1; color:#fbbf24;">This code was used on more than one day - see the date column.</div>' : '');
+                const f = (v, d) => (v === null || v === undefined || v === '') ? '<span style="color:#f59e0b;">Pending</span>' : Number(v).toFixed(d);
+                const wt = v => Number(v) > 0 ? Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '-';
+                const cols = varCols.concat([
+                    ['Vehicle / Truck ID', r => `<strong>${esc(r.truck_reg_number)}</strong><br><small style="color:#94a3b8;">${esc(r.truck_id)}</small>`],
+                    ['Sample QR', r => `<span style="font-family:monospace;">${esc(r.sample1_barcode_id)}</span>`],
+                    ['Sample type', r => {
+                        const lk = r.linked_group_code ? ` (code ${esc(r.linked_group_code)})` : '';
+                        return r.is_bottom_sample ? `<span class="badge badge-warning" style="background:#0ea5e9; color:#fff;">Bottom sample</span> of the truck's original sample${lk}`
+                            : (r.excluded_from_mix ? `Truck sample <span class="badge badge-danger" style="background:#ef4444; color:#fff;">replaced by bottom sample${lk}</span>` : 'Truck sample');
+                    }],
+                    ['Moisture %', r => f(r.moisture_pct, 2)],
+                    ['Fineness %', r => f(r.fineness_value, 2)],
+                    ['Result', r => r.acceptance_status === 'REJECTED' ? '<span style="color:#ef4444; font-weight:700;">REJECTED</span>' : (r.acceptance_status === 'ACCEPTED' ? '<span style="color:#10b981; font-weight:700;">ACCEPTED</span>' : '<span style="color:#f59e0b;">PENDING</span>')],
+                    ['In mixture?', r => r.mix_status === 'ACCEPTED' ? '<span style="color:#10b981; font-weight:700;">Included</span>' : (r.mix_status === 'REJECTED' ? '<span style="color:#ef4444; font-weight:700;">Left out</span>' : '<span style="color:#f59e0b;">Pending</span>')],
+                    ['Scanned', r => r.mixing_scanned ? '✅' : '-'],
+                    ['Composite', r => esc(r.composite_ref_id || '-')],
+                    ['GCV', r => f(r.gcv, 0)],
+                    ['Ash %', r => f(r.ash, 2)],
+                    ['Gross / Tare / Net (kg)', r => `${wt(r.gross_weight)} / ${wt(r.tare_weight)} / ${wt(r.net_weight)}`]
+                ]);
+                document.getElementById('mixsearch-head').innerHTML = '<tr>' + cols.map(c => `<th>${c[0]}</th>`).join('') + '</tr>';
+                body.innerHTML = rows.map(r => '<tr>' + cols.map(c => `<td>${c[1](r)}</td>`).join('') + '</tr>').join('');
+                card.scrollIntoView({ behavior: 'smooth' });
+            } catch (err) {
+                alert('Search failed: ' + err.message);
+            } finally { btn.disabled = false; }
+        };
+        btn.onclick = go;
+        input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+    }
+
     function initAdminInspectorTab() {
+        initMixSearch();
         document.getElementById('inspector-result-card').style.display = 'none';
         document.getElementById('inspector-manual-input').value = '';
         setupInspectorSnapScanner();
@@ -6428,6 +6800,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const rejectedList = filteredRecords.filter(r => r.acceptance_status === 'REJECTED');
             
             const totalNetMT = acceptedList.reduce((sum, r) => sum + r.net_weight_mt, 0);
+            const rejectedNetMT = rejectedList.reduce((sum, r) => sum + (r.net_weight_mt || 0), 0);
             const acceptRate = totalCount > 0 ? ((acceptedList.length / totalCount) * 100).toFixed(1) : '0.0';
             const rejectRate = totalCount > 0 ? ((rejectedList.length / totalCount) * 100).toFixed(1) : '0.0';
 
@@ -6447,7 +6820,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (kpiNetEl) kpiNetEl.textContent = `${totalNetMT.toFixed(2)} MT`;
             if (kpiTotEl) kpiTotEl.textContent = totalCount;
-            if (kpiBreakEl) kpiBreakEl.textContent = `${acceptedList.length} Accepted | ${rejectedList.length} Rejected`;
+            if (kpiBreakEl) kpiBreakEl.textContent = `${acceptedList.length} Accepted | ${rejectedList.length} Rejected (${rejectedNetMT.toFixed(2)} MT)`;
             if (kpiAccEl) kpiAccEl.textContent = `${acceptRate}%`;
             if (kpiRejEl) kpiRejEl.textContent = `Rejection Rate: ${rejectRate}%`;
             if (kpiMoisEl) kpiMoisEl.textContent = `${avgMoisture}%`;
@@ -6753,7 +7126,8 @@ document.addEventListener('DOMContentLoaded', function() {
         [
             ['Total Trucks', rows.length],
             ['Accepted / Rejected', `${accepted.length} / ${rejected.length}`],
-            ['Total Net Weight (MT)', Number(totalNetMT.toFixed(2))],
+            ['Accepted Net Weight (MT)', Number(totalNetMT.toFixed(2))],
+            ['Rejected Net Weight (MT)', Number(rejected.reduce((a, x) => a + (x.net_weight_mt || 0), 0).toFixed(2))],
             ['Avg Moisture %', avgMoisture !== null ? Number(avgMoisture.toFixed(2)) : 'Pending'],
             ['Avg Fineness %', avgFineness !== null ? Number(avgFineness.toFixed(2)) : 'Pending'],
             ['Avg GCV (kcal/kg)', avgGcv !== null ? Math.round(avgGcv) : 'Pending'],

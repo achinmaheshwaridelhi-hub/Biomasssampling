@@ -1585,3 +1585,45 @@ header { padding-top: calc(0.75rem + env(safe-area-inset-top)); }
     .label-page { height: 50mm; overflow: hidden; page-break-after: always; break-after: page; }
     .label-page:last-child { page-break-after: auto; break-after: auto; }
 }
+
+/* Bottom-sample requests: tab badge + highlighted pending request */
+.bottom-badge { background: #ef4444; color: #fff; border-radius: 999px; padding: 0 0.45rem; font-size: 0.72rem; font-weight: 800; margin-left: 0.35rem; line-height: 1.5; }
+.tab-btn.bottom-alert { animation: bottomPulse 1.2s infinite; }
+@keyframes bottomPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.0); } 50% { box-shadow: 0 0 0 4px rgba(239,68,68,0.55); } }
+.bottom-req-card { border: 1px solid var(--border-color); border-radius: 10px; padding: 0.8rem 1rem; margin-bottom: 0.7rem; background: rgba(15,23,42,0.6); display: flex; gap: 0.8rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+#btn-print-bottom { color: #111827; background-color: #f3f4f6; border: 1px solid #9ca3af; }
+.bottom-req-card.pending { border: 2px solid #f59e0b; background: rgba(245,158,11,0.12); animation: bottomPulse 1.6s infinite; }
+
+/* Lab screens: two features side by side, the submission history underneath (Lab 2 and the Fineness login) */
+.lab-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; align-items: start; }
+.lab-layout > .lab-col-a { grid-column: 1; grid-row: 1; }
+.lab-layout > .lab-col-b { grid-column: 2; grid-row: 1; }
+.lab-layout > .lab-hist { grid-column: 2; grid-row: 1; }            /* only one feature: history stays beside it, as before */
+.lab-layout.with-two > .lab-hist { grid-column: 1 / -1; grid-row: 2; }
+@media (max-width: 900px) {
+    .lab-layout { grid-template-columns: minmax(0, 1fr); }
+    .lab-layout > .lab-col-a, .lab-layout > .lab-col-b, .lab-layout > .lab-hist, .lab-layout.with-two > .lab-hist { grid-column: 1; grid-row: auto; }
+}
+
+/* Gate entry: lot filter + wide supplier list */
+.lot-filter { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.45rem; font-size: 0.8rem; color: var(--text-muted); }
+.lot-filter button { padding: 0.3rem 0.8rem; border-radius: 999px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.05); color: #cbd5e1; font-weight: 700; cursor: pointer; }
+.lot-filter button.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.vendor-list { position: absolute; left: 0; right: 0; z-index: 50; margin-top: 2px; max-height: 340px; overflow-y: auto; background: #0f172a; border: 1px solid rgba(148,163,184,0.45); border-radius: 10px; box-shadow: 0 14px 34px rgba(0,0,0,0.55); }
+.vendor-item { padding: 0.6rem 0.85rem; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 0.15rem; }
+.vendor-item:last-child { border-bottom: none; }
+.vendor-item:hover, .vendor-item.active { background: rgba(16,185,129,0.18); }
+.vendor-item .vendor-name { font-weight: 700; white-space: normal; overflow-wrap: anywhere; }
+.vendor-item .vendor-meta { font-size: 0.82rem; color: #94a3b8; }
+.vendor-empty { padding: 0.8rem 0.9rem; color: #94a3b8; font-size: 0.88rem; }
+.lot-tag { display: inline-block; padding: 0 0.5rem; border-radius: 999px; font-size: 0.74rem; font-weight: 800; color: #fff; }
+.lot-tag.lot-4 { background: #3b82f6; }
+.lot-tag.lot-23 { background: #10b981; }
+
+/* Mixing-code search: the facts that are the same for every row are shown once, above the table */
+.mixsearch-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.6rem; margin-bottom: 0.9rem; }
+.mixsearch-info .tile { background: rgba(15,23,42,0.7); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem 0.75rem; }
+.mixsearch-info .tile small { display: block; color: #94a3b8; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.mixsearch-info .tile strong { font-size: 1rem; overflow-wrap: anywhere; }
+
+.mixsearch-table th, .mixsearch-table td { padding: 0.55rem 0.55rem !important; white-space: normal; }

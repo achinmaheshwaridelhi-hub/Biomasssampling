@@ -335,6 +335,14 @@
         async resetMixingScans(date, groupCode) { return rpc('bm_admin_reset_group_scans', { date, group_code: groupCode }); },
         /** Unloading / Admin day report: every truck of `date` (default today) with vendor, weights and results. Today's opens from 9 PM. */
         async getDayReport(date) { return rpc('bm_unloading_day_report', { date: date || null }); },
+        // --- Bottom sampling (Unloading requests with a password; Entry generates the new QR) and the Admin mixing-code search ---
+        async requestBottomSample(truckId, password, reason) { return rpc('bm_unloading_request_bottom', { truck_id: truckId, password: password, reason: reason || '' }); },
+        async getBottomRequests() { return (await rpc('bm_entry_bottom_list', {})) || []; },
+        async generateBottomSample(truckId) { return rpc('bm_entry_bottom_generate', { truck_id: truckId }); },
+        async reprintBottomSample(truckId) { return rpc('bm_entry_bottom_reprint', { truck_id: truckId }); },
+        async setBottomPassword(password) { return rpc('bm_admin_set_bottom_password', { password: password }); },
+        async getBottomStatus() { return rpc('bm_admin_bottom_status', {}); },
+        async searchMixingCode(code) { return rpc('bm_admin_mixing_search', { code: String(code || '').trim() }); },
         async getCompositeBatchByGroupCode(groupCode, date) { return rpc('bm_lab2_get_batch', { group_code: groupCode, date: date || null }); },
         async getCompositeDetails(code) { return rpc('bm_get_composite_details', { code }); },
         async submitCompositeResult(code, gcv, ash, overrideReason) {

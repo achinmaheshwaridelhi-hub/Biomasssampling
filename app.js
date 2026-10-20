@@ -1265,7 +1265,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 const wt = v => Number(v) > 0 ? Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '<span style="color:#f59e0b;">-</span>';
                 return `<tr${rej ? ' style="background:rgba(239,68,68,0.08);"' : ''}><td>${i + 1}</td><td><strong>${esc(r.truck_reg_number)}</strong></td><td>${esc(r.company_name)}</td><td>${esc(r.lot || '')}<br><small style="color:#94a3b8;">PO ${esc(r.po_number || '-')}</small></td>` +
                     `<td>${wt(r.gross_weight)}</td><td>${wt(r.tare_weight)}</td><td>${wt(r.net_weight)}</td>` +
-                    `<td>${cell(r.moisture_pct, 2)}</td><td>${cell(r.gcv, 0)}</td><td>${cell(r.fineness_value, 2)}</td><td>${cell(r.ash, 2)}</td><td>${esc(r.gcv_source || '-')}</td>` +
+                    `<td>${cell(r.moisture_pct, 2)}</td><td>${cell(r.tm, 2)}</td><td>${cell(r.gcv, 0)}</td><td>${cell(r.fineness_value, 2)}</td><td>${cell(r.ash, 2)}</td>` +
+                    `<td>${r.lot === 'LOT4' ? cell(r.sulphur, 2) : '-'}</td><td>${r.lot === 'LOT4' ? cell(r.vm, 2) : '-'}</td><td>${esc(r.gcv_source || '-')}</td>` +
                     `<td style="font-weight:700; color:${rej ? '#ef4444' : r.acceptance_status === 'ACCEPTED' ? '#10b981' : '#f59e0b'};">${esc(r.acceptance_status)}</td></tr>`;
             }).join('');
             wrap.style.display = ''; xl.style.display = '';
@@ -1281,7 +1282,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof ExcelJS === 'undefined') { alert('Excel export library failed to load. Please check your internet connection and try again.'); return; }
         const rows = res.rows;
         const cols = [['S.No.', 7], ['Truck No.', 15], ['Vendor', 28], ['Lot', 10], ['PO No.', 14], ['Gross Wt (kg)', 14], ['Tare Wt (kg)', 14], ['Net Wt (kg)', 14], ['Net Wt (MT)', 12],
-                      ['Moisture %', 11], ['GCV (kcal/kg)', 14], ['Fineness %', 11], ['Ash %', 9], ['GCV / Ash from', 16], ['Result', 12]];
+                      ['Moisture %', 11], ['TM %', 10], ['ARB GCV (kcal/kg)', 14], ['Fineness %', 11], ['ARB Ash %', 10], ['ARB Sulphur % (Lot-4)', 13], ['ARB VM % (Lot-4)', 12], ['GCV / Ash from', 16], ['Result', 12]];
         const wb = new ExcelJS.Workbook();
         wb.creator = 'BiomassBlind'; wb.created = new Date();
         const sheet = wb.addWorksheet('Day Report', { views: [{ state: 'frozen', ySplit: 4 }] });
@@ -1313,7 +1314,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const w = v => Number(v) > 0 ? Number(v) : '-';
             const vals = [i + 1, x.truck_reg_number, x.company_name, x.lot || '-', x.po_number || '-', w(x.gross_weight), w(x.tare_weight), w(x.net_weight),
                           Number(x.net_weight) > 0 ? Number((Number(x.net_weight) / 1000).toFixed(3)) : '-',
-                          num(x.moisture_pct) ?? na, num(x.gcv) ?? na, num(x.fineness_value) ?? na, num(x.ash) ?? na, x.gcv_source || '-', x.acceptance_status];
+                          num(x.moisture_pct) ?? na, num(x.tm) ?? na, num(x.gcv) ?? na, num(x.fineness_value) ?? na, num(x.ash) ?? na,
+                          x.lot === 'LOT4' ? (num(x.sulphur) ?? na) : '-', x.lot === 'LOT4' ? (num(x.vm) ?? na) : '-', x.gcv_source || '-', x.acceptance_status];
             vals.forEach((v, k) => {
                 const c = sheet.getCell(r, k + 1);
                 c.value = v; c.border = border('hair');
@@ -1506,7 +1508,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Setup Header
         appHeader.style.display = 'flex';
         displayUserName.textContent = user.name;
-        displayUserRole.textContent = user.role;
+        displayUserRole.textContent = user.is_super ? 'superadmin' : user.role;
 
         // Redirect based on role
         if (user.role === 'admin' || user.role === 'entry' || user.role === 'weighment') {
@@ -1545,6 +1547,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (tabBtnActivity) {
             tabBtnActivity.style.display = (role === 'admin') ? 'flex' : 'none';
         }
+        const tabBtnSuper = document.getElementById('tab-btn-super');
+        if (tabBtnSuper) tabBtnSuper.style.display = (user && user.is_super) ? 'flex' : 'none';
     }
 
     // Every sign-out does a FULL PAGE RELOAD. This is a blind-testing control, not cosmetics: the app is a
@@ -1876,6 +1880,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 initAdminInspectorTab();
             } else if (targetContentId === 'tab-admin-referee') {
                 loadRefereeChallengeTable();
+            } else if (targetContentId === 'tab-admin-super') {
+                initSuperAdminTab();
             } else if (targetContentId === 'tab-admin-activity') {
                 renderActivityLogTab();
             } else if (targetContentId === 'tab-admin-settings') {
@@ -3332,9 +3338,11 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('summary-avg-moisture').textContent = report.summary.avg_moisture !== null ? `${report.summary.avg_moisture}%` : 'Pending';
             document.getElementById('summary-avg-fineness').textContent = report.summary.avg_fineness !== null ? `${report.summary.avg_fineness}%` : 'Pending';
             
+            document.getElementById('summary-avg-moisture').textContent = report.summary.tm !== null ? `${report.summary.tm}%` : 'Pending';       // Moisture = TM
             const gcvVal = report.summary.avg_gcv !== null ? `${report.summary.avg_gcv} kcal` : 'Pending';
             const ashVal = report.summary.avg_ash !== null ? `${report.summary.avg_ash}%` : 'Pending';
-            document.getElementById('summary-avg-composite').textContent = `${gcvVal} / ${ashVal}`;
+            document.getElementById('summary-avg-composite').textContent = `${gcvVal} / ${ashVal}` + (report.summary.has_lot4 && report.summary.avg_sulphur !== null ? `  |  S ${report.summary.avg_sulphur}% / VM ${report.summary.avg_vm}%` : '');
+            document.querySelectorAll('#report-output-panel .lot4-only').forEach(el => { el.style.display = report.summary.has_lot4 ? '' : 'none'; });
 
             // Populate rows
             const tbody = document.getElementById('report-rows-body');
@@ -3366,8 +3374,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td style="font-weight: 500;">${row.fineness_value !== null ? row.fineness_value + '%' : '<span class="badge badge-pending">Pending</span>'}</td>
                     <td>${acceptanceBadge}</td>
                     <td><span class="badge badge-referee" style="font-weight: bold;">${row.mixing_group_code || 'N/A'}</span></td>
+                    <td style="font-weight: 500;">${row.tm !== null && row.tm !== undefined ? row.tm.toFixed(2) + '%' : '-'}</td>
                     <td style="font-weight: 500;">${gcvText}</td>
                     <td style="font-weight: 500;">${ashText}</td>
+                    ${report.summary.has_lot4 ? `<td style="font-weight: 500;">${row.lot === 'LOT4' && row.arb_sulphur !== null ? row.arb_sulphur + '%' : '-'}</td><td style="font-weight: 500;">${row.lot === 'LOT4' && row.arb_vm !== null ? row.arb_vm + '%' : '-'}</td>` : ''}
                     <td style="font-weight: 500;">${vendorGcvText}</td>
                     <td style="font-weight: 500;">${refereeGcvText}</td>
                 `;
@@ -3428,8 +3438,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         <td>${r.fineness_value !== null ? r.fineness_value + '%' : 'Pending'}</td>
                         <td>${acceptanceLabel}</td>
                         <td>${r.mixing_group_code || 'N/A'}</td>
+                        <td>${r.tm !== null && r.tm !== undefined ? r.tm.toFixed(2) + '%' : '-'}</td>
                         <td>${gcvPrint}</td>
                         <td>${ashPrint}</td>
+                        ${report.summary.has_lot4 ? `<td>${r.lot === 'LOT4' && r.arb_sulphur !== null ? r.arb_sulphur + '%' : '-'}</td><td>${r.lot === 'LOT4' && r.arb_vm !== null ? r.arb_vm + '%' : '-'}</td>` : ''}
                         <td>${vendorGcvPrint}</td>
                         <td>${refereeGcvPrint}</td>
                     </tr>
@@ -3464,8 +3476,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <th>Fineness %</th>
                                 <th>Acceptance</th>
                                 <th>Mixing Group</th>
-                                <th>GCV (kcal)</th>
-                                <th>Ash %</th>
+                                <th>TM %</th>
+                                <th>ARB GCV (kcal)</th>
+                                <th>ARB Ash %</th>
+                                ${report.summary.has_lot4 ? '<th>ARB Sulphur %</th><th>ARB VM %</th>' : ''}
                                 <th>Vendor GCV</th>
                                 <th>Referee GCV</th>
                             </tr>
@@ -3489,18 +3503,18 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div class="print-summary-val" style="font-size: 11pt; padding-top: 4px;">${report.summary.accepted_count} / ${report.summary.rejected_count}</div>
                         </div>
                         <div class="print-summary-card">
-                            <div class="print-summary-lbl">Avg Moisture</div>
-                            <div class="print-summary-val">${report.summary.avg_moisture !== null ? report.summary.avg_moisture + '%' : 'Pending'}</div>
+                            <div class="print-summary-lbl">Moisture (TM)</div>
+                            <div class="print-summary-val">${report.summary.tm !== null ? report.summary.tm + '%' : 'Pending'}</div>
                         </div>
                         <div class="print-summary-card">
                             <div class="print-summary-lbl">Avg Fineness</div>
                             <div class="print-summary-val">${report.summary.avg_fineness !== null ? report.summary.avg_fineness + '%' : 'Pending'}</div>
                         </div>
                         <div class="print-summary-card">
-                            <div class="print-summary-lbl">Avg GCV / Ash</div>
+                            <div class="print-summary-lbl">ARB GCV / Ash${report.summary.has_lot4 ? ' / S / VM' : ''}</div>
                             <div class="print-summary-val" style="font-size: 11pt; padding-top: 4px;">
                                 ${report.summary.avg_gcv !== null ? report.summary.avg_gcv + ' kcal' : 'Pending'} / 
-                                ${report.summary.avg_ash !== null ? report.summary.avg_ash + '%' : 'Pending'}
+                                ${report.summary.avg_ash !== null ? report.summary.avg_ash + '%' : 'Pending'}${report.summary.has_lot4 && report.summary.avg_sulphur !== null ? ` / ${report.summary.avg_sulphur}% / ${report.summary.avg_vm}%` : ''}
                             </div>
                         </div>
                     </div>
@@ -3724,8 +3738,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const activityBody = document.getElementById('activity-log-body');
         const exceptionsBody = document.getElementById('exceptions-log-body');
         
-        activityBody.innerHTML = '<tr><td colspan="4" style="text-align: center;">Loading activity log...</td></tr>';
-        exceptionsBody.innerHTML = '<tr><td colspan="4" style="text-align: center;">Loading exception logs...</td></tr>';
+        activityBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Loading activity log...</td></tr>';
+        exceptionsBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Loading exception logs...</td></tr>';
         
         try {
             const logs = await window.BiomassAPI.getActivityLogs();
@@ -3739,7 +3753,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 const isException = 
                     log.action.toLowerCase().includes('exception') || 
                     log.action.toLowerCase().includes('reissue') || 
-                    log.action.toLowerCase().includes('lockout') || 
+                    log.action.toLowerCase().includes('lockout') ||
+                    log.action.startsWith('SUPERADMIN') || log.action === 'BOTTOM_PASSWORD_WRONG' || 
                     log.details.toLowerCase().includes('fail') || 
                     log.details.toLowerCase().includes('expired') || 
                     log.details.toLowerCase().includes('tampered');
@@ -3752,7 +3767,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Render general logs
             if (generalLogs.length === 0) {
-                activityBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No activity logs recorded.</td></tr>';
+                activityBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No activity logs recorded.</td></tr>';
             } else {
                 generalLogs.forEach(log => {
                     const tr = document.createElement('tr');
@@ -3761,6 +3776,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <td><span class="user-role" style="background: rgba(59, 130, 246, 0.15); color: var(--secondary); padding: 0.1rem 0.4rem; border-radius: 4px;">${esc(log.username)}</span></td>
                         <td><strong>${esc(log.action)}</strong></td>
                         <td style="font-size: 0.85rem;">${esc(log.details)}</td>
+                        <td style="font-family: monospace; font-size: 0.8rem;">${esc(log.ip || '-')}</td>
                     `;
                     activityBody.appendChild(tr);
                 });
@@ -3768,7 +3784,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Render exceptions
             if (exceptionLogs.length === 0) {
-                exceptionsBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No critical exceptions or security violations flagged.</td></tr>';
+                exceptionsBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No critical exceptions or security violations flagged.</td></tr>';
             } else {
                 exceptionLogs.forEach(log => {
                     const tr = document.createElement('tr');
@@ -3777,6 +3793,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <td><span class="user-role" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; padding: 0.1rem 0.4rem; border-radius: 4px;">${esc(log.username)}</span></td>
                         <td><strong style="color: #ef4444;">${esc(log.action)}</strong></td>
                         <td style="font-size: 0.85rem; font-weight: 500;">${esc(log.details)}</td>
+                        <td style="font-family: monospace; font-size: 0.8rem; color: #ef4444;">${esc(log.ip || '-')}${log.device ? `<br><span style="font-family: inherit; color: #94a3b8; font-size: 0.7rem;">${esc(String(log.device).slice(0, 90))}</span>` : ''}</td>
                     `;
                     exceptionsBody.appendChild(tr);
                 });
@@ -5917,6 +5934,28 @@ document.addEventListener('DOMContentLoaded', function() {
         outputDiv.scrollIntoView({ behavior: 'smooth' });
     }
 
+    // Lab 2 enters AIR-DRIED (AD) values; TM, X and the ARB values are calculated (the database is the authority, this is a live preview).
+    const lab2Calc = { tm: null, lot4: false };
+    const r2 = (v, d) => { const f = Math.pow(10, d); return Math.round((v + Number.EPSILON) * f) / f; };
+    function lab2Preview() {
+        const box = document.getElementById('lab2-calc-preview');
+        const adm = parseFloat(document.getElementById('lab2-ad-moisture').value), gcv = parseFloat(document.getElementById('lab2-gcv').value), ash = parseFloat(document.getElementById('lab2-ash').value);
+        const sul = parseFloat(document.getElementById('lab2-sulphur').value), vm = parseFloat(document.getElementById('lab2-vm').value);
+        if (!box || lab2Calc.tm === null || !(adm > 0 && adm < 100)) { if (box) box.style.display = 'none'; return; }
+        const x = (100 - lab2Calc.tm) / (100 - adm);
+        let h = `<strong>X</strong> = (100 &minus; ${r2(lab2Calc.tm, 3)}) / (100 &minus; ${adm}) = <strong>${x.toFixed(6)}</strong><br>`;
+        if (gcv > 0) h += `ARB GCV = <strong>${Math.round(gcv * x)}</strong> kcal/kg &nbsp; `;
+        if (ash >= 0) h += `ARB Ash = <strong>${r2(ash * x, 2).toFixed(2)}</strong> %`;
+        if (lab2Calc.lot4) {
+            h += '<br>';
+            if (sul >= 0) h += `ARB Sulphur = <strong>${r2(sul * x, 2).toFixed(2)}</strong> % &nbsp; `;
+            if (vm >= 0) h += `ARB VM = <strong>${r2(vm * x, 2).toFixed(2)}</strong> %`;
+        }
+        if (adm > lab2Calc.tm) h += '<br><span style="color:#fbbf24;">⚠️ AD moisture is higher than TM - please check the value.</span>';
+        box.innerHTML = h; box.style.display = 'block';
+    }
+    ['lab2-ad-moisture', 'lab2-gcv', 'lab2-ash', 'lab2-sulphur', 'lab2-vm'].forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('input', lab2Preview); });
+
     async function lookupLab2Barcode(barcode) {
         if (!barcode) {
             alert('Please scan or type a composite barcode ID.');
@@ -5940,25 +5979,22 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (data.meta || data.company_name || data.parent_truck_ids) {
                     console.error('Collusion leak warning: Identity metadata detected in composite lab session!');
                 }
-
-                const gcvInput = document.getElementById('lab2-gcv');
-                const ashInput = document.getElementById('lab2-ash');
-                const form = document.getElementById('lab2-entry-form');
-                const submitBtn = form ? form.querySelector('button[type="submit"]') : null;
-
                 if (data.is_tested) {
                     entryCard.style.display = 'none';
-                    showAlreadySaved('lab2-duplicate-notice', 'GCV and ash', data.tested_at);
+                    showAlreadySaved('lab2-duplicate-notice', 'The air-dried values and the calculated ARB results', data.tested_at);
                     return;
-                } else {
-                    gcvInput.value = '';
-                    ashInput.value = '';
-                    gcvInput.disabled = false;
-                    ashInput.disabled = false;
-                    if (submitBtn) submitBtn.disabled = false;
                 }
-
-                document.getElementById('lab2-gcv').focus();
+                lab2Calc.tm = data.tm === null || data.tm === undefined ? null : Number(data.tm);
+                lab2Calc.lot4 = !!data.is_lot4;
+                document.getElementById('lab2-tm').textContent = lab2Calc.tm === null ? 'not available yet' : r2(lab2Calc.tm, 2).toFixed(2) + ' %';
+                document.querySelectorAll('.lab2-lot4').forEach(el => { el.style.display = lab2Calc.lot4 ? '' : 'none'; });
+                const sulEl = document.getElementById('lab2-sulphur'), vmEl = document.getElementById('lab2-vm');
+                sulEl.required = lab2Calc.lot4; vmEl.required = lab2Calc.lot4;
+                ['lab2-ad-moisture', 'lab2-gcv', 'lab2-ash', 'lab2-sulphur', 'lab2-vm'].forEach(id => { const el = document.getElementById(id); el.value = ''; el.disabled = false; });
+                const submitBtn = document.getElementById('lab2-entry-form').querySelector('button[type="submit"]');
+                if (submitBtn) submitBtn.disabled = lab2Calc.tm === null;
+                lab2Preview();
+                document.getElementById('lab2-ad-moisture').focus();
             } else {
                 alert('Invalid lookup: ' + data.message);
             }
@@ -5970,15 +6006,22 @@ document.addEventListener('DOMContentLoaded', function() {
     const lab2Form = document.getElementById('lab2-entry-form');
     lab2Form.onsubmit = async function(e) {
         e.preventDefault();
-        
+
         const barcode = document.getElementById('lab2-barcode-id').value;
-        const gcv = document.getElementById('lab2-gcv').value;
-        const ash = document.getElementById('lab2-ash').value;
+        const vals = {
+            ad_moisture: document.getElementById('lab2-ad-moisture').value, ad_gcv: document.getElementById('lab2-gcv').value, ad_ash: document.getElementById('lab2-ash').value,
+            ad_sulphur: lab2Calc.lot4 ? document.getElementById('lab2-sulphur').value : '', ad_vm: lab2Calc.lot4 ? document.getElementById('lab2-vm').value : ''
+        };
+        const pv = document.getElementById('lab2-calc-preview');
+        if (pv && pv.style.display !== 'none' && !confirm('Lock these results? They cannot be changed afterwards.\n\n' + pv.innerText)) return;
 
         try {
-            const res = await window.BiomassAPI.submitCompositeResult(barcode, gcv, ash);
+            const res = await window.BiomassAPI.submitCompositeResult(barcode, vals);
             if (res.success) {
-                alert('Composite batch analysis locked and submitted successfully!');
+                alert('Composite analysis locked and submitted successfully!\n\nTM ' + r2(Number(res.tm), 2).toFixed(2) + ' %  |  X ' + Number(res.x).toFixed(6) +
+                      '\nARB GCV ' + res.arb_gcv + ' kcal/kg  |  ARB Ash ' + Number(res.arb_ash).toFixed(2) + ' %' +
+                      (res.arb_sulphur !== null && res.arb_sulphur !== undefined ? '\nARB Sulphur ' + Number(res.arb_sulphur).toFixed(2) + ' %  |  ARB VM ' + Number(res.arb_vm).toFixed(2) + ' %' : '') +
+                      (res.warning ? '\n\n⚠️ ' + res.warning : ''));
                 document.getElementById('lab2-entry-card').style.display = 'none';
                 renderLab2History();
             } else {
@@ -5991,33 +6034,193 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function renderLab2History() {
         const tbody = document.getElementById('lab2-history-body');
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">Loading history...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">Loading history...</td></tr>';
 
         try {
             const history = await window.BiomassAPI.getLab2History();
             tbody.innerHTML = '';
-            
+
             if (history.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">No composite tests submitted by your account today.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No composite tests submitted by your account today.</td></tr>';
                 return;
             }
 
             history.slice().reverse().forEach((row, idx) => {
                 const tr = document.createElement('tr');
+                const dash = v => (v === null || v === undefined) ? '-' : v;
                 tr.innerHTML = `
                     <td><strong style="font-family: monospace;">Composite #${history.length - idx}</strong></td>
+                    <td>${row.tm !== null && row.tm !== undefined ? Number(row.tm).toFixed(2) : '-'}</td>
                     <td>${row.gcv_value} kcal/kg</td>
                     <td>${row.ash_pct}%</td>
+                    <td>${row.is_lot4 ? Number(row.arb_sulphur).toFixed(2) + '%' : '-'}</td>
+                    <td>${row.is_lot4 ? Number(row.arb_vm).toFixed(2) + '%' : '-'}</td>
                     <td>${row.tested_at.split(' ')[1] || row.tested_at}</td>
                 `;
                 tbody.appendChild(tr);
             });
         } catch(e) {
-            tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--danger);">Failed to load history: ${esc(e.message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--danger);">Failed to load history: ${esc(e.message)}</td></tr>`;
         }
     }
 
     // ================= BARCODE INSPECTOR TAB (ADMIN) =================
+    // ================= SUPER ADMIN =================
+    // Find any sample / composite, print or download any QR, and feed / correct results. Every change is logged by the server with the IP address.
+    let superState = { samples: [], comps: [] };
+
+    function initSuperAdminTab() {
+        const q = document.getElementById('super-q');
+        if (!q || q.dataset.wired) return;
+        q.dataset.wired = '1';
+        const go = () => superSearch();
+        document.getElementById('btn-super-find').onclick = go;
+        document.getElementById('btn-super-clear').onclick = () => { q.value = ''; document.getElementById('super-from').value = ''; document.getElementById('super-to').value = ''; superSearch(); };
+        q.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+        superSearch();
+    }
+
+    async function superSearch() {
+        const note = document.getElementById('super-note'), sb = document.getElementById('super-samples-body'), cbd = document.getElementById('super-comps-body');
+        note.textContent = 'Searching...';
+        try {
+            const res = await window.BiomassAPI.superFind(document.getElementById('super-q').value, document.getElementById('super-from').value, document.getElementById('super-to').value);
+            superState = { samples: res.samples || [], comps: res.composites || [] };
+            note.textContent = `${superState.samples.length} sample(s) and ${superState.comps.length} composite lot(s) found` + (superState.samples.length >= 200 ? ' (showing the newest 200 - narrow the search)' : '') + '.';
+            const f = (v, d) => (v === null || v === undefined) ? '<span style="color:#f59e0b;">-</span>' : Number(v).toFixed(d);
+            const vend = r => `${esc(r.company_name)}<br><small style="color:#94a3b8;">${esc(r.lot)} &middot; PO ${esc(r.po_number || '-')}</small>`;
+            sb.innerHTML = superState.samples.length ? superState.samples.map((r, i) => {
+                const bottom = r.kind === 'BOTTOM_SAMPLE';
+                const kind = bottom ? '<span class="badge badge-warning" style="background:#0ea5e9; color:#fff;">Bottom sample</span>' : (r.excluded_from_mix ? 'Truck sample <small style="color:#ef4444;">(out of mix)</small>' : 'Truck sample');
+                const res_ = r.acceptance_status === 'REJECTED' ? '<span style="color:#ef4444; font-weight:700;">REJECTED</span>' : (r.acceptance_status === 'ACCEPTED' ? '<span style="color:#10b981; font-weight:700;">ACCEPTED</span>' : '<span style="color:#f59e0b;">PENDING</span>');
+                return `<tr><td>${esc(dmy(r.entry_date))}<br><small style="color:#94a3b8;">${esc(r.entry_time || '')}</small></td><td><strong>${esc(r.mixing_code)}</strong></td><td>${vend(r)}</td>` +
+                    `<td><strong>${esc(r.truck_reg_number)}</strong><br><small style="color:#94a3b8;">${esc(r.truck_id)}</small></td><td>${kind}<br><small style="font-family:monospace;">${esc(r.sample1_barcode_id)}</small></td>` +
+                    `<td>${f(r.moisture_pct, 3)}</td><td>${f(r.fineness_value, 2)}</td><td>${res_}</td>` +
+                    `<td style="white-space:nowrap;"><button class="btn btn-secondary btn-sm" data-act="sprint" data-i="${i}">🖨️ Print QR</button> <button class="btn btn-secondary btn-sm" data-act="sdown" data-i="${i}">⬇</button> ` +
+                    `<button class="btn btn-secondary btn-sm" style="border-color:#ef4444;" data-act="sedit" data-i="${i}">✏️ Edit results</button></td></tr>`;
+            }).join('') : '<tr><td colspan="9" style="color:#94a3b8; padding:0.8rem;">No samples found.</td></tr>';
+            cbd.innerHTML = superState.comps.length ? superState.comps.map((c, i) => {
+                const l4 = c.lot === 'LOT4';
+                const vals = c.arb_gcv === null || c.arb_gcv === undefined ? '<span style="color:#f59e0b;">not tested yet</span>' :
+                    `TM ${f(c.tm_value, 2)}% &middot; AD: ${f(c.ad_moisture, 2)}% / ${f(c.ad_gcv, 0)} / ${f(c.ad_ash, 2)}%${l4 ? ` / S ${f(c.ad_sulphur, 2)}% / VM ${f(c.ad_vm, 2)}%` : ''}<br>` +
+                    `<strong>ARB: GCV ${c.arb_gcv} &middot; Ash ${f(c.arb_ash, 2)}%${l4 ? ` &middot; S ${f(c.arb_sulphur, 2)}% &middot; VM ${f(c.arb_vm, 2)}%` : ''}</strong>`;
+                return `<tr><td>${esc(dmy(c.date))}</td><td><strong>${esc(c.mixing_code)}</strong></td><td>${esc(c.company_name)}<br><small style="color:#94a3b8;">${esc(c.lot)}</small></td>` +
+                    `<td><strong>${esc(c.composite_ref_id)}</strong><br><small style="color:#94a3b8;">${c.truck_count} truck(s)</small></td><td>${vals}</td>` +
+                    `<td style="white-space:nowrap;"><button class="btn btn-secondary btn-sm" data-act="cprint" data-i="${i}">🖨️ Print 3 labels</button> ` +
+                    `<button class="btn btn-secondary btn-sm" style="border-color:#ef4444;" data-act="cedit" data-i="${i}">✏️ Edit AD values</button></td></tr>`;
+            }).join('') : '<tr><td colspan="6" style="color:#94a3b8; padding:0.8rem;">No composite lots found.</td></tr>';
+            sb.onclick = cbd.onclick = (e) => {
+                const b = e.target.closest('button[data-act]');
+                if (!b) return;
+                const i = Number(b.dataset.i), act = b.dataset.act;
+                if (act === 'sprint') superPrintSample(superState.samples[i]);
+                else if (act === 'sdown') superDownloadSample(superState.samples[i]);
+                else if (act === 'sedit') superEditLab1(superState.samples[i]);
+                else if (act === 'cprint') superPrintComposite(superState.comps[i]);
+                else if (act === 'cedit') superEditComposite(superState.comps[i]);
+            };
+        } catch (err) {
+            note.innerHTML = `<span style="color:#ef4444;">${esc(err.message)}</span>`;
+        }
+    }
+
+    function superPrintSample(r) {
+        window.BiomassAPI.superLogAction('QR_PRINT', `Printed the label of ${r.kind === 'BOTTOM_SAMPLE' ? 'BOTTOM sample' : 'sample'} ${r.sample1_barcode_id} (truck ${r.truck_reg_number}, mixing code ${r.mixing_code}, ${dmy(r.entry_date)})`);
+        window.printSampleLabel(r.sample1_barcode_id, r.entry_date);
+    }
+    async function superDownloadSample(r) {
+        window.BiomassAPI.superLogAction('QR_DOWNLOAD', `Downloaded the QR image of ${r.kind === 'BOTTOM_SAMPLE' ? 'BOTTOM sample' : 'sample'} ${r.sample1_barcode_id} (truck ${r.truck_reg_number}, ${dmy(r.entry_date)})`);
+        const enc = await encryptPayload(r.sample1_barcode_id);
+        QRCode.toCanvas(document.getElementById('qr-canvas-super'), enc, { errorCorrectionLevel: 'M', width: 246, margin: 4 }, function(err) {
+            if (err) { alert('Could not draw the QR.'); return; }
+            downloadQrAsPng('#qr-canvas-super', `Sample_${r.sample1_barcode_id}`, dmy(r.entry_date), r.sample1_barcode_id);
+        });
+    }
+    // The three composite labels (Test / Referee / Vendor), same layout as at Lab 2: 50 x 50 mm, one page each.
+    async function superPrintComposite(c) {
+        window.BiomassAPI.superLogAction('QR_PRINT', `Printed the 3 labels (T/R/V) of composite ${c.composite_ref_id} (mixing code ${c.mixing_code}, ${dmy(c.date)})`);
+        const initials = String(c.vendor_initials || '').toUpperCase(), group = String(c.mixing_code || '').toUpperCase();
+        const lots = [[c.test_lot, 'TEST LOT (-T)', false], [c.referee_lot, 'REFEREE LOT (-R)', true], [c.vendor_lot, 'VENDOR LOT (-V)', true]];
+        const label = (lotId, name, withInit, canvasId) => `
+            <div class="print-label-view print-label-50mm label-with-initials" style="text-align: center;">
+                <div style="font-size: 8pt; font-weight: bold; font-family: monospace; color: #000; line-height: 1;">GROUP: ${esc(group)}</div>
+                <div style="font-size: 7pt; font-weight: bold; margin: 1px 0 2px 0; color: #000; font-family: monospace;">${name}</div>
+                <div style="font-size: 11pt; font-weight: 800; margin: 0 0 1px 0; color: #000; font-family: monospace; line-height: 1;">${(withInit && initials) ? esc(initials) + ' &middot; ' : ''}${esc(dmy(c.date))}</div>
+                <canvas id="${canvasId}"></canvas>
+                <div class="print-label-id" style="font-family: monospace; font-size: 7pt; font-weight: bold; margin-top: 1px;">${esc(lotId)}</div>
+            </div>`;
+        const box = document.getElementById('print-section');
+        box.innerHTML = lots.map((l, i) => `<div class="label-page">${label(l[0], l[1], l[2], 'super-qr-' + i)}</div>`).join('');
+        for (let i = 0; i < lots.length; i++) {
+            const enc = await encryptPayload(lots[i][0]);
+            await new Promise(res => QRCode.toCanvas(document.getElementById('super-qr-' + i), enc, { errorCorrectionLevel: 'M', width: 410, margin: 4 }, () => res()));
+        }
+        document.body.classList.add('printing-label'); setLabelPageSize(true);
+        setTimeout(() => { window.print(); document.body.classList.remove('printing-label'); setLabelPageSize(false); }, 250);
+    }
+
+    // generic edit dialog: fields = [{id, label, value, step, hint}]
+    function openSuperEdit(title, info, fields, onSave) {
+        const modal = document.getElementById('super-edit-modal'), box = document.getElementById('super-edit-fields');
+        document.getElementById('super-edit-title').textContent = title;
+        document.getElementById('super-edit-info').innerHTML = info;
+        box.innerHTML = fields.map(f => `<label style="display:block; font-size:0.8rem; margin:0.4rem 0 0.15rem;">${esc(f.label)}${f.hint ? ` <small style="color:#94a3b8;">${esc(f.hint)}</small>` : ''}</label>` +
+            `<input type="number" step="${f.step || 'any'}" id="se-${f.id}" value="${f.value === null || f.value === undefined ? '' : esc(String(f.value))}" style="width:100%; padding:0.5rem;">`).join('');
+        const reason = document.getElementById('super-edit-reason'), msg = document.getElementById('super-edit-msg'), save = document.getElementById('btn-super-edit-save');
+        reason.value = ''; msg.textContent = ''; save.disabled = false;
+        modal.style.display = 'flex';
+        document.getElementById('btn-super-edit-cancel').onclick = () => { modal.style.display = 'none'; };
+        save.onclick = async () => {
+            const vals = {}; fields.forEach(f => { vals[f.id] = document.getElementById('se-' + f.id).value.trim(); });
+            const why = reason.value.trim();
+            if (why.length < 5) { msg.style.color = '#ef4444'; msg.textContent = 'Please type a reason (at least 5 characters).'; return; }
+            save.disabled = true; msg.style.color = ''; msg.textContent = 'Saving...';
+            try {
+                await onSave(vals, why);
+                modal.style.display = 'none';
+                superSearch();
+            } catch (e) {
+                msg.style.color = '#ef4444'; msg.textContent = e.message || String(e); save.disabled = false;
+            }
+        };
+    }
+    function superEditLab1(r) {
+        openSuperEdit('Edit moisture / fineness', `Sample <b>${esc(r.sample1_barcode_id)}</b> &bull; truck ${esc(r.truck_reg_number)} &bull; mixing code ${esc(r.mixing_code)}.<br>Leave a box empty to keep that value. Locked values can be overwritten here.`, [
+            { id: 'moisture', label: 'Moisture (%)', value: r.moisture_pct, step: '0.001' },
+            { id: 'fineness_value', label: 'Fineness (%) - typed directly', value: r.fineness_value, step: '0.01', hint: '(ignored when both weights below are given)' },
+            { id: 'fineness_initial_weight', label: 'Fineness initial weight (kg)', value: r.fineness_initial_weight, step: '0.001' },
+            { id: 'fineness_final_weight', label: 'Fineness final weight (kg)', value: r.fineness_final_weight, step: '0.001' }
+        ], async (v, why) => {
+            const p = { barcode: r.sample1_barcode_id, reason: why };
+            ['moisture', 'fineness_value', 'fineness_initial_weight', 'fineness_final_weight'].forEach(k => { if (v[k] !== '') p[k] = v[k]; });
+            const hasW = p.fineness_initial_weight !== undefined && p.fineness_final_weight !== undefined;
+            if (hasW) delete p.fineness_value;
+            // unchanged values are not sent (so only real changes are written and logged)
+            if (p.moisture !== undefined && r.moisture_pct !== null && Number(p.moisture) === Number(r.moisture_pct)) delete p.moisture;
+            if (!hasW && p.fineness_value !== undefined && r.fineness_value !== null && Number(p.fineness_value) === Number(r.fineness_value)) delete p.fineness_value;
+            if (hasW && Number(p.fineness_initial_weight) === Number(r.fineness_initial_weight) && Number(p.fineness_final_weight) === Number(r.fineness_final_weight)) { delete p.fineness_initial_weight; delete p.fineness_final_weight; }
+            if (p.fineness_initial_weight !== undefined !== (p.fineness_final_weight !== undefined)) throw new Error('Enter BOTH weights, or none.');
+            if (p.moisture === undefined && p.fineness_value === undefined && p.fineness_initial_weight === undefined) throw new Error('Nothing was changed.');
+            const res = await window.BiomassAPI.superFeedLab1(p);
+            alert(`Saved and recorded.\n\nMoisture ${res.moisture_pct}  |  Fineness ${res.fineness_value}  |  ${res.acceptance_status}\nAny composite containing this truck was recalculated.`);
+        });
+    }
+    function superEditComposite(c) {
+        const l4 = c.lot === 'LOT4';
+        const fields = [
+            { id: 'ad_moisture', label: 'AD Moisture (%)', value: c.ad_moisture, step: '0.001' },
+            { id: 'ad_gcv', label: 'AD GCV (kcal/kg)', value: c.ad_gcv, step: '0.01' },
+            { id: 'ad_ash', label: 'AD Ash (%)', value: c.ad_ash, step: '0.001' }
+        ].concat(l4 ? [{ id: 'ad_sulphur', label: 'AD Sulphur (%)', value: c.ad_sulphur, step: '0.001' }, { id: 'ad_vm', label: 'AD VM (%)', value: c.ad_vm, step: '0.001' }] : []);
+        openSuperEdit('Edit AD values', `Composite <b>${esc(c.composite_ref_id)}</b> (${esc(c.lot)}), mixing code ${esc(c.mixing_code)}. TM, X and the ARB values are recalculated from what you save. All values are needed.`, fields, async (v, why) => {
+            const p = { code: c.composite_ref_id, reason: why };
+            fields.forEach(f => { if (v[f.id] === '') throw new Error('Fill in ' + f.label + '.'); p[f.id] = v[f.id]; });
+            const res = await window.BiomassAPI.superFeedComposite(p);
+            alert(`Saved and recorded.\n\nTM ${Number(res.tm).toFixed(2)} %  |  X ${Number(res.x).toFixed(6)}\nARB GCV ${res.arb_gcv}  |  ARB Ash ${Number(res.arb_ash).toFixed(2)} %` +
+                  (res.arb_sulphur !== null && res.arb_sulphur !== undefined ? `\nARB Sulphur ${Number(res.arb_sulphur).toFixed(2)} %  |  ARB VM ${Number(res.arb_vm).toFixed(2)} %` : ''));
+        });
+    }
+
     // ================= BOTTOM SAMPLES (Entry / Admin) =================
     let bottomPollTimer = null;
     function initBottomSamples() {
@@ -6191,8 +6394,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     ['In mixture?', r => r.mix_status === 'ACCEPTED' ? '<span style="color:#10b981; font-weight:700;">Included</span>' : (r.mix_status === 'REJECTED' ? '<span style="color:#ef4444; font-weight:700;">Left out</span>' : '<span style="color:#f59e0b;">Pending</span>')],
                     ['Scanned', r => r.mixing_scanned ? '✅' : '-'],
                     ['Composite', r => esc(r.composite_ref_id || '-')],
-                    ['GCV', r => f(r.gcv, 0)],
-                    ['Ash %', r => f(r.ash, 2)],
+                    ['TM %', r => r.composite_ref_id ? f(r.tm, 2) : '-'],
+                    ['ARB GCV', r => f(r.gcv, 0)],
+                    ['ARB Ash %', r => f(r.ash, 2)],
+                    ['ARB S / VM %', r => lots[0] === 'LOT4' || r.lot === 'LOT4' ? (r.composite_ref_id ? `${f(r.sulphur, 2)} / ${f(r.vm, 2)}` : '-') : '-'],
                     ['Gross / Tare / Net (kg)', r => `${wt(r.gross_weight)} / ${wt(r.tare_weight)} / ${wt(r.net_weight)}`]
                 ]);
                 document.getElementById('mixsearch-head').innerHTML = '<tr>' + cols.map(c => `<th>${c[0]}</th>`).join('') + '</tr>';
@@ -6264,6 +6469,42 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
+    // Admin corrections (always with a reason, written to the audit log). A moisture correction recalculates every composite that contains the truck.
+    let inspectorLastBatch = null;
+    window.adminCorrectMoisture = async function(barcode, current) {
+        const v = prompt(`Current moisture: ${current} %\n\nEnter the CORRECTED moisture (%):`);
+        if (v === null || v.trim() === '') return;
+        const n = Number(v);
+        if (!(n > 0 && n < 100)) { alert('The moisture must be above 0 and below 100.'); return; }
+        const reason = prompt('Reason for the correction (required - it goes into the audit log):');
+        if (!reason || !reason.trim()) { alert('A reason is required.'); return; }
+        try {
+            await window.BiomassAPI.submitSample1Result(barcode, String(n), '', { override_reason: reason.trim() });
+            alert('Moisture corrected. Any composite that contains this truck has been recalculated.');
+            lookupInspectorBarcode(barcode);
+        } catch (e) { alert('Could not correct the moisture: ' + e.message); }
+    };
+    window.adminCorrectAd = async function() {
+        const b = inspectorLastBatch;
+        if (!b) return;
+        const isL4 = b.lot === 'LOT4';
+        const ask = (label, cur) => { const v = prompt(`${label}\n(current: ${cur === null || cur === undefined ? 'none' : cur})`, cur === null || cur === undefined ? '' : String(cur)); return v === null ? null : v.trim(); };
+        const vals = {};
+        for (const [k, label] of [['ad_moisture', 'AD Moisture (%)'], ['ad_gcv', 'AD GCV (kcal/kg)'], ['ad_ash', 'AD Ash (%)']].concat(isL4 ? [['ad_sulphur', 'AD Sulphur (%)'], ['ad_vm', 'AD VM (%)']] : [])) {
+            const v = ask(label, b[k]);
+            if (v === null) return;
+            vals[k] = v;
+        }
+        const reason = prompt('Reason for the correction (required - it goes into the audit log):');
+        if (!reason || !reason.trim()) { alert('A reason is required.'); return; }
+        try {
+            const r = await window.BiomassAPI.submitCompositeResult(b.test_lot || b.composite_barcode_id, vals, reason.trim());
+            alert(`Saved and recalculated.\nTM ${Number(r.tm).toFixed(2)} %  |  X ${Number(r.x).toFixed(6)}\nARB GCV ${r.arb_gcv}  |  ARB Ash ${Number(r.arb_ash).toFixed(2)} %` +
+                  (r.arb_sulphur !== null && r.arb_sulphur !== undefined ? `\nARB Sulphur ${Number(r.arb_sulphur).toFixed(2)} %  |  ARB VM ${Number(r.arb_vm).toFixed(2)} %` : ''));
+            lookupInspectorBarcode(b.composite_barcode_id || b.test_lot);
+        } catch (e) { alert('Could not save: ' + e.message); }
+    };
+
     async function lookupInspectorBarcode(barcode) {
         if (!barcode) {
             alert('Please scan, upload, or type a barcode.');
@@ -6314,6 +6555,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 • Fineness: ${res.lab1.fineness_value !== null && res.lab1.fineness_value !== undefined ? res.lab1.fineness_value + '%' + finenessDetails : 'Pending'}<br>
                                 • Tested By: ${esc(res.lab1.tested_by || '-')}<br>
                                 • Tested At: ${res.lab1.tested_at || '-'}
+                                ${res.lab1.moisture_pct !== null && res.lab1.moisture_pct !== undefined ? `<br><button type="button" class="btn btn-secondary btn-sm" style="margin-top:0.4rem;" onclick="window.adminCorrectMoisture('${sampleKey}', ${Number(res.lab1.moisture_pct)})">✏️ Correct moisture (Admin, needs a reason)</button>` : ''}
                                 ${scalePhotosHtml}
                             </div>
                         `;
@@ -6333,8 +6575,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                 • Composite Ref: ${esc(res.composite.composite_ref_id)}<br>
                                 • Company: ${esc(res.composite.company_name)}<br>
                                 • Compilation Date: ${res.composite.date}<br>
-                                • GCV Value: ${res.composite.gcv_value || 'Pending Lab 2'}<br>
-                                • Ash Content: ${res.composite.ash_pct ? res.composite.ash_pct + '%' : 'Pending Lab 2'}
+                                • ARB GCV: ${res.composite.gcv_value || 'Pending Lab 2'}<br>
+                                • ARB Ash: ${res.composite.ash_pct ? res.composite.ash_pct + '%' : 'Pending Lab 2'}<br>
+                                • TM: ${res.composite.tm_value != null ? Number(res.composite.tm_value).toFixed(2) + '%' : '-'} &nbsp; Lot: ${esc(res.composite.lot || 'LOT2/3')}
                             </div>
                         `;
                     } else {
@@ -6368,14 +6611,22 @@ document.addEventListener('DOMContentLoaded', function() {
                     let trucksHtml = res.matching_trucks.map(t => `• ${esc(t.truck_id)} (${esc(t.truck_reg_number)})`).join('<br>');
                     
                     let lab2ResultsHtml = '';
+                    inspectorLastBatch = res.batch;
                     if (res.batch.gcv_value !== null && res.batch.gcv_value !== "") {
+                        const b = res.batch, isL4 = b.lot === 'LOT4', has = (v) => v !== null && v !== undefined;
+                        const fx = (v, d) => has(v) ? Number(v).toFixed(d) : '-';
                         lab2ResultsHtml = `
                             <div class="lab-meta-display" style="background: #ecfdf5; border-color: #a7f3d0; margin-top: 1rem; color: #065f46;">
-                                <strong>Lab Station 2 Results:</strong><br>
-                                • GCV Value: ${res.batch.gcv_value} kcal/kg<br>
-                                • Ash Content: ${res.batch.ash_pct}%<br>
-                                • Tested By: ${esc(res.batch.tested_by)}<br>
-                                • Tested At: ${res.batch.tested_at}
+                                <strong>Lab Station 2 Results</strong> (${esc(b.lot || 'LOT2/3')}):<br>
+                                ${has(b.ad_gcv) ? `• Air-dried (AD): Moisture ${fx(b.ad_moisture, 3)} % | GCV ${fx(b.ad_gcv, 2)} | Ash ${fx(b.ad_ash, 3)} %${isL4 ? ` | Sulphur ${fx(b.ad_sulphur, 3)} % | VM ${fx(b.ad_vm, 3)} %` : ''}<br>
+                                • TM (mean moisture of the mixed trucks): <strong>${fx(b.tm_value, 4)} %</strong> &nbsp; X = <strong>${fx(b.x_factor, 6)}</strong><br>`
+                                  : '• Entered manually as ARB values (before the AD calculation existed)<br>'}
+                                • <strong>ARB GCV: ${b.gcv_value} kcal/kg</strong><br>
+                                • <strong>ARB Ash: ${b.ash_pct}%</strong><br>
+                                ${isL4 ? `• <strong>ARB Sulphur: ${fx(b.arb_sulphur, 2)}%</strong><br>• <strong>ARB VM: ${fx(b.arb_vm, 2)}%</strong><br>` : ''}
+                                • Tested By: ${esc(b.tested_by)}<br>
+                                • Tested At: ${b.tested_at}<br>
+                                <button type="button" class="btn btn-secondary btn-sm" style="margin-top:0.5rem;" onclick="window.adminCorrectAd()">✏️ Correct AD values (Admin, needs a reason)</button>
                             </div>
                         `;
                     } else {
@@ -6692,6 +6943,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const c2 = compMap[t.truck_id] || {};
                 const moisture = l1.moisture_pct !== undefined && l1.moisture_pct !== null && l1.moisture_pct !== "" ? Number(l1.moisture_pct) : (t.moisture_pct !== undefined && t.moisture_pct !== null ? Number(t.moisture_pct) : null);
                 const fineness = l1.fineness_value !== undefined && l1.fineness_value !== null && l1.fineness_value !== "" ? Number(l1.fineness_value) : null;
+                const nz = (v) => (v !== undefined && v !== null && v !== "") ? Number(v) : null;
                 const gcv = c2.gcv_value !== undefined && c2.gcv_value !== null && c2.gcv_value !== "" ? Number(c2.gcv_value) : null;
                 const ash = c2.ash_pct !== undefined && c2.ash_pct !== null && c2.ash_pct !== "" ? Number(c2.ash_pct) : null;
                 const vendorGcv = c2.vendor_gcv !== undefined && c2.vendor_gcv !== null && c2.vendor_gcv !== "" ? Number(c2.vendor_gcv) : null;
@@ -6718,6 +6970,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     fineness_value: fineness,
                     gcv_value: gcv,
                     ash_pct: ash,
+                    tm: nz(c2.tm_value), x_factor: nz(c2.x_factor), ad_moisture: nz(c2.ad_moisture), ad_gcv: nz(c2.ad_gcv), ad_ash: nz(c2.ad_ash),
+                    ad_sulphur: nz(c2.ad_sulphur), ad_vm: nz(c2.ad_vm), arb_sulphur: nz(c2.arb_sulphur), arb_vm: nz(c2.arb_vm),
                     vendor_gcv: vendorGcv,
                     referee_gcv: refereeGcv,
                     referee_status: refereeStatus,
@@ -6958,7 +7212,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (countInfo) countInfo.textContent = `Showing ${records.length} consignments`;
 
         if (records.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="12" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No consignments match current filters.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="14" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No consignments match current filters.</td></tr>`;
             return;
         }
 
@@ -6979,7 +7233,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td>${r.tare_weight ? r.tare_weight + ' kg' : '-'}</td>
                     <td><strong>${r.net_weight_mt > 0 ? r.net_weight_mt.toFixed(2) + ' MT' : '-'}</strong></td>
                     <td>${r.moisture_pct !== null ? r.moisture_pct + '%' : '-'}</td>
+                    <td>${r.tm !== null && r.tm !== undefined ? r.tm.toFixed(2) + '%' : '-'}</td>
                     <td>${r.gcv_value ? r.gcv_value + ' kcal/kg' : '-'}</td>
+                    <td>${r.ash_pct !== null && r.ash_pct !== undefined ? r.ash_pct + '%' : '-'}</td>
                     <td>${statusBadge}</td>
                     <td><span class="badge badge-info">${r.pipeline_stage}</span></td>
                 </tr>
@@ -7009,15 +7265,26 @@ document.addEventListener('DOMContentLoaded', function() {
             { header: 'Date',            width: 12 },
             { header: 'Challan / Invoice', width: 16 },
             { header: 'Supplier',        width: 22 },
+            { header: 'Lot',             width: 9  },
+            { header: 'PO No.',          width: 13 },
             { header: 'Truck Reg No.',   width: 14 },
             { header: 'Driver',          width: 16 },
             { header: 'Gross Wt (kg)',   width: 12 },
             { header: 'Tare Wt (kg)',    width: 12 },
             { header: 'Net Wt (MT)',     width: 12 },
-            { header: 'Moisture %',      width: 11 },
+            { header: 'Moisture % (truck)', width: 12 },
+            { header: 'TM % (mean moisture)', width: 13 },
             { header: 'Fineness %',      width: 11 },
-            { header: 'GCV (kcal/kg)',   width: 13 },
-            { header: 'Ash %',           width: 9  },
+            { header: 'AD Moisture %',   width: 11 },
+            { header: 'AD GCV',          width: 10 },
+            { header: 'AD Ash %',        width: 10 },
+            { header: 'AD Sulphur % (Lot-4)', width: 12 },
+            { header: 'AD VM % (Lot-4)', width: 11 },
+            { header: 'X factor',        width: 10 },
+            { header: 'ARB GCV (kcal/kg)', width: 13 },
+            { header: 'ARB Ash %',       width: 10 },
+            { header: 'ARB Sulphur % (Lot-4)', width: 12 },
+            { header: 'ARB VM % (Lot-4)', width: 11 },
             { header: 'Vendor GCV',      width: 16 },
             { header: 'Referee GCV',     width: 18 },
             { header: 'Acceptance',      width: 12 },
@@ -7078,15 +7345,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 dateStr,
                 rec.invoice_no || rec.challan_no || '-',
                 rec.company_name || '-',
+                rec.lot || '-',
+                rec.po_number || '-',
                 rec.truck_reg_number || '-',
                 rec.driver_name || '-',
                 Number(rec.gross_weight) || 0,
                 Number(rec.tare_weight) || 0,
                 Number(rec.net_weight_mt || 0).toFixed(3),
                 rec.moisture_pct !== null ? rec.moisture_pct : 'Pending',
+                isRejected ? 'N/A (REJECTED)' : (rec.tm !== null && rec.tm !== undefined ? Number(rec.tm.toFixed(2)) : 'Pending'),
                 rec.fineness_value !== null ? rec.fineness_value : 'Pending',
+                isRejected ? 'N/A (REJECTED)' : (rec.ad_moisture !== null && rec.ad_moisture !== undefined ? rec.ad_moisture : '-'),
+                isRejected ? 'N/A (REJECTED)' : (rec.ad_gcv !== null && rec.ad_gcv !== undefined ? rec.ad_gcv : '-'),
+                isRejected ? 'N/A (REJECTED)' : (rec.ad_ash !== null && rec.ad_ash !== undefined ? rec.ad_ash : '-'),
+                rec.lot === 'LOT4' ? (rec.ad_sulphur !== null && rec.ad_sulphur !== undefined ? rec.ad_sulphur : 'Pending') : '-',
+                rec.lot === 'LOT4' ? (rec.ad_vm !== null && rec.ad_vm !== undefined ? rec.ad_vm : 'Pending') : '-',
+                isRejected ? 'N/A (REJECTED)' : (rec.x_factor !== null && rec.x_factor !== undefined ? Number(rec.x_factor.toFixed(6)) : '-'),
                 isRejected ? 'N/A (REJECTED)' : (rec.gcv_value !== null ? rec.gcv_value : 'Pending'),
                 isRejected ? 'N/A (REJECTED)' : (rec.ash_pct !== null ? rec.ash_pct : 'Pending'),
+                rec.lot === 'LOT4' ? (rec.arb_sulphur !== null && rec.arb_sulphur !== undefined ? rec.arb_sulphur : 'Pending') : '-',
+                rec.lot === 'LOT4' ? (rec.arb_vm !== null && rec.arb_vm !== undefined ? rec.arb_vm : 'Pending') : '-',
                 isRejected ? 'N/A (REJECTED)' : formatVendorGcvDisplay(rec),
                 isRejected ? 'N/A (REJECTED)' : formatRefereeGcvDisplay(rec),
                 rec.acceptance_status || 'PENDING',
@@ -7096,7 +7374,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const cell = sheet.getCell(r, i + 1);
                 cell.value = val;
                 cell.border = { top: { style: 'hair' }, left: { style: 'hair' }, bottom: { style: 'hair' }, right: { style: 'hair' } };
-                cell.alignment = { vertical: 'middle', horizontal: i <= 4 ? 'left' : 'center' };
+                cell.alignment = { vertical: 'middle', horizontal: i <= 5 ? 'left' : 'center' };
                 if (isRejected) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
                 else if (r % 2 === 0) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
             });
@@ -7128,7 +7406,7 @@ document.addEventListener('DOMContentLoaded', function() {
             ['Accepted / Rejected', `${accepted.length} / ${rejected.length}`],
             ['Accepted Net Weight (MT)', Number(totalNetMT.toFixed(2))],
             ['Rejected Net Weight (MT)', Number(rejected.reduce((a, x) => a + (x.net_weight_mt || 0), 0).toFixed(2))],
-            ['Avg Moisture %', avgMoisture !== null ? Number(avgMoisture.toFixed(2)) : 'Pending'],
+            ['Avg Moisture % (trucks)', avgMoisture !== null ? Number(avgMoisture.toFixed(2)) : 'Pending'],
             ['Avg Fineness %', avgFineness !== null ? Number(avgFineness.toFixed(2)) : 'Pending'],
             ['Avg GCV (kcal/kg)', avgGcv !== null ? Math.round(avgGcv) : 'Pending'],
             ['Avg Ash %', avgAsh !== null ? Number(avgAsh.toFixed(2)) : 'Pending']

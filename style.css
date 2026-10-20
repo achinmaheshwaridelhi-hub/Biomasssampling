@@ -1627,3 +1627,7 @@ header { padding-top: calc(0.75rem + env(safe-area-inset-top)); }
 .mixsearch-info .tile strong { font-size: 1rem; overflow-wrap: anywhere; }
 
 .mixsearch-table th, .mixsearch-table td { padding: 0.55rem 0.55rem !important; white-space: normal; }
+
+/* Activity log / Exceptions: long audit messages wrap, so the IP column stays visible */
+#exceptions-log-body td:nth-child(4), #activity-log-body td:nth-child(4) { white-space: normal; overflow-wrap: anywhere; min-width: 260px; max-width: 560px; }
+#exceptions-log-body td, #activity-log-body td { vertical-align: top; }

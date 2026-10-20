@@ -242,7 +242,8 @@
                 let who;
                 try { who = await rpc('bm_whoami', {}); }
                 catch (e) { clearSession(); return { success: false, message: e.message || 'This account is not provisioned.' }; }
-                const sessionUser = { username: who.username, role: who.role, name: who.name };
+                // The Super Admin has every Admin right: the app treats it as 'admin' and shows the extra Super Admin tab (is_super).
+                const sessionUser = { username: who.username, role: who.role === 'superadmin' ? 'admin' : who.role, name: who.name, is_super: who.role === 'superadmin' };
                 const s = loadSession(); s.user = sessionUser; saveSession(s);
                 _failCount = 0;
                 return { success: true, user: sessionUser };
@@ -343,10 +344,18 @@
         async setBottomPassword(password) { return rpc('bm_admin_set_bottom_password', { password: password }); },
         async getBottomStatus() { return rpc('bm_admin_bottom_status', {}); },
         async searchMixingCode(code) { return rpc('bm_admin_mixing_search', { code: String(code || '').trim() }); },
+        // --- SUPER ADMIN (the server refuses everybody else) ---
+        async superFind(q, from, to) { return rpc('bm_super_find', { q: String(q || '').trim(), from: from || null, to: to || null }); },
+        async superFeedLab1(v) { return rpc('bm_super_feed_lab1', v); },
+        async superFeedComposite(v) { return rpc('bm_super_feed_composite', v); },
+        async superLogAction(action, details) { try { return await rpc('bm_super_log_action', { action, details: String(details || '').slice(0, 700) }); } catch (e) { console.warn('log failed', e); } },
         async getCompositeBatchByGroupCode(groupCode, date) { return rpc('bm_lab2_get_batch', { group_code: groupCode, date: date || null }); },
         async getCompositeDetails(code) { return rpc('bm_get_composite_details', { code }); },
-        async submitCompositeResult(code, gcv, ash, overrideReason) {
-            return rpc('bm_submit_composite_result', { code, gcv: String(gcv), ash: String(ash), override_reason: overrideReason || '' });
+        /** Lab 2 enters the AIR-DRIED values; the database calculates TM, X and the ARB values. v = {ad_moisture, ad_gcv, ad_ash, ad_sulphur?, ad_vm?} */
+        async submitCompositeResult(code, v, overrideReason) {
+            const p = { code, override_reason: overrideReason || '' };
+            ['ad_moisture', 'ad_gcv', 'ad_ash', 'ad_sulphur', 'ad_vm'].forEach(k => { if (v && v[k] !== undefined && v[k] !== null && v[k] !== '') p[k] = String(v[k]); });
+            return rpc('bm_submit_composite_result', p);
         },
         async getLab2History() { return (await rpc('bm_get_lab2_history', {})) || []; },
 
@@ -380,12 +389,13 @@
                 // exact link stamped when Lab-2 created the composite (no fuzzy group-code matching)
                 const composite = truck.composite_barcode_id ? compByBarcode[truck.composite_barcode_id] : null;
                 const moistureVal = num(l1.moisture_pct);
-                const acceptance = self.evaluateAcceptance(moistureVal);
+                // the server decides (LOT4 trucks are never rejected for moisture)
+                const acceptance = truck.acceptance_status || self.evaluateAcceptance(moistureVal);
                 const hasGcv = composite && composite.gcv_value !== null && composite.gcv_value !== undefined;
                 const hasAsh = composite && composite.ash_pct !== null && composite.ash_pct !== undefined;
                 const rejectionReason = acceptance === 'REJECTED'
                     ? (moistureVal !== null ? `Moisture ${moistureVal}% ≥ ${MOISTURE_REJECT_LIMIT.toFixed(1)}% limit` : 'REJECTED')
-                    : acceptance === 'ACCEPTED' ? `Passed (Moisture < ${MOISTURE_REJECT_LIMIT.toFixed(1)}%)` : 'Pending Moisture Test';
+                    : acceptance === 'ACCEPTED' ? (truck.lot === 'LOT4' ? 'Accepted (Lot-4: no moisture rejection)' : `Passed (Moisture < ${MOISTURE_REJECT_LIMIT.toFixed(1)}%)`) : 'Pending Moisture Test';
                 const chVal = truck.invoice_no || truck.challan_no || '';
                 return {
                     truck_id: truck.truck_id, truck_reg_number: truck.truck_reg_number,
@@ -394,12 +404,16 @@
                     mixing_group_code: truck.daily_group_code || '',
                     driver_name: truck.driver_name, entry_time: truck.entry_time,
                     has_photo: !!truck.has_photo,
+                    lot: truck.lot || 'LOT2/3', excluded_from_mix: !!truck.excluded_from_mix,
                     gross_weight: num(truck.gross_weight), tare_weight: num(truck.tare_weight),
-                    net_weight: acceptance === 'REJECTED' ? 0 : (num(truck.net_weight) || 0),
+                    net_weight: num(truck.net_weight) || 0,                      // the weight as actually weighed, rejected or not
                     sample1_barcode: truck.sample1_barcode_id,
-                    composite_barcode: acceptance === 'REJECTED' ? null : (composite ? (composite.composite_barcode_id || composite.composite_ref_id) : null),
-                    gcv_value: acceptance === 'REJECTED' ? null : (hasGcv ? Number(composite.gcv_value) : null),
-                    ash_pct: acceptance === 'REJECTED' ? null : (hasAsh ? Number(composite.ash_pct) : null),
+                    composite_barcode: composite ? (composite.composite_barcode_id || composite.composite_ref_id) : null,
+                    gcv_value: hasGcv ? Number(composite.gcv_value) : null,
+                    ash_pct: hasAsh ? Number(composite.ash_pct) : null,
+                    tm: composite && composite.tm_value != null ? Number(composite.tm_value) : null,
+                    arb_sulphur: composite && composite.arb_sulphur != null ? Number(composite.arb_sulphur) : null,
+                    arb_vm: composite && composite.arb_vm != null ? Number(composite.arb_vm) : null,
                     vendor_gcv: composite && composite.vendor_gcv != null ? Number(composite.vendor_gcv) : null,
                     referee_gcv: composite && composite.referee_gcv != null ? Number(composite.referee_gcv) : null,
                     referee_status: composite ? (composite.referee_status || null) : null,
@@ -416,21 +430,30 @@
                 if (r.moisture_pct !== null) { sumMoisture += r.moisture_pct; moistureCount++; }
                 if (r.fineness_value !== null) { sumFineness += r.fineness_value; finenessCount++; }
             });
-            const seen = new Set(); let sumGcv = 0, sumAsh = 0, compositeCount = 0;
+            const seen = new Set(); let sumGcv = 0, sumAsh = 0, compositeCount = 0, sumS = 0, sumVm = 0, lot4Count = 0;
+            const tmList = [];
             reportRows.forEach(r => {
                 if (!r.composite_barcode || seen.has(r.composite_barcode)) return;
                 seen.add(r.composite_barcode);
                 const comp = compByBarcode[r.composite_barcode];
                 if (comp && comp.gcv_value !== null && comp.gcv_value !== undefined) {
                     sumGcv += Number(comp.gcv_value); sumAsh += Number(comp.ash_pct); compositeCount++;
+                    if (comp.arb_sulphur != null) { sumS += Number(comp.arb_sulphur); sumVm += Number(comp.arb_vm); lot4Count++; }
                 }
+                // the vendor's TM: the composites of the trucks that are in the normal mixture (a bottom-sampled truck has its own composite)
+                if (!r.excluded_from_mix && comp && comp.tm_value != null) tmList.push(Number(comp.tm_value));
             });
+            const hasLot4 = reportRows.some(r => r.lot === 'LOT4');
             return {
                 company_name: companyName, date, rows: reportRows,
                 summary: {
                     truck_count: reportRows.length, accepted_count: acceptedCount, rejected_count: rejectedCount,
                     total_net_weight: totalNetWeight,
                     avg_moisture: moistureCount > 0 ? Number((sumMoisture / moistureCount).toFixed(2)) : null,
+                    tm: tmList.length ? Number((tmList.reduce((a, b) => a + b, 0) / tmList.length).toFixed(2)) : null,
+                    has_lot4: hasLot4,
+                    avg_sulphur: lot4Count > 0 ? Number((sumS / lot4Count).toFixed(2)) : null,
+                    avg_vm: lot4Count > 0 ? Number((sumVm / lot4Count).toFixed(2)) : null,
                     avg_fineness: finenessCount > 0 ? Number((sumFineness / finenessCount).toFixed(2)) : null,
                     avg_gcv: compositeCount > 0 ? Number((sumGcv / compositeCount).toFixed(0)) : null,
                     avg_ash: compositeCount > 0 ? Number((sumAsh / compositeCount).toFixed(2)) : null

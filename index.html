@@ -27,7 +27,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20261019_v27">
+    <link rel="stylesheet" href="style.css?v=20261020_v29">
     <!-- Chart.js for Executive Management Dashboard (version pinned; local copy used if the CDN is unreachable) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script>
@@ -144,6 +144,9 @@
                 <button class="tab-btn" data-tab="admin-settings">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                     Settings
+                </button>
+                <button class="tab-btn" data-tab="admin-super" id="tab-btn-super" style="display: none; border-color: #ef4444; color: #fca5a5;">
+                    &#128737;&#65039; Super Admin
                 </button>
             </div>
 
@@ -382,13 +385,15 @@
                                     <th>Tare (kg)</th>
                                     <th>Net (MT)</th>
                                     <th>Moisture %</th>
-                                    <th>GCV (kcal/kg)</th>
+                                    <th>TM %</th>
+                                    <th>ARB GCV (kcal/kg)</th>
+                                    <th>ARB Ash %</th>
                                     <th>Acceptance Status</th>
                                     <th>Pipeline Stage</th>
                                 </tr>
                             </thead>
                             <tbody id="exec-consignments-table-body">
-                                <tr><td colspan="12" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Loading consignment records...</td></tr>
+                                <tr><td colspan="14" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Loading consignment records...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -756,7 +761,7 @@
                             <div class="report-summary-val" style="font-size: 1.15rem; line-height: 1.3; margin-top: 0.5rem;" id="summary-accept-reject">0 / 0</div>
                         </div>
                         <div class="report-summary-card">
-                            <div class="report-summary-lbl">Avg Moisture</div>
+                            <div class="report-summary-lbl">Moisture (TM)</div>
                             <div class="report-summary-val" id="summary-avg-moisture">0%</div>
                         </div>
                         <div class="report-summary-card">
@@ -764,7 +769,7 @@
                             <div class="report-summary-val" id="summary-avg-fineness">0%</div>
                         </div>
                         <div class="report-summary-card">
-                            <div class="report-summary-lbl">Composite GCV / Ash</div>
+                            <div class="report-summary-lbl">ARB GCV / Ash</div>
                             <div class="report-summary-val" style="font-size: 1.15rem; line-height: 1.3; margin-top: 0.5rem;" id="summary-avg-composite">0 kcal / 0%</div>
                         </div>
                     </div>
@@ -782,8 +787,11 @@
                                     <th>Fineness %</th>
                                     <th>Acceptance</th>
                                     <th>Mixing Group</th>
-                                    <th>GCV (kcal/kg)</th>
-                                    <th>Ash %</th>
+                                    <th>TM %</th>
+                                    <th>ARB GCV (kcal/kg)</th>
+                                    <th>ARB Ash %</th>
+                                    <th class="lot4-only">ARB Sulphur %</th>
+                                    <th class="lot4-only">ARB VM %</th>
                                     <th>Vendor GCV</th>
                                     <th>Referee GCV</th>
                                 </tr>
@@ -1015,7 +1023,7 @@
                                         <th>Group Code</th>
                                         <th>Supplier Name</th>
                                         <th>Sample Date</th>
-                                        <th>NTPC GCV (kcal/kg)</th>
+                                        <th>ARB GCV (kcal/kg)</th>
                                         <th>Vendor GCV (kcal/kg)</th>
                                         <th>Challenge Action</th>
                                         <th>Referee GCV (kcal/kg)</th>
@@ -1030,6 +1038,42 @@
                             </table>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- TAB: SUPER ADMIN -->
+            <div id="tab-admin-super" class="tab-content">
+                <div class="card" style="border: 2px solid #ef4444;">
+                    <h3 class="card-title" style="color: #ef4444;">&#128737;&#65039; Super Admin tools</h3>
+                    <p style="font-size: 0.9rem;">Feed or correct any test value, and print any QR code of any date. <b>Every change is recorded</b> in Activity Log &rarr; <i>Exceptions &amp; Security Violations View</i> with
+                        your <b>IP address</b>, the device, the <b>old and new values</b> and the reason you type. Printing or downloading a QR is recorded as well.</p>
+                </div>
+                <div class="card">
+                    <h3 class="card-title">Find samples &amp; composite lots</h3>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end;">
+                        <label style="display: flex; flex-direction: column; font-size: 0.75rem; gap: 2px; flex: 1; min-width: 230px;">Mixing code, truck number, vendor name, sample QR or composite code
+                            <input type="text" id="super-q" placeholder="e.g. 7K3, HR55K7730, Green Fuel, S1-ABC12345, CMP-20261020-001" autocomplete="off" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;"></label>
+                        <label style="display: flex; flex-direction: column; font-size: 0.75rem; gap: 2px;">From<input type="date" id="super-from" style="padding: 0.45rem;"></label>
+                        <label style="display: flex; flex-direction: column; font-size: 0.75rem; gap: 2px;">To<input type="date" id="super-to" style="padding: 0.45rem;"></label>
+                        <button type="button" class="btn btn-primary" id="btn-super-find">&#128269; Search</button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btn-super-clear">Clear</button>
+                    </div>
+                    <div id="super-note" style="font-size: 0.85rem; margin: 0.7rem 0; color: var(--text-muted);"></div>
+                    <h4 style="margin: 0.8rem 0 0.4rem;">Truck samples &amp; bottom samples</h4>
+                    <div class="table-responsive">
+                        <table style="min-width: 0; font-size: 0.82rem;" class="mixsearch-table">
+                            <thead><tr><th>Date</th><th>Mixing code</th><th>Vendor</th><th>Truck no.</th><th>Sample</th><th>Moisture %</th><th>Fineness %</th><th>Result</th><th>Actions</th></tr></thead>
+                            <tbody id="super-samples-body"></tbody>
+                        </table>
+                    </div>
+                    <h4 style="margin: 1.2rem 0 0.4rem;">Composite lots</h4>
+                    <div class="table-responsive">
+                        <table style="min-width: 0; font-size: 0.82rem;" class="mixsearch-table">
+                            <thead><tr><th>Date</th><th>Mixing code</th><th>Vendor</th><th>Composite</th><th>Values</th><th>Actions</th></tr></thead>
+                            <tbody id="super-comps-body"></tbody>
+                        </table>
+                    </div>
+                    <canvas id="qr-canvas-super" style="display: none;"></canvas>
                 </div>
             </div>
 
@@ -1050,10 +1094,11 @@
                                         <th>User</th>
                                         <th>Exception Type</th>
                                         <th>Details</th>
+                                        <th>IP address / device</th>
                                     </tr>
                                 </thead>
                                 <tbody id="exceptions-log-body">
-                                    <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No critical exceptions flagged.</td></tr>
+                                    <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No critical exceptions flagged.</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -1071,6 +1116,7 @@
                                         <th>Operator</th>
                                         <th>Action Taken</th>
                                         <th>Audit Message / Target ID</th>
+                                        <th>IP address</th>
                                     </tr>
                                 </thead>
                                 <tbody id="activity-log-body">
@@ -1183,8 +1229,8 @@
                 </div>
                 <div id="dayreport-note" style="font-size: 0.85rem; margin-top: 0.7rem;"></div>
                 <div id="dayreport-table-wrap" class="table-responsive" style="display: none; margin-top: 0.6rem;">
-                    <table style="min-width: 1100px; font-size: 0.85rem;">
-                        <thead><tr><th>#</th><th>Truck No.</th><th>Vendor</th><th>Lot / PO</th><th>Gross (kg)</th><th>Tare (kg)</th><th>Net (kg)</th><th>Moisture %</th><th>GCV</th><th>Fineness %</th><th>Ash %</th><th>GCV / Ash from</th><th>Result</th></tr></thead>
+                    <table style="min-width: 1350px; font-size: 0.85rem;">
+                        <thead><tr><th>#</th><th>Truck No.</th><th>Vendor</th><th>Lot / PO</th><th>Gross (kg)</th><th>Tare (kg)</th><th>Net (kg)</th><th>Moisture %</th><th>TM %</th><th>ARB GCV</th><th>Fineness %</th><th>ARB Ash %</th><th>ARB Sulphur %</th><th>ARB VM %</th><th>GCV / Ash from</th><th>Result</th></tr></thead>
                         <tbody id="dayreport-body"></tbody>
                     </table>
                 </div>
@@ -1473,18 +1519,41 @@
                         
                         <form id="lab2-entry-form">
                             <input type="hidden" id="lab2-barcode-id">
+                            <div class="lab-meta-display" style="margin-bottom: 1rem; justify-content: space-between;">
+                                <span>TM &mdash; mean moisture of this composite:</span>
+                                <strong id="lab2-tm" style="color: var(--primary); font-size: 1.15rem;">--</strong>
+                            </div>
+                            <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.75rem;">Enter the <b>air-dried (AD)</b> values. The system calculates X = (100 &minus; TM) / (100 &minus; AD Moisture) and the as-received (ARB) values.</p>
                             <div class="grid-2">
                                 <div class="form-group">
-                                    <label for="lab2-gcv">GCV Value (kcal/kg)</label>
-                                    <input type="number" id="lab2-gcv" placeholder="e.g. 3800" required min="0" step="0.01">
+                                    <label for="lab2-ad-moisture">AD Moisture (%)</label>
+                                    <input type="number" id="lab2-ad-moisture" placeholder="e.g. 8.50" required min="0" max="99.999" step="0.001">
                                 </div>
                                 <div class="form-group">
-                                    <label for="lab2-ash">Ash Content (%)</label>
-                                    <input type="number" step="0.01" id="lab2-ash" placeholder="0.00" required min="0" max="100">
+                                    <label for="lab2-gcv">AD GCV (kcal/kg)</label>
+                                    <input type="number" id="lab2-gcv" placeholder="e.g. 3800" required min="0" step="0.01">
                                 </div>
                             </div>
+                            <div class="grid-2">
+                                <div class="form-group">
+                                    <label for="lab2-ash">AD Ash (%)</label>
+                                    <input type="number" step="0.001" id="lab2-ash" placeholder="0.00" required min="0" max="100">
+                                </div>
+                                <div class="form-group lab2-lot4" style="display: none;">
+                                    <label for="lab2-sulphur">AD Sulphur (%)</label>
+                                    <input type="number" step="0.001" id="lab2-sulphur" placeholder="0.00" min="0" max="100">
+                                </div>
+                            </div>
+                            <div class="grid-2 lab2-lot4" style="display: none;">
+                                <div class="form-group">
+                                    <label for="lab2-vm">AD VM (%)</label>
+                                    <input type="number" step="0.001" id="lab2-vm" placeholder="0.00" min="0" max="100">
+                                </div>
+                                <div></div>
+                            </div>
+                            <div id="lab2-calc-preview" style="display: none; padding: 0.7rem 0.9rem; border-radius: 8px; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.45); font-size: 0.9rem; line-height: 1.6; margin-top: 0.5rem;"></div>
                             <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;">
-                                Lock & Submit Results
+                                Lock &amp; Submit Results
                             </button>
                         </form>
                     </div>
@@ -1572,8 +1641,11 @@
                             <thead>
                                 <tr>
                                     <th>Submission Ref</th>
-                                    <th>GCV (kcal/kg)</th>
-                                    <th>Ash Content (%)</th>
+                                    <th>TM (%)</th>
+                                    <th>ARB GCV (kcal/kg)</th>
+                                    <th>ARB Ash (%)</th>
+                                    <th>ARB Sulphur (%)</th>
+                                    <th>ARB VM (%)</th>
                                     <th>Submission Time</th>
                                 </tr>
                             </thead>
@@ -1590,6 +1662,22 @@
 
     <!-- Hidden Printable Output Container (a sibling of <main>: the print stylesheet hides <main>, so inside it the labels printed blank) -->
     <div id="print-section" style="display: none;"></div>
+
+    <!-- Super Admin: edit dialog (fields are built by the script) -->
+    <div id="super-edit-modal" style="display: none; position: fixed; inset: 0; z-index: 99991; background: rgba(2,6,23,0.82); align-items: center; justify-content: center; padding: 1rem; overflow-y: auto;">
+        <div class="card" style="max-width: 520px; width: 100%; margin: auto; border: 2px solid #ef4444;">
+            <h3 class="card-title" id="super-edit-title" style="margin-bottom: 0.3rem;">Edit</h3>
+            <p id="super-edit-info" style="font-size: 0.85rem; margin-bottom: 0.8rem;"></p>
+            <div id="super-edit-fields"></div>
+            <label style="display: block; font-size: 0.8rem; margin: 0.4rem 0 0.2rem;">Reason (required &mdash; recorded in the audit log)</label>
+            <textarea id="super-edit-reason" rows="2" maxlength="300" style="width: 100%; padding: 0.5rem;"></textarea>
+            <div id="super-edit-msg" style="font-size: 0.88rem; margin: 0.5rem 0; min-height: 1.2em;"></div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" id="btn-super-edit-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btn-super-edit-save" style="background: #dc2626; border-color: #dc2626;">Save &amp; record</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Bottom-sample request (Unloading): needs the bottom-sampling password -->
     <div id="bottom-req-modal" style="display: none; position: fixed; inset: 0; z-index: 99990; background: rgba(2,6,23,0.8); align-items: center; justify-content: center; padding: 1rem;">
@@ -1643,14 +1731,14 @@
 
     <!-- Moisture-meter reader (trained offline OCR). Small loaders only; the ~8 MB engine in lib/ocr/ is fetched
          on first use. If these fail to load the app simply falls back to manual photo + typing. -->
-    <script src="lib/ocr/moisture-reader-core.js?v=20261019_v27"></script>
-    <script src="lib/ocr/led-weight-reader.js?v=20261019_v27"></script>
-    <script src="lib/ocr/led-templates.js?v=20261019_v27"></script>
-    <script src="moisture-ocr.js?v=20261019_v27"></script>
+    <script src="lib/ocr/moisture-reader-core.js?v=20261020_v29"></script>
+    <script src="lib/ocr/led-weight-reader.js?v=20261020_v29"></script>
+    <script src="lib/ocr/led-templates.js?v=20261020_v29"></script>
+    <script src="moisture-ocr.js?v=20261020_v29"></script>
 
     <!-- App JavaScript files -->
-    <script src="api.js?v=20261019_v27" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261019_v27" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="api.js?v=20261020_v29" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261020_v29" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

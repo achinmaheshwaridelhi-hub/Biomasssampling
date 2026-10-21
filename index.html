@@ -27,7 +27,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20261020_v29">
+    <link rel="stylesheet" href="style.css?v=20261022_v31">
     <!-- Chart.js for Executive Management Dashboard (version pinned; local copy used if the CDN is unreachable) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script>
@@ -139,15 +139,16 @@
                 </button>
                 <button class="tab-btn" data-tab="admin-activity" id="tab-btn-activity">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-                    Activity Log
+                    <span id="activity-tab-label">Activity Log</span> <span id="activity-tab-badge" class="bottom-badge" style="display: none;">0</span>
                 </button>
                 <button class="tab-btn" data-tab="admin-settings">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                     Settings
                 </button>
-                <button class="tab-btn" data-tab="admin-super" id="tab-btn-super" style="display: none; border-color: #ef4444; color: #fca5a5;">
-                    &#128737;&#65039; Super Admin
-                </button>
+                <button class="tab-btn sx-tab" data-tab="super-inspector" id="tab-btn-sx-inspector" style="display: none;">&#128270; Inspector</button>
+                <button class="tab-btn sx-tab" data-tab="super-tools" id="tab-btn-sx-tools" style="display: none;">&#129520; Toolbox</button>
+                <button class="tab-btn sx-tab" data-tab="super-health" id="tab-btn-sx-health" style="display: none;">&#129658; Data health</button>
+                <button class="tab-btn sx-tab" data-tab="super-logins" id="tab-btn-sx-logins" style="display: none;">&#128101; Logins</button>
             </div>
 
             <!-- TAB 0: EXECUTIVE DASHBOARD -->
@@ -932,8 +933,12 @@
 
             <!-- TAB: BARCODE INSPECTOR -->
             <div id="tab-admin-inspector" class="tab-content">
+                <div class="ftabs" id="insp-tabs" role="tablist">
+                    <button type="button" class="active" data-ft="scan">&#128247; Scan / type barcode</button>
+                    <button type="button" data-ft="mix">&#129514; Find by mixing code</button>
+                </div>
                 <div class="grid-2">
-                    <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                    <div data-ftgroup="insp-tabs" data-ftab="scan" style="display: flex; flex-direction: column; gap: 1.5rem;">
                         <div class="card" style="margin-bottom: 0;">
                             <h3 class="card-title">Barcode Inspector & Lookup</h3>
                             <p style="font-size: 0.85rem; margin-bottom: 1.5rem;">Scan or search any barcode (Intake Sample-1, Lab Test Lot, Referee Lot, or Vendor Lot) to view its full tracking history, weights, and test results.</p>
@@ -963,8 +968,20 @@
                                 </div>
                             </div>
 
+                        </div>
+                    </div>
+
+                    <!-- Inspector Results Panel (Hidden until lookup succeeds) -->
+                    <div class="card" id="inspector-result-card" data-ftgroup="insp-tabs" data-ftab="scan" style="display: none; margin-bottom: 0;">
+                        <h3 class="card-title">Barcode Information</h3>
+                        <div id="inspector-result-content">
+                            <!-- Dynamically Rendered -->
+                        </div>
+                    </div>
+                </div>
+                <div class="card" data-ftgroup="insp-tabs" data-ftab="mix" style="margin-bottom: 0;">
                             <!-- Find everything linked to a MIXING CODE -->
-                            <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 2px solid rgba(245, 158, 11, 0.5);">
+                            <div style="margin: 0;">
                                 <h4 style="margin: 0 0 0.25rem; color: #f59e0b;">&#129514; Find by Mixing Code</h4>
                                 <p style="font-size: 0.82rem; margin-bottom: 0.6rem;">Type a mixing code to list every truck linked to it (any date): vendor, moisture, fineness, results and more.</p>
                                 <div style="display: flex; gap: 0.5rem;">
@@ -972,18 +989,9 @@
                                     <button type="button" class="btn btn-primary" id="btn-inspector-mix">Search</button>
                                 </div>
                             </div>
-                        </div>
-                    </div>
 
-                    <!-- Inspector Results Panel (Hidden until lookup succeeds) -->
-                    <div class="card" id="inspector-result-card" style="display: none; margin-bottom: 0;">
-                        <h3 class="card-title">Barcode Information</h3>
-                        <div id="inspector-result-content">
-                            <!-- Dynamically Rendered -->
-                        </div>
-                    </div>
                 </div>
-                <div class="card" id="mixsearch-result-card" style="display: none; margin-top: 1.5rem;">
+                <div class="card" id="mixsearch-result-card" data-ftgroup="insp-tabs" data-ftab="mix" style="display: none; margin-top: 1.5rem;">
                     <h3 class="card-title" id="mixsearch-title">Trucks linked to this mixing code</h3>
                     <div id="mixsearch-summary" class="mixsearch-info"></div>
                     <div class="table-responsive">
@@ -1041,45 +1049,107 @@
                 </div>
             </div>
 
-            <!-- TAB: SUPER ADMIN -->
-            <div id="tab-admin-super" class="tab-content">
-                <div class="card" style="border: 2px solid #ef4444;">
-                    <h3 class="card-title" style="color: #ef4444;">&#128737;&#65039; Super Admin tools</h3>
-                    <p style="font-size: 0.9rem;">Feed or correct any test value, and print any QR code of any date. <b>Every change is recorded</b> in Activity Log &rarr; <i>Exceptions &amp; Security Violations View</i> with
-                        your <b>IP address</b>, the device, the <b>old and new values</b> and the reason you type. Printing or downloading a QR is recorded as well.</p>
+            <!-- ================= SUPER ADMIN CONSOLE ================= -->
+            <!-- INSPECTOR -->
+            <div id="tab-super-inspector" class="tab-content">
+                <div class="sx-hero">
+                    <div class="sx-hero-left">
+                        <div class="sx-hero-title">&#128737;&#65039; Super Admin Console</div>
+                        <div class="sx-hero-sub">Find any truck, bottom sample or composite &mdash; open it, correct it, print its QR. Every change asks for a reason and your password, and is written to the audit log with your <b>IP address</b>.</div>
+                        <div class="sx-hero-chips">
+                            <span class="sx-chip" id="sx-idle-chip">&#9201; Auto sign-out after 10 min idle</span>
+                            <span class="sx-chip">&#128274; Password re-check for changes</span>
+                            <span class="sx-chip">&#128221; All changes audited</span>
+                        </div>
+                    </div>
+                    <div class="sx-scanbox">
+                        <div class="sx-scanbox-title">Scan a QR code</div>
+                        <button type="button" class="btn btn-primary sx-scanbtn" id="sx-scan-trigger">&#128247; Scan with camera</button>
+                        <label class="btn btn-secondary btn-sm sx-scanbtn" for="sx-file-input" style="cursor: pointer; text-align: center;">&#128193; Upload QR image</label>
+                        <input type="file" id="sx-file-input" accept="image/*,application/pdf" style="display: none;">
+                        <div class="sx-scanhint">Sample, bottom-sample or composite label &mdash; opens it straight away.</div>
+                        <div id="sx-qr-reader" style="display: none;"></div>
+                    </div>
                 </div>
-                <div class="card">
-                    <h3 class="card-title">Find samples &amp; composite lots</h3>
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end;">
-                        <label style="display: flex; flex-direction: column; font-size: 0.75rem; gap: 2px; flex: 1; min-width: 230px;">Mixing code, truck number, vendor name, sample QR or composite code
-                            <input type="text" id="super-q" placeholder="e.g. 7K3, HR55K7730, Green Fuel, S1-ABC12345, CMP-20261020-001" autocomplete="off" style="padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;"></label>
-                        <label style="display: flex; flex-direction: column; font-size: 0.75rem; gap: 2px;">From<input type="date" id="super-from" style="padding: 0.45rem;"></label>
-                        <label style="display: flex; flex-direction: column; font-size: 0.75rem; gap: 2px;">To<input type="date" id="super-to" style="padding: 0.45rem;"></label>
+
+                <div class="card sx-search">
+                    <div class="sx-searchrow">
+                        <label class="sx-grow">Mixing code, truck number, vendor name, sample QR, composite code or PO
+                            <input type="text" id="super-q" placeholder="e.g. 7K3 &middot; HR55K7730 &middot; Green Fuel &middot; S1-ABC12345 &middot; CMP-20261020-001" autocomplete="off"></label>
+                        <label>From<input type="date" id="super-from"></label>
+                        <label>To<input type="date" id="super-to"></label>
                         <button type="button" class="btn btn-primary" id="btn-super-find">&#128269; Search</button>
                         <button type="button" class="btn btn-secondary btn-sm" id="btn-super-clear">Clear</button>
                     </div>
-                    <div id="super-note" style="font-size: 0.85rem; margin: 0.7rem 0; color: var(--text-muted);"></div>
-                    <h4 style="margin: 0.8rem 0 0.4rem;">Truck samples &amp; bottom samples</h4>
-                    <div class="table-responsive">
-                        <table style="min-width: 0; font-size: 0.82rem;" class="mixsearch-table">
-                            <thead><tr><th>Date</th><th>Mixing code</th><th>Vendor</th><th>Truck no.</th><th>Sample</th><th>Moisture %</th><th>Fineness %</th><th>Result</th><th>Actions</th></tr></thead>
-                            <tbody id="super-samples-body"></tbody>
-                        </table>
+                    <div class="sx-chips" id="sx-filter-chips">
+                        <button type="button" class="sx-fchip active" data-f="all">All</button>
+                        <button type="button" class="sx-fchip" data-f="trucks">Truck samples</button>
+                        <button type="button" class="sx-fchip" data-f="bottom">Bottom samples</button>
+                        <button type="button" class="sx-fchip" data-f="accepted">Accepted</button>
+                        <button type="button" class="sx-fchip" data-f="rejected">Rejected</button>
+                        <button type="button" class="sx-fchip" data-f="comps">Composites</button>
+                        <button type="button" class="sx-fchip" data-f="open">Waiting for a result</button>
+                        <button type="button" class="sx-fchip" data-f="cancelled">Cancelled / voided</button>
                     </div>
-                    <h4 style="margin: 1.2rem 0 0.4rem;">Composite lots</h4>
-                    <div class="table-responsive">
-                        <table style="min-width: 0; font-size: 0.82rem;" class="mixsearch-table">
-                            <thead><tr><th>Date</th><th>Mixing code</th><th>Vendor</th><th>Composite</th><th>Values</th><th>Actions</th></tr></thead>
-                            <tbody id="super-comps-body"></tbody>
-                        </table>
-                    </div>
-                    <canvas id="qr-canvas-super" style="display: none;"></canvas>
+                    <div id="super-note" class="sx-note"></div>
                 </div>
+
+                <div id="sx-tiles" class="sx-tiles"></div>
+                <div id="sx-group-panel" class="card sx-group" style="display: none;"></div>
+
+                <h4 class="sx-h" id="sx-h-samples">Truck &amp; bottom samples</h4>
+                <div id="super-samples-grid" class="sx-grid"></div>
+                <h4 class="sx-h" id="sx-h-comps">Composite lots</h4>
+                <div id="super-comps-grid" class="sx-grid"></div>
+                <canvas id="qr-canvas-super" style="display: none;"></canvas>
+            </div>
+
+            <!-- TOOLBOX -->
+            <div id="tab-super-tools" class="tab-content">
+                <div class="sx-hero">
+                    <div>
+                        <div class="sx-hero-title">&#129520; Toolbox &mdash; the 10 rescue tools</div>
+                        <div class="sx-hero-sub">What each tool is for, when to reach for it, and how to use it. Tools that act on one truck first <b>find</b> the truck and open it in the Inspector, where all the buttons are.</div>
+                    </div>
+                </div>
+                <div id="sx-tools-grid" class="sx-tools"></div>
+            </div>
+
+            <!-- DATA HEALTH -->
+            <div id="tab-super-health" class="tab-content">
+                <div class="sx-hero">
+                    <div>
+                        <div class="sx-hero-title">&#129658; Data health check</div>
+                        <div class="sx-hero-sub">Finds things that are stuck or inconsistent &mdash; groups that can never get a composite, trucks that never left, broken links. Nothing is changed unless you press a Fix button.</div>
+                    </div>
+                    <div><button type="button" class="btn btn-primary" id="btn-sx-health-run">&#9654; Run the check</button></div>
+                </div>
+                <div id="sx-health-body"></div>
+            </div>
+
+            <!-- LOGINS -->
+            <div id="tab-super-logins" class="tab-content">
+                <div class="sx-hero">
+                    <div>
+                        <div class="sx-hero-title">&#128101; Logins</div>
+                        <div class="sx-hero-sub">Unlock a login that was locked by wrong passwords, or switch a login off (a lost phone, a person who left) and on again. The password itself is changed in Supabase &rarr; Authentication.</div>
+                    </div>
+                    <div><button type="button" class="btn btn-secondary" id="btn-sx-logins-refresh">&#8635; Refresh</button></div>
+                </div>
+                <div class="card"><div class="table-responsive"><table style="min-width: 0;"><thead><tr><th>Login</th><th>Name</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody id="sx-logins-body"></tbody></table></div></div>
             </div>
 
             <!-- TAB: ACTIVITY LOG & EXCEPTIONS -->
             <div id="tab-admin-activity" class="tab-content">
                 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                    <div id="super-alert-bar" style="display: none; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; padding: 0.8rem 1rem; border: 2px solid #ef4444; border-radius: 10px; background: rgba(239,68,68,0.12);">
+                        <div id="super-alert-text" style="font-weight: 700;"></div>
+                        <button type="button" class="btn btn-primary btn-sm" id="btn-super-ack" style="background:#dc2626; border-color:#dc2626;">&#9989; I have reviewed them &mdash; acknowledge</button>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <button type="button" class="btn btn-secondary btn-sm" id="btn-audit-export">&#11015;&#65039; Export audit log (Excel)</button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btn-audit-export-exc">&#11015;&#65039; Export exceptions only (Excel)</button>
+                    </div>
                     <!-- Exceptions / Alerts View Panel -->
                     <div class="card" style="margin-bottom: 0; border: 1.5px solid #fca5a5; background: rgba(254, 226, 226, 0.05);">
                         <h3 class="card-title" style="color: #ef4444; display: flex; align-items: center; gap: 0.5rem;">
@@ -1151,9 +1221,9 @@
                     <div id="storage-result" style="margin-top: 0.75rem; font-size: 0.88rem;"></div>
                 </div>
                 <div class="card" id="bottompw-card">
-                    <h3 class="card-title">&#129514; Bottom-sampling password</h3>
+                    <h3 class="card-title">&#129514; Unloading actions password (bottom sample &amp; cancel QR)</h3>
                     <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-                        The unloading team must type this password <b>every time</b> before a bottom-sample request is sent. Only you can set or change it.
+                        The unloading team must type this password <b>every time</b> before a bottom-sample request is sent or a QR is cancelled. Only you can set or change it.
                         It is stored scrambled (never readable) and every use is logged.
                     </p>
                     <div id="bottompw-status" style="font-size: 0.88rem; margin-bottom: 0.7rem;"></div>
@@ -1279,9 +1349,14 @@
 
         <!-- SCREEN: LAB 1 (MOISTURE & FINENESS) -->
         <section id="screen-lab1" class="screen">
-            <div class="lab-layout" id="lab1-layout">
+            <div class="lab-layout has-ftabs" id="lab1-layout">
+                <div class="ftabs" id="lab1-tabs" role="tablist">
+                    <button type="button" class="active" data-ft="scan" id="lab1-tab-scan">&#128247; Scan &amp; test</button>
+                    <button type="button" data-ft="mix" id="lab1-tab-mix" style="display: none;">&#128256; Mixing scan</button>
+                    <button type="button" data-ft="hist" id="lab1-tab-hist">&#128203; Today's list</button>
+                </div>
                 <div class="lab-col-a" style="display: flex; flex-direction: column; gap: 1.5rem;">
-                    <div class="card" style="margin-bottom: 0;">
+                    <div class="card" data-ftgroup="lab1-tabs" data-ftab="scan" style="margin-bottom: 0;">
                         <h3 class="card-title" id="lab1-station-title">Lab Station 1 — Moisture &amp; Fineness</h3>
                         
                         <!-- Snap Photo to Scan Sample-1 Barcode -->
@@ -1296,8 +1371,8 @@
                     </div>
 
                     <!-- Blind Entry Form (Hidden until barcode lookup succeeds) -->
-                    <div id="lab1-duplicate-notice" class="alert alert-danger duplicate-notice" role="alert" style="display: none;"></div>
-                    <div class="card" id="lab1-entry-card" style="display: none; margin-bottom: 0;">
+                    <div id="lab1-duplicate-notice" data-ftgroup="lab1-tabs" data-ftab="scan" class="alert alert-danger duplicate-notice" role="alert" style="display: none;"></div>
+                    <div class="card" id="lab1-entry-card" data-ftgroup="lab1-tabs" data-ftab="scan" style="display: none; margin-bottom: 0;">
                         <div id="lab1-alert" class="alert" style="display: none;"></div>
                         <h3 class="card-title">Blind Test Details</h3>
                         <div class="lab-meta-display" style="margin-bottom: 1.5rem;">
@@ -1434,7 +1509,7 @@
                 <!-- Second feature of the Fineness login: mixing scan (hidden for the other Lab-1 logins) -->
                 <div class="lab-col-b" id="lab1-col-b" style="display: none; flex-direction: column; gap: 1.5rem;">
                     <!-- Mixing scan: Fineness login only. Shows the mixing code + INCLUDE / EXCLUDE for each container the technician segregates. -->
-                    <div class="card" id="mixscan-card" style="display: none; margin-bottom: 0; border: 1px solid rgba(245, 158, 11, 0.55);">
+                    <div class="card" id="mixscan-card" data-ftgroup="lab1-tabs" data-ftab="mix" style="display: none; margin-bottom: 0; border: 1px solid rgba(245, 158, 11, 0.55);">
                         <h3 class="card-title">&#129514; Mixing Scan &mdash; segregate for composite</h3>
                         <p style="font-size: 0.85rem; margin-bottom: 0.9rem; color: #94a3b8;">
                             Scan each Sample-1 container you are sorting for mixing. The screen shows its <strong>Mixing Code</strong> and whether to
@@ -1467,7 +1542,7 @@
                 </div>
 
                 <!-- Lab History (Blind): at the bottom when two features are shown -->
-                <div class="card lab-hist" style="margin-bottom: 0;">
+                <div class="card lab-hist" data-ftgroup="lab1-tabs" data-ftab="hist" style="margin-bottom: 0;">
                     <h3 class="card-title">Today's Station 1 Submissions</h3>
                     <p style="font-size: 0.85rem; margin-bottom: 1.5rem;">Verification list of locked samples submitted by your account. Identity mappings are completely blind.</p>
                     <div class="table-responsive">
@@ -1491,9 +1566,14 @@
 
         <!-- SCREEN: LAB 2 (GCV & ASH) -->
         <section id="screen-lab2" class="screen">
-            <div class="lab-layout with-two" id="lab2-layout">
+            <div class="lab-layout with-two has-ftabs" id="lab2-layout">
+                <div class="ftabs" id="lab2-tabs" role="tablist">
+                    <button type="button" class="active" data-ft="scan" id="lab2-tab-scan">&#128247; Scan &amp; results</button>
+                    <button type="button" data-ft="mix" id="lab2-tab-mix">&#9879;&#65039; Composite mixing</button>
+                    <button type="button" data-ft="hist" id="lab2-tab-hist">&#128203; Today's list</button>
+                </div>
                 <div class="lab-col-a" style="display: flex; flex-direction: column; gap: 1.5rem;">
-                    <div class="card" style="margin-bottom: 0;">
+                    <div class="card" data-ftgroup="lab2-tabs" data-ftab="scan" style="margin-bottom: 0;">
                         <h3 class="card-title">Lab Station 2 — Composite GCV & Ash</h3>
                         
                         <!-- Snap Photo to Scan (camera capture only — no live video, no manual typing, no file upload) -->
@@ -1505,11 +1585,22 @@
                             </div>
                         </div>
                         <div id="lab2-qr-reader" style="display:none;"></div>
+                        <div id="lab2-manual-box" style="margin-top: 1rem; padding-top: 0.9rem; border-top: 1px dashed var(--border-color);">
+                            <h4 style="margin: 0 0 0.25rem; font-size: 0.95rem;">Or type the Mixing Code</h4>
+                            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.6rem;">If the label cannot be scanned: type the mixing code printed on it and pick the date. The same results form opens.</p>
+                            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end;">
+                                <label style="display: flex; flex-direction: column; font-size: 0.75rem; gap: 2px; flex: 1; min-width: 120px;">Mixing code
+                                    <input type="text" id="lab2-code-input" maxlength="12" autocomplete="off" placeholder="e.g. 7K3" style="padding: 0.5rem; text-transform: uppercase; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;"></label>
+                                <label style="display: flex; flex-direction: column; font-size: 0.75rem; gap: 2px;">Date
+                                    <input type="date" id="lab2-code-date" style="padding: 0.45rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;"></label>
+                                <button type="button" class="btn btn-primary" id="btn-lab2-code-open">Open results form</button>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Blind Entry Form (Hidden until barcode lookup succeeds) -->
-                    <div id="lab2-duplicate-notice" class="alert alert-danger duplicate-notice" role="alert" style="display: none;"></div>
-                    <div class="card" id="lab2-entry-card" style="display: none; margin-bottom: 0;">
+                    <div id="lab2-duplicate-notice" data-ftgroup="lab2-tabs" data-ftab="scan" class="alert alert-danger duplicate-notice" role="alert" style="display: none;"></div>
+                    <div class="card" id="lab2-entry-card" data-ftgroup="lab2-tabs" data-ftab="scan" style="display: none; margin-bottom: 0;">
                         <div id="lab2-alert" class="alert" style="display: none;"></div>
                         <h3 class="card-title">Blind Composite Details</h3>
                         <div class="lab-meta-display" style="margin-bottom: 1.5rem;">
@@ -1562,7 +1653,7 @@
                 <!-- Second feature of Lab 2: composite mixing (generate once / reprint) -->
                 <div class="lab-col-b" style="display: flex; flex-direction: column; gap: 1.5rem;">
                     <!-- Blind Scan-Driven Composite Mixing Panel -->
-                    <div class="card" style="margin-bottom: 0;">
+                    <div class="card" data-ftgroup="lab2-tabs" data-ftab="mix" style="margin-bottom: 0;">
                         <h3 class="card-title">Composite Mixing &mdash; Generate &amp; Reprint</h3>
                         <p style="font-size: 0.85rem; margin-bottom: 1rem; color: #94a3b8;">
                             The containers are scanned in the <strong>Fineness login</strong>. A mixing code unlocks here once <strong>all its accepted samples</strong> have been scanned there.
@@ -1633,7 +1724,7 @@
                 </div>
 
                 <!-- Lab History (Blind): at the bottom -->
-                <div class="card lab-hist" style="margin-bottom: 0;">
+                <div class="card lab-hist" data-ftgroup="lab2-tabs" data-ftab="hist" style="margin-bottom: 0;">
                     <h3 class="card-title">Today's Station 2 Submissions</h3>
                     <p style="font-size: 0.85rem; margin-bottom: 1.5rem;">Verification list of locked composite samples submitted by your account. Mappings are completely blind.</p>
                     <div class="table-responsive">
@@ -1663,9 +1754,34 @@
     <!-- Hidden Printable Output Container (a sibling of <main>: the print stylesheet hides <main>, so inside it the labels printed blank) -->
     <div id="print-section" style="display: none;"></div>
 
+    <!-- Super Admin: truck detail (built by the script) -->
+    <div id="super-detail-modal" class="sx-overlay" style="display: none;">
+        <div class="sx-panel">
+            <div class="sx-panel-head">
+                <div id="sxd-title" class="sx-panel-title"></div>
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-sxd-close">&#10005; Close</button>
+            </div>
+            <div id="sxd-body"></div>
+        </div>
+    </div>
+
+    <!-- Super Admin: password re-check before a change -->
+    <div id="super-pw-modal" style="display: none; position: fixed; inset: 0; z-index: 99995; background: rgba(2,6,23,0.88); align-items: center; justify-content: center; padding: 1rem;">
+        <div class="card" style="max-width: 400px; width: 100%; margin: 0; border: 2px solid #ef4444;">
+            <h3 class="card-title" style="margin-bottom: 0.3rem;">&#128274; Confirm it is you</h3>
+            <p style="font-size: 0.88rem; margin-bottom: 0.8rem;">Type the Super Admin password to continue. You will not be asked again for the next 5 minutes.</p>
+            <input type="password" id="super-pw-input" autocomplete="current-password" style="width: 100%; padding: 0.55rem; margin-bottom: 0.5rem;">
+            <div id="super-pw-msg" style="font-size: 0.88rem; min-height: 1.2em; margin-bottom: 0.5rem;"></div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" id="btn-super-pw-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btn-super-pw-ok" style="background: #dc2626; border-color: #dc2626;">Confirm</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Super Admin: edit dialog (fields are built by the script) -->
-    <div id="super-edit-modal" style="display: none; position: fixed; inset: 0; z-index: 99991; background: rgba(2,6,23,0.82); align-items: center; justify-content: center; padding: 1rem; overflow-y: auto;">
-        <div class="card" style="max-width: 520px; width: 100%; margin: auto; border: 2px solid #ef4444;">
+    <div id="super-edit-modal" style="display: none; position: fixed; inset: 0; z-index: 99993; background: rgba(2,6,23,0.82); align-items: center; justify-content: center; padding: 1rem; overflow-y: auto;">
+        <div class="card" style="max-width: 540px; width: 100%; margin: auto; border: 2px solid #ef4444;">
             <h3 class="card-title" id="super-edit-title" style="margin-bottom: 0.3rem;">Edit</h3>
             <p id="super-edit-info" style="font-size: 0.85rem; margin-bottom: 0.8rem;"></p>
             <div id="super-edit-fields"></div>
@@ -1675,6 +1791,29 @@
             <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
                 <button type="button" class="btn btn-secondary" id="btn-super-edit-cancel">Cancel</button>
                 <button type="button" class="btn btn-primary" id="btn-super-edit-save" style="background: #dc2626; border-color: #dc2626;">Save &amp; record</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cancel the QR of a truck (Unloading): needs the action password and a reason -->
+    <div id="cancel-qr-modal" style="display: none; position: fixed; inset: 0; z-index: 99990; background: rgba(2,6,23,0.8); align-items: center; justify-content: center; padding: 1rem;">
+        <div class="card" style="max-width: 460px; width: 100%; margin: 0; border: 2px solid #ef4444;">
+            <h3 class="card-title" style="margin-bottom: 0.4rem;">Cancel QR code</h3>
+            <p style="font-size: 0.9rem; margin-bottom: 0.9rem;">Truck <strong id="cancel-qr-truck"></strong>. Its sample QR will be cancelled: the sample is set aside, it is <b>not</b> part of the composite mixture, and the reason is stored and shown in the reports. It cannot be undone here.</p>
+            <label style="display: block; font-size: 0.8rem; margin-bottom: 0.2rem;">Reason</label>
+            <select id="cancel-qr-reason" style="width: 100%; padding: 0.55rem; margin-bottom: 0.6rem;">
+                <option value="DOCUMENTS">Vendor documents inconsistent</option>
+                <option value="QUALITY">Poor quality biomass</option>
+                <option value="OTHER">Other (write below)</option>
+            </select>
+            <label style="display: block; font-size: 0.8rem; margin-bottom: 0.2rem;">Comment <small id="cancel-qr-need" style="color: #fbbf24;"></small></label>
+            <textarea id="cancel-qr-note" rows="2" maxlength="300" style="width: 100%; padding: 0.5rem; margin-bottom: 0.6rem;" placeholder="Optional - required for 'Other'"></textarea>
+            <label style="display: block; font-size: 0.8rem; margin-bottom: 0.2rem;">Action password</label>
+            <input type="password" id="cancel-qr-pw" autocomplete="off" style="width: 100%; padding: 0.55rem; margin-bottom: 0.6rem;">
+            <div id="cancel-qr-msg" style="font-size: 0.88rem; margin-bottom: 0.6rem; min-height: 1.2em;"></div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" id="btn-cancel-qr-close">Back</button>
+                <button type="button" class="btn btn-primary" id="btn-cancel-qr-send" style="background: #dc2626; border-color: #dc2626;" disabled>Cancel this QR</button>
             </div>
         </div>
     </div>
@@ -1731,14 +1870,14 @@
 
     <!-- Moisture-meter reader (trained offline OCR). Small loaders only; the ~8 MB engine in lib/ocr/ is fetched
          on first use. If these fail to load the app simply falls back to manual photo + typing. -->
-    <script src="lib/ocr/moisture-reader-core.js?v=20261020_v29"></script>
-    <script src="lib/ocr/led-weight-reader.js?v=20261020_v29"></script>
-    <script src="lib/ocr/led-templates.js?v=20261020_v29"></script>
-    <script src="moisture-ocr.js?v=20261020_v29"></script>
+    <script src="lib/ocr/moisture-reader-core.js?v=20261022_v31"></script>
+    <script src="lib/ocr/led-weight-reader.js?v=20261022_v31"></script>
+    <script src="lib/ocr/led-templates.js?v=20261022_v31"></script>
+    <script src="moisture-ocr.js?v=20261022_v31"></script>
 
     <!-- App JavaScript files -->
-    <script src="api.js?v=20261020_v29" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261020_v29" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="api.js?v=20261022_v31" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261022_v31" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

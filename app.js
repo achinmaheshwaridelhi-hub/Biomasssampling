@@ -393,7 +393,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // `identifiable`: composite lot labels (Test/Referee/Vendor) aren't supplier-identifying,
     // so pass true to keep the readable filename instead of the anonymized token used for
     // Sample-1 intake barcodes (which must never leak a serial that maps back to a supplier).
-    function downloadQrAsPng(canvasSelector, filename, headerText, plainId, identifiable) {
+    function downloadQrAsPng(canvasSelector, filename, headerText, plainId, identifiable, vendorName) {
         const canvasElement = document.querySelector(canvasSelector);
         if (!canvasElement) {
             alert('QR sticker element not found.');
@@ -402,7 +402,19 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             const canvas = document.createElement('canvas');
             canvas.width = 600;
-            canvas.height = 720;
+            // the COMPLETE vendor name (Vendor / Referee copies) is word-wrapped into as many lines as it needs
+            const vLines = [];
+            if (vendorName) {
+                const probe = document.createElement('canvas').getContext('2d');
+                probe.font = 'bold 20pt sans-serif';
+                let cur = '';
+                String(vendorName).split(/\s+/).forEach(w => {
+                    const t = cur ? cur + ' ' + w : w;
+                    if (probe.measureText(t).width > 560 && cur) { vLines.push(cur); cur = w; } else cur = t;
+                });
+                if (cur) vLines.push(cur);
+            }
+            canvas.height = 720 + vLines.length * 36;
             
             const context = canvas.getContext('2d');
             context.fillStyle = '#ffffff';
@@ -445,6 +457,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             } else {
                 currentY = 30;
+            }
+            if (vLines.length) {
+                context.fillStyle = '#000000'; context.textAlign = 'center'; context.font = 'bold 20pt sans-serif';
+                vLines.forEach(l => { context.fillText(l, canvas.width / 2, currentY); currentY += 36; });
             }
             
             // 2. Draw QR code image MUCH BIGGER (480x480) with clean white quiet zone
@@ -1051,6 +1067,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const colB = document.getElementById('lab1-col-b'), layout = document.getElementById('lab1-layout');
         if (colB) colB.style.display = on ? 'flex' : 'none';
         if (layout) layout.classList.toggle('with-two', on);      // two features side by side, history underneath
+        const mixTab = document.getElementById('lab1-tab-mix');
+        if (mixTab) {
+            mixTab.style.display = on ? '' : 'none';
+            if (!on && mixTab.classList.contains('active')) showFtab('lab1-tabs', 'scan');
+        }
         if (!on) return;
 
         const dateEl = document.getElementById('mixscan-date');
@@ -1107,6 +1128,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 showMixFeedback('dup', `<div style="font-weight:800; font-size:1.1rem;">⚠️ ALREADY SCANNED at ${fmtMixTime(res.scanned_time)}</div>` +
                     `<div>${esc(res.sample1_barcode_id)} &rarr; Mixing Code ${pill} &mdash; <strong>${res.include ? 'INCLUDE' : 'EXCLUDE'}</strong>. This scan was not counted again.</div>${prog}`);
                 alert(`⚠️ This container (${res.sample1_barcode_id}) was already scanned at ${res.scanned_time}.`);
+            } else if (res.cancelled) {
+                showMixFeedback('exclude', `<div style="font-weight:800; font-size:1.25rem;">🚫 QR CANCELLED &mdash; set this container aside</div>` +
+                    `<div style="margin-top:0.25rem;">Mixing Code: ${pill}</div>` +
+                    `<div style="font-size:0.85rem;">${esc(res.sample1_barcode_id)} &bull; <strong>Do NOT add it to the mixture.</strong> It is not counted and does not hold up the composite.</div>${prog}`);
             } else if (res.include) {
                 showMixFeedback('include', `<div style="font-weight:800; font-size:1.25rem;">✅ INCLUDE in the mix</div>` +
                     `<div style="margin-top:0.25rem;">Mixing Code: ${pill}</div>` +
@@ -1142,7 +1167,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     : complete ? '<span class="badge badge-success">ALL SCANNED</span>' : '<span class="badge badge-pending">IN PROGRESS</span>';
                 const rows = g.scanned.map(x => `<tr><td>${esc(x.id)}</td><td style="font-weight:700; color:${x.include ? '#10b981' : '#ef4444'};">${x.include ? 'INCLUDE' : 'EXCLUDE'}</td><td>${esc(x.time)}</td></tr>`).join('');
                 const toScan = g.to_scan.length ? `<div style="margin-top:0.4rem; font-size:0.9rem; color:#fde68a;">⏳ Still to scan: <strong>${g.to_scan.length}</strong> truck${g.to_scan.length > 1 ? 's' : ''}</div>` : '';
-                const aside = g.rejected_to_set_aside.length ? `<div style="margin-top:0.3rem; font-size:0.9rem; color:#fca5a5;">⛔ Rejected, not scanned yet: <strong>${g.rejected_to_set_aside.length}</strong> truck${g.rejected_to_set_aside.length > 1 ? 's' : ''} - keep out of the mix</div>` : '';
+                const aside = g.rejected_to_set_aside.length ? `<div style="margin-top:0.3rem; font-size:0.9rem; color:#fca5a5;">⛔ Rejected / cancelled, not scanned yet: <strong>${g.rejected_to_set_aside.length}</strong> truck${g.rejected_to_set_aside.length > 1 ? 's' : ''} - keep out of the mix</div>` : '';
                 return `<div style="border:1px solid var(--border-color); border-radius:8px; padding:0.6rem 0.75rem; margin-bottom:0.6rem; background:rgba(15,23,42,0.6);">
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap;">
                         <div><span class="group-code-badge">${esc(g.group_code)}</span>
@@ -1253,21 +1278,21 @@ document.addEventListener('DOMContentLoaded', function() {
             dayReport.data = res;
             const rows = res.rows || [];
             if (!rows.length) { note.textContent = `No trucks were registered on ${res.date}.`; return; }
-            const accepted = rows.filter(r => r.acceptance_status === 'ACCEPTED').length, rejected = rows.filter(r => r.acceptance_status === 'REJECTED').length;
+            const accepted = rows.filter(r => r.acceptance_status === 'ACCEPTED').length, rejected = rows.filter(r => r.acceptance_status === 'REJECTED').length, cancelled = rows.filter(r => r.acceptance_status === 'CANCELLED').length;
             const netKg = rows.reduce((a, r) => a + (Number(r.net_weight) || 0), 0);
             const accKg = rows.filter(r => r.acceptance_status === 'ACCEPTED').reduce((a, r) => a + (Number(r.net_weight) || 0), 0);
-            const rejKg = rows.filter(r => r.acceptance_status === 'REJECTED').reduce((a, r) => a + (Number(r.net_weight) || 0), 0);
-            note.innerHTML = `<strong>${esc(dmy(res.date))}</strong> &bull; ${rows.length} truck(s) &bull; ${accepted} accepted / ${rejected} rejected &bull; net weight: all <strong>${(netKg / 1000).toFixed(3)} MT</strong> (accepted ${(accKg / 1000).toFixed(3)} MT, rejected ${(rejKg / 1000).toFixed(3)} MT)` +
+            const rejKg = rows.filter(r => r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED').reduce((a, r) => a + (Number(r.net_weight) || 0), 0);
+            note.innerHTML = `<strong>${esc(dmy(res.date))}</strong> &bull; ${rows.length} truck(s) &bull; ${accepted} accepted / ${rejected} rejected${cancelled ? ' / ' + cancelled + ' QR cancelled' : ''} &bull; net weight: all <strong>${(netKg / 1000).toFixed(3)} MT</strong> (accepted ${(accKg / 1000).toFixed(3)} MT, rejected ${(rejKg / 1000).toFixed(3)} MT)` +
                 ` <span style="color:#94a3b8;">(generated ${esc(res.generated_at)} IST)</span>`;
             body.innerHTML = rows.map((r, i) => {
-                const rej = r.acceptance_status === 'REJECTED';
+                const rej = r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED';
                 const cell = (v, d) => rej && (v === null || v === undefined) ? '<span style="color:#ef4444;">N/A</span>' : (dr(v, d) !== null ? dr(v, d) : '<span style="color:#f59e0b;">Pending</span>');
                 const wt = v => Number(v) > 0 ? Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '<span style="color:#f59e0b;">-</span>';
                 return `<tr${rej ? ' style="background:rgba(239,68,68,0.08);"' : ''}><td>${i + 1}</td><td><strong>${esc(r.truck_reg_number)}</strong></td><td>${esc(r.company_name)}</td><td>${esc(r.lot || '')}<br><small style="color:#94a3b8;">PO ${esc(r.po_number || '-')}</small></td>` +
                     `<td>${wt(r.gross_weight)}</td><td>${wt(r.tare_weight)}</td><td>${wt(r.net_weight)}</td>` +
                     `<td>${cell(r.moisture_pct, 2)}</td><td>${cell(r.tm, 2)}</td><td>${cell(r.gcv, 0)}</td><td>${cell(r.fineness_value, 2)}</td><td>${cell(r.ash, 2)}</td>` +
                     `<td>${r.lot === 'LOT4' ? cell(r.sulphur, 2) : '-'}</td><td>${r.lot === 'LOT4' ? cell(r.vm, 2) : '-'}</td><td>${esc(r.gcv_source || '-')}</td>` +
-                    `<td style="font-weight:700; color:${rej ? '#ef4444' : r.acceptance_status === 'ACCEPTED' ? '#10b981' : '#f59e0b'};">${esc(r.acceptance_status)}</td></tr>`;
+                    `<td style="font-weight:700; color:${rej ? '#ef4444' : r.acceptance_status === 'ACCEPTED' ? '#10b981' : '#f59e0b'};">${r.acceptance_status === 'CANCELLED' ? '🚫 QR CANCELLED<br><small style="font-weight:400;">' + esc(r.cancel_reason || '') + '</small>' : esc(r.acceptance_status)}</td></tr>`;
             }).join('');
             wrap.style.display = ''; xl.style.display = '';
         } catch (err) {
@@ -1309,13 +1334,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const num = v => (v === null || v === undefined || v === '') ? null : Number(v);
         let r = 5;
         rows.forEach((x, i) => {
-            const rej = x.acceptance_status === 'REJECTED';
-            const na = rej ? 'N/A (REJECTED)' : 'Pending';
+            const rej = x.acceptance_status === 'REJECTED' || x.acceptance_status === 'CANCELLED';
+            const na = rej ? ('N/A (' + x.acceptance_status + ')') : 'Pending';
             const w = v => Number(v) > 0 ? Number(v) : '-';
             const vals = [i + 1, x.truck_reg_number, x.company_name, x.lot || '-', x.po_number || '-', w(x.gross_weight), w(x.tare_weight), w(x.net_weight),
                           Number(x.net_weight) > 0 ? Number((Number(x.net_weight) / 1000).toFixed(3)) : '-',
                           num(x.moisture_pct) ?? na, num(x.tm) ?? na, num(x.gcv) ?? na, num(x.fineness_value) ?? na, num(x.ash) ?? na,
-                          x.lot === 'LOT4' ? (num(x.sulphur) ?? na) : '-', x.lot === 'LOT4' ? (num(x.vm) ?? na) : '-', x.gcv_source || '-', x.acceptance_status];
+                          x.lot === 'LOT4' ? (num(x.sulphur) ?? na) : '-', x.lot === 'LOT4' ? (num(x.vm) ?? na) : '-', x.gcv_source || '-', x.acceptance_status === 'CANCELLED' ? ('QR CANCELLED: ' + (x.cancel_reason || '')) : x.acceptance_status];
             vals.forEach((v, k) => {
                 const c = sheet.getCell(r, k + 1);
                 c.value = v; c.border = border('hair');
@@ -1328,7 +1353,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         sheet.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: cols.length } };
         r += 1;
-        const acc = rows.filter(x => x.acceptance_status === 'ACCEPTED'), rej = rows.filter(x => x.acceptance_status === 'REJECTED');
+        const acc = rows.filter(x => x.acceptance_status === 'ACCEPTED'), rej = rows.filter(x => x.acceptance_status === 'REJECTED' || x.acceptance_status === 'CANCELLED');
         const totalKg = rows.reduce((a, x) => a + (Number(x.net_weight) || 0), 0);
         const accKgX = acc.reduce((a, x) => a + (Number(x.net_weight) || 0), 0), rejKgX = rej.reduce((a, x) => a + (Number(x.net_weight) || 0), 0);
         [['Total trucks', rows.length], ['Accepted / Rejected', `${acc.length} / ${rej.length}`],
@@ -1458,6 +1483,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         Moisture level is <strong>${res.moisture_pct}%</strong> (Maximum allowed: ${res.moisture_limit}%). Do not unload this truck. Weights are recorded exactly as weighed (Net: <strong>${Number(res.net_weight || 0).toLocaleString()} kg</strong>).<br>
                         <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="window.openTruckWeighmentSlip('${res.truck_id}')" style="background:#dc2626; color:white; border:none;">🖨️ Print Rejection Slip</button>
                     `;
+                } else if (status === 'CANCELLED') {
+                    banner.className = 'alert alert-danger';
+                    banner.style.border = '2px solid #6b7280';
+                    banner.innerHTML = `<strong>🚫 QR CANCELLED — DO NOT UNLOAD</strong><br>${esc(res.cancel_reason || '')}`;
                 } else {
                     banner.className = 'alert alert-warning';
                     banner.style.border = '2px solid #ca8a04';
@@ -1547,8 +1576,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (tabBtnActivity) {
             tabBtnActivity.style.display = (role === 'admin') ? 'flex' : 'none';
         }
-        const tabBtnSuper = document.getElementById('tab-btn-super');
-        if (tabBtnSuper) tabBtnSuper.style.display = (user && user.is_super) ? 'flex' : 'none';
     }
 
     // Every sign-out does a FULL PAGE RELOAD. This is a blind-testing control, not cosmetics: the app is a
@@ -1754,6 +1781,8 @@ document.addEventListener('DOMContentLoaded', function() {
     function initAdminDashboard(role) {
         const tabs = document.querySelectorAll('#screen-admin .tab-btn');
         const tabContents = document.querySelectorAll('#screen-admin .tab-content');
+        const cu = window.BiomassAPI.getCurrentUser();
+        const isSuper = !!(cu && cu.is_super);
 
         // Apply menu item visibility based on role (Entry Operator sees ONLY registration, Weighment sees ONLY weighment)
         tabs.forEach(tab => {
@@ -1770,8 +1799,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else {
                     tab.style.display = 'flex';
                 }
+            } else if (isSuper) {
+                // the Super Admin login has NO Admin features: its own console + the (read-only) audit log
+                tab.style.display = (dataTab.startsWith('super-') || dataTab === 'admin-activity') ? 'flex' : 'none';
             } else {
-                tab.style.display = 'flex'; // admin sees everything
+                tab.style.display = dataTab.startsWith('super-') ? 'none' : 'flex'; // admin sees everything except the Super Admin console
             }
         });
 
@@ -1821,12 +1853,29 @@ document.addEventListener('DOMContentLoaded', function() {
             renderWeighmentLog();
         }
 
-        if (role === 'admin' || role === 'entry') {
+        if (isSuper) {
+            tabs.forEach(t => t.classList.remove('active'));
+            tabContents.forEach(tc => tc.classList.remove('active'));
+            const first = document.getElementById('tab-btn-sx-inspector');
+            if (first) first.classList.add('active');
+            document.getElementById('tab-super-inspector').classList.add('active');
+            const lbl = document.getElementById('activity-tab-label');
+            if (lbl) lbl.textContent = '📜 Audit Log';
+            initSuperConsole();
+        }
+
+        if ((role === 'admin' && !isSuper) || role === 'entry') {
             loadRecentRegistrations();
             initBottomSamples();
         }
 
-        if (role === 'admin') {
+        if (role === 'admin') initAuditButtons();
+        if (role === 'admin' && !isSuper) {
+            refreshSuperAlert();
+            if (!window.__superAlertTimer) window.__superAlertTimer = setInterval(() => { if (!document.hidden) refreshSuperAlert(); }, 60000);
+        }
+
+        if (role === 'admin' && !isSuper) {
             autoFreeStorageIfEnabled();
             const activeTab = document.querySelector('#screen-admin .tab-btn.active');
             const dataTab = activeTab ? activeTab.getAttribute('data-tab') : 'admin-dashboard';
@@ -1880,10 +1929,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 initAdminInspectorTab();
             } else if (targetContentId === 'tab-admin-referee') {
                 loadRefereeChallengeTable();
-            } else if (targetContentId === 'tab-admin-super') {
-                initSuperAdminTab();
+            } else if (targetContentId === 'tab-super-inspector') {
+                initSuperConsole();
+            } else if (targetContentId === 'tab-super-tools') {
+                renderSuperTools();
+            } else if (targetContentId === 'tab-super-health') {
+                if (!document.getElementById('sx-health-body').innerHTML.trim()) renderSuperHealth();
+            } else if (targetContentId === 'tab-super-logins') {
+                renderSuperLogins();
             } else if (targetContentId === 'tab-admin-activity') {
                 renderActivityLogTab();
+                refreshSuperAlert();
             } else if (targetContentId === 'tab-admin-settings') {
                 initStorageCard();
                 initMixResetCard();
@@ -2815,7 +2871,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
 
                 let weighActionBtn = '';
-                if (truck.acceptance_status === 'REJECTED') {
+                if (truck.acceptance_status === 'REJECTED' || truck.acceptance_status === 'CANCELLED') {
                     // A rejected truck still needs its exit (tare) weight recorded once - but once that's
                     // done it is COMPLETE like any other truck; it must not keep offering "Record Exit Tare".
                     if (hasTare) {
@@ -2877,11 +2933,39 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Bottom sampling (Unloading): the button only opens a password prompt; the server checks the password every time.
     function bottomButtonHtml(truck) {
+        if (truck.acceptance_status === 'CANCELLED') return `<small style="color:#94a3b8;">Reason: ${esc(truck.cancel_reason || '')}</small>`;
         if (truck.acceptance_status === 'REJECTED') return '';
         if (truck.bottom_request === 'REQUESTED') return ' <span class="badge badge-warning" style="background:#f59e0b; color:#fff; padding:4px 8px; border-radius:4px;">🧪 Bottom sample requested</span>';
         if (truck.bottom_request === 'GENERATED') return ' <span class="badge badge-success" style="background:#0ea5e9; color:#fff; padding:4px 8px; border-radius:4px;">🧪 Bottom sample taken</span>';
-        return ` <button type="button" class="btn btn-secondary btn-sm" style="margin-left:4px;" onclick="window.openBottomRequest('${esc(truck.truck_id)}', '${String(truck.truck_reg_number || '').replace(/[^A-Za-z0-9 \-]/g, '')}')" title="Ask the chemistry team to test this truck separately">🧪 Bottom sample</button>`;
+        const cancelBtn = ` <button type="button" class="btn btn-secondary btn-sm" style="margin-left:4px; border-color:#ef4444; color:#fca5a5;" onclick="window.openCancelQr('${esc(truck.truck_id)}', '${String(truck.truck_reg_number || '').replace(/[^A-Za-z0-9 \-]/g, '')}')" title="Cancel this truck's sample QR (documents inconsistent / poor quality)">🚫 Cancel QR</button>`;
+        return cancelBtn + ` <button type="button" class="btn btn-secondary btn-sm" style="margin-left:4px;" onclick="window.openBottomRequest('${esc(truck.truck_id)}', '${String(truck.truck_reg_number || '').replace(/[^A-Za-z0-9 \-]/g, '')}')" title="Ask the chemistry team to test this truck separately">🧪 Bottom sample</button>`;
     }
+    window.openCancelQr = function(truckId, reg) {
+        const modal = document.getElementById('cancel-qr-modal');
+        const sel = document.getElementById('cancel-qr-reason'), note = document.getElementById('cancel-qr-note'), pw = document.getElementById('cancel-qr-pw');
+        const msg = document.getElementById('cancel-qr-msg'), send = document.getElementById('btn-cancel-qr-send'), need = document.getElementById('cancel-qr-need');
+        document.getElementById('cancel-qr-truck').textContent = reg || truckId;
+        sel.value = 'DOCUMENTS'; note.value = ''; pw.value = ''; msg.textContent = ''; send.disabled = true; need.textContent = '';
+        modal.style.display = 'flex';
+        pw.focus();
+        const refresh = () => { send.disabled = pw.value.length === 0; need.textContent = sel.value === 'OTHER' ? '(required for Other)' : ''; };
+        pw.oninput = refresh; sel.onchange = refresh;
+        pw.onkeydown = (e) => { if (e.key === 'Enter' && !send.disabled) send.click(); };
+        document.getElementById('btn-cancel-qr-close').onclick = () => { pw.value = ''; modal.style.display = 'none'; };
+        send.onclick = async () => {
+            if (sel.value === 'OTHER' && note.value.trim().length < 3) { msg.style.color = '#ef4444'; msg.textContent = 'Please write the reason in the comment box.'; return; }
+            if (!confirm(`Cancel the QR of truck ${reg || truckId}?\n\nReason: ${sel.options[sel.selectedIndex].text}${note.value.trim() ? '\nComment: ' + note.value.trim() : ''}\n\nThis cannot be undone here.`)) return;
+            send.disabled = true; msg.style.color = ''; msg.textContent = 'Checking...';
+            try {
+                const res = await window.BiomassAPI.cancelQr(truckId, sel.value, note.value, pw.value);
+                if (res && res.success) {
+                    pw.value = ''; modal.style.display = 'none';
+                    alert('The QR of truck ' + (reg || truckId) + ' was cancelled: ' + res.cancel_reason);
+                    renderUnloadingLog();
+                } else { msg.style.color = '#ef4444'; msg.textContent = (res && res.message) || 'Nothing was changed.'; pw.value = ''; pw.focus(); }
+            } catch (err) { msg.style.color = '#ef4444'; msg.textContent = err.message || String(err); }
+        };
+    };
     window.openBottomRequest = function(truckId, reg) {
         const modal = document.getElementById('bottom-req-modal');
         const pw = document.getElementById('bottom-req-pw'), reason = document.getElementById('bottom-req-reason');
@@ -2951,6 +3035,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (truck.acceptance_status === 'REJECTED') {
                     statusBadge = `<span class="badge badge-danger" style="background:#ef4444; color:white; padding:4px 8px; border-radius:4px; font-weight:bold;">⛔ REJECTED</span>`;
                     tr.style.background = 'rgba(239, 68, 68, 0.12)';
+                } else if (truck.acceptance_status === 'CANCELLED') {
+                    statusBadge = `<span class="status-cancelled">🚫 QR CANCELLED</span>`;
+                    tr.style.background = 'rgba(107, 114, 128, 0.18)';
                 } else if (truck.acceptance_status === 'ACCEPTED') {
                     if (isUnloaded) {
                         statusBadge = `<span class="badge badge-success" style="background:#10b981; color:white; padding:4px 8px; border-radius:4px; font-weight:bold;">✅ UNLOADED</span>`;
@@ -3355,16 +3442,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (row.acceptance_status === 'REJECTED') {
                     acceptanceBadge = `<span class="badge badge-danger" style="background:#ef4444; color:white; padding:4px 8px; border-radius:4px; font-weight:bold;">⛔ REJECTED</span><br><small style="color:#ef4444; font-size:0.75rem;">${row.rejection_reason || 'Moisture >14%'}</small>`;
                     tr.style.background = 'rgba(239, 68, 68, 0.12)';
+                } else if (row.acceptance_status === 'CANCELLED') {
+                    acceptanceBadge = `<span class="status-cancelled">🚫 QR CANCELLED</span><br><small style="color:#9ca3af; font-size:0.75rem;">${esc(row.cancel_reason || '')}</small>`;
+                    tr.style.background = 'rgba(107, 114, 128, 0.15)';
                 } else if (row.acceptance_status === 'ACCEPTED') {
                     acceptanceBadge = `<span class="badge badge-success" style="background:#10b981; color:white; padding:4px 8px; border-radius:4px; font-weight:bold;">✅ ACCEPTED</span>`;
                 } else {
                     acceptanceBadge = `<span class="badge badge-warning" style="background:#f59e0b; color:white; padding:4px 8px; border-radius:4px;">⏳ Pending Lab 1</span>`;
                 }
 
-                const gcvText = row.acceptance_status === 'REJECTED' ? '<span style="color:#ef4444; font-weight:bold; font-size:0.75rem;">N/A (REJECTED)</span>' : (row.gcv_value !== null ? row.gcv_value + ' kcal' : '<span class="badge badge-pending">Pending</span>');
-                const ashText = row.acceptance_status === 'REJECTED' ? '<span style="color:#ef4444; font-weight:bold; font-size:0.75rem;">N/A (REJECTED)</span>' : (row.ash_pct !== null ? row.ash_pct + '%' : '<span class="badge badge-pending">Pending</span>');
-                const vendorGcvText = row.acceptance_status === 'REJECTED' ? '<span style="color:#ef4444; font-weight:bold; font-size:0.75rem;">N/A (REJECTED)</span>' : formatVendorGcvDisplay(row);
-                const refereeGcvText = row.acceptance_status === 'REJECTED' ? '<span style="color:#ef4444; font-weight:bold; font-size:0.75rem;">N/A (REJECTED)</span>' : formatRefereeGcvDisplay(row);
+                const gcvText = (row.acceptance_status === 'REJECTED' || row.acceptance_status === 'CANCELLED') ? ('<span style="color:#ef4444; font-weight:bold; font-size:0.75rem;">N/A (' + row.acceptance_status + ')</span>') : (row.gcv_value !== null ? row.gcv_value + ' kcal' : '<span class="badge badge-pending">Pending</span>');
+                const ashText = (row.acceptance_status === 'REJECTED' || row.acceptance_status === 'CANCELLED') ? ('<span style="color:#ef4444; font-weight:bold; font-size:0.75rem;">N/A (' + row.acceptance_status + ')</span>') : (row.ash_pct !== null ? row.ash_pct + '%' : '<span class="badge badge-pending">Pending</span>');
+                const vendorGcvText = (row.acceptance_status === 'REJECTED' || row.acceptance_status === 'CANCELLED') ? ('<span style="color:#ef4444; font-weight:bold; font-size:0.75rem;">N/A (' + row.acceptance_status + ')</span>') : formatVendorGcvDisplay(row);
+                const refereeGcvText = (row.acceptance_status === 'REJECTED' || row.acceptance_status === 'CANCELLED') ? ('<span style="color:#ef4444; font-weight:bold; font-size:0.75rem;">N/A (' + row.acceptance_status + ')</span>') : formatRefereeGcvDisplay(row);
 
                 tr.innerHTML = `
                     <td><strong>${row.truck_id}</strong></td>
@@ -3422,12 +3512,13 @@ document.addEventListener('DOMContentLoaded', function() {
             report.rows.forEach(r => {
                 const acceptanceLabel = r.acceptance_status === 'REJECTED' 
                     ? `<span style="color:red; font-weight:bold;">⛔ REJECTED (${r.rejection_reason || 'Moisture >14%'})</span>` 
+                    : r.acceptance_status === 'CANCELLED' ? `<span style="color:#444; font-weight:bold;">🚫 QR CANCELLED (${esc(r.cancel_reason || '')})</span>`
                     : r.acceptance_status === 'ACCEPTED' ? '<span style="color:green; font-weight:bold;">✅ ACCEPTED</span>' : 'Pending';
                 const chNo = r.invoice_no || r.challan_no || '-';
-                const gcvPrint = r.acceptance_status === 'REJECTED' ? 'N/A (REJECTED)' : (r.gcv_value !== null ? r.gcv_value : 'Pending');
-                const ashPrint = r.acceptance_status === 'REJECTED' ? 'N/A (REJECTED)' : (r.ash_pct !== null ? r.ash_pct + '%' : 'Pending');
-                const vendorGcvPrint = r.acceptance_status === 'REJECTED' ? 'N/A (REJECTED)' : formatVendorGcvDisplay(r);
-                const refereeGcvPrint = r.acceptance_status === 'REJECTED' ? 'N/A (REJECTED)' : formatRefereeGcvDisplay(r);
+                const gcvPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : (r.gcv_value !== null ? r.gcv_value : 'Pending');
+                const ashPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : (r.ash_pct !== null ? r.ash_pct + '%' : 'Pending');
+                const vendorGcvPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : formatVendorGcvDisplay(r);
+                const refereeGcvPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : formatRefereeGcvDisplay(r);
 
                 rowHtml += `
                     <tr>
@@ -3750,14 +3841,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const exceptionLogs = [];
             
             logs.forEach(log => {
-                const isException = 
-                    log.action.toLowerCase().includes('exception') || 
-                    log.action.toLowerCase().includes('reissue') || 
-                    log.action.toLowerCase().includes('lockout') ||
-                    log.action.startsWith('SUPERADMIN') || log.action === 'BOTTOM_PASSWORD_WRONG' || 
-                    log.details.toLowerCase().includes('fail') || 
-                    log.details.toLowerCase().includes('expired') || 
-                    log.details.toLowerCase().includes('tampered');
+                const isException = isExceptionLog(log);
                 
                 if (isException) {
                     exceptionLogs.push(log);
@@ -5261,6 +5345,16 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     function setupScaleOcrHandlers() {
+        // A number box changes its value on a mouse-wheel turn or an arrow key while it has focus; the Lab-1 value boxes must only ever
+        // hold what was read / typed on purpose.
+        ['lab1-moisture', 'lab1-fineness-initial', 'lab1-fineness-final'].forEach(id => {
+            const box = document.getElementById(id);
+            if (!box || box.dataset.guarded) return;
+            box.dataset.guarded = '1';
+            box.setAttribute('autocomplete', 'off');
+            box.addEventListener('wheel', () => { if (document.activeElement === box) box.blur(); }, { passive: true });
+            box.addEventListener('keydown', (e) => { if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && box.readOnly) e.preventDefault(); });
+        });
         // 0. Auto-read (camera -> reader -> operator confirms) for moisture and both fineness weights
         Object.values(autoRead).forEach(a => a.setup());
 
@@ -5335,7 +5429,23 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // ---- Feature tabs: only one feature of a screen is shown at a time (blocks carry data-ftgroup / data-ftab) ----
+    function showFtab(barId, name) {
+        const bar = document.getElementById(barId);
+        if (!bar) return;
+        [...bar.querySelectorAll('button[data-ft]')].forEach(b => b.classList.toggle('active', b.dataset.ft === name));
+        document.querySelectorAll('[data-ftgroup="' + barId + '"]').forEach(el => el.classList.toggle('ftab-off', el.dataset.ftab !== name));
+    }
+    function initFeatureTabs(barId) {
+        const bar = document.getElementById(barId);
+        if (!bar || bar.dataset.wired) return;
+        bar.dataset.wired = '1';
+        bar.onclick = (e) => { const b = e.target.closest('button[data-ft]'); if (b) showFtab(barId, b.dataset.ft); };
+        showFtab(barId, 'scan');
+    }
+
     function initLab1Screen() {
+        initFeatureTabs('lab1-tabs');
         document.getElementById('lab1-entry-card').style.display = 'none';
         applyLab1RoleView();
         setupScaleOcrHandlers();
@@ -5512,10 +5622,15 @@ document.addEventListener('DOMContentLoaded', function() {
         const { showMoisture, showFineness } = getLab1FieldVisibility();
         const barcode = document.getElementById('lab1-barcode-id').value;
         const moistureInput = document.getElementById('lab1-moisture');
-        const moisture = showMoisture ? moistureInput.value : '';
+        // When the operator confirmed an automatic reading, THAT confirmed number is what is saved - the text box is only a display.
+        const confirmedNum = (key, reading) => (autoRead[key].mode() === 'accepted' && reading !== null && reading !== undefined && isFinite(reading)) ? String(reading) : null;
+        const moisture = showMoisture ? (confirmedNum('moisture', moistureState.reading) ?? moistureInput.value) : '';
 
-        const initialWeight = document.getElementById('lab1-fineness-initial').value;
-        const finalWeight = document.getElementById('lab1-fineness-final').value;
+        const initialWeight = confirmedNum('fineness-initial', finenessState.initialReading) ?? document.getElementById('lab1-fineness-initial').value;
+        const finalWeight = confirmedNum('fineness-final', finenessState.finalReading) ?? document.getElementById('lab1-fineness-final').value;
+        // keep the visible boxes identical to what is sent
+        if (showMoisture && moisture !== '') moistureInput.value = moisture;
+        if (showFineness) { const bi = document.getElementById('lab1-fineness-initial'), bf = document.getElementById('lab1-fineness-final'); if (initialWeight !== '') bi.value = initialWeight; if (finalWeight !== '') bf.value = finalWeight; }
         const finenessBtnEnabled = !document.getElementById('btn-fineness-initial-photo').disabled;
         const finenessEditable = showFineness && finenessBtnEnabled;
         const moistureEditable = showMoisture && !moistureInput.disabled;
@@ -5578,13 +5693,34 @@ document.addEventListener('DOMContentLoaded', function() {
             extra.fineness_final_photo = finenessState.finalPhoto;
         }
 
+        // Read-back: the operator sees exactly what is about to be locked, next to the display, before it cannot be changed any more.
+        {
+            const lines = [];
+            if (moistureEditable) lines.push('Moisture: ' + Number(moisture) + ' %');
+            if (finenessEditable) lines.push('Fineness: ' + fineness + ' %   (final ' + Number(finalWeight) + ' kg / initial ' + Number(initialWeight) + ' kg)');
+            if (lines.length && !confirm('You are about to LOCK these values:\n\n' + lines.join('\n') + '\n\nDo they match the display(s)? Press OK to lock, Cancel to go back.')) return;
+        }
+
         try {
             const res = await window.BiomassAPI.submitSample1Result(barcode, moisture, fineness, extra);
             if (res.success) {
                 const acceptMsg = res.acceptance_status === 'REJECTED' 
                     ? '\n⚠️ CONSIGNMENT REJECTED: Moisture is 14.0% or higher.' 
                     : (res.acceptance_status === 'ACCEPTED' ? '\n✅ CONSIGNMENT ACCEPTED: Moisture is below 14.0%.' : '');
-                alert('Sample analysis locked and submitted successfully!' + acceptMsg);
+                // Proof of what the database really holds, compared with what was sent. A difference is shown loudly.
+                const rec = res.record || {};
+                let saved = '';
+                const diff = [];
+                if (moistureEditable) {
+                    saved += '\nSaved moisture: ' + rec.moisture_pct + ' %';
+                    if (Math.abs(Number(rec.moisture_pct) - Number(moisture)) > 0.0006) diff.push('moisture sent ' + Number(moisture) + ' but saved ' + rec.moisture_pct);
+                }
+                if (finenessEditable) {
+                    saved += '\nSaved fineness: ' + rec.fineness_value + ' %';
+                    if (Math.abs(Number(rec.fineness_value) - Number(fineness)) > 0.006) diff.push('fineness sent ' + Number(fineness) + ' but saved ' + rec.fineness_value);
+                }
+                if (diff.length) alert('WARNING - THE SAVED VALUE DIFFERS FROM WHAT WAS ENTERED\n\n' + diff.join('\n') + '\n\nTell the administrator immediately (note the time and the sample).');
+                alert('Sample analysis locked and submitted successfully!' + saved + acceptMsg);
                 document.getElementById('lab1-entry-card').style.display = 'none';
                 resetMoistureModule();
                 resetFinenessModule();
@@ -5649,12 +5785,14 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     function initLab2Screen() {
+        initFeatureTabs('lab2-tabs');
         const entryCard = document.getElementById('lab2-entry-card');
         if (entryCard) entryCard.style.display = 'none';
         const compositeOutput = document.getElementById('lab2-composite-output');
         if (compositeOutput) compositeOutput.style.display = 'none';
         renderLab2History();
         setupLab2CameraScanner();
+        setupLab2TypedLookup();
         setupLab2Filter();
         renderLab2MixingGroups();
         if (!lab2State.timer) {
@@ -5754,6 +5892,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="mixing-group-stats">
                         <div class="group-stat-pill stat-accepted"><strong>${acc}</strong> Approved</div>
                         <div class="group-stat-pill stat-rejected"><strong>${rej}</strong> Rejected</div>
+                        ${Number(group.cancelled_count) > 0 ? `<div class="group-stat-pill" style="background:rgba(107,114,128,0.25); color:#d1d5db;"><strong>${esc(group.cancelled_count)}</strong> Cancelled</div>` : ''}
                         <div class="group-stat-pill stat-pending"><strong>${pen}</strong> Pending</div>
                     </div>
                     <div style="font-size: 0.8rem; color: #cbd5e1; margin-top: 0.5rem; display: flex; justify-content: space-between;">
@@ -5815,6 +5954,32 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
+    // One 50 x 50 mm composite label. With a vendor name (Vendor / Referee copies) the COMPLETE name is printed above the QR in up to 3
+    // lines; the font shrinks for long names so the whole label always fits the 50 x 50 mm roll.
+    function labelHtmlFor(lotId, sampleName, vendorName, group, dateStr, canvasId) {
+        const v = String(vendorName || '').trim();
+        const plain = `<div class="print-label-id" style="font-family: monospace; font-size: 7pt; font-weight: bold; margin-top: 1px;">${esc(lotId)}</div>`;
+        if (!v) {
+            return `
+                <div class="print-label-view print-label-50mm label-with-initials" style="text-align: center;">
+                    <div style="font-size: 8pt; font-weight: bold; font-family: monospace; color: #000; line-height: 1;">GROUP: ${esc(group)}</div>
+                    <div style="font-size: 7pt; font-weight: bold; margin: 1px 0 2px 0; color: #000; font-family: monospace;">${esc(sampleName)}</div>
+                    <div style="font-size: 11pt; font-weight: 800; margin: 0 0 1px 0; color: #000; font-family: monospace; line-height: 1;">${esc(dmy(dateStr))}</div>
+                    <canvas id="${canvasId}"></canvas>
+                    ${plain}
+                </div>`;
+        }
+        const pt = v.length <= 22 ? 8 : (v.length <= 44 ? 7 : (v.length <= 66 ? 6 : 5));
+        return `
+            <div class="print-label-view print-label-50mm label-with-vendor" style="text-align: center;">
+                <div style="font-size: 7.5pt; font-weight: bold; font-family: monospace; color: #000; line-height: 1;">GROUP: ${esc(group)} &middot; ${esc(dmy(dateStr))}</div>
+                <div style="font-size: 6.5pt; font-weight: bold; margin: 1px 0; color: #000; font-family: monospace;">${esc(sampleName)}</div>
+                <div class="label-vendor" style="font-size: ${pt}pt;">${esc(v)}</div>
+                <canvas id="${canvasId}"></canvas>
+                ${plain}
+            </div>`;
+    }
+
     // Renders the Test/Referee/Vendor QR outputs for a composite batch on the Lab 2 screen,
     // formatted for strict 50mm x 50mm thermal paper label rolls
     async function renderLab2CompositeOutput(batch, groupCode, grp) {
@@ -5841,15 +6006,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const groupLabelText = `MIXING GROUP: ${gCodeLab2}`;
         const batchDate = batch.date || '';
 
-        // Supplier initials go on the Vendor and Referee copies only (never on the Test lot), so the stored samples can be
-        // found by the supplier. They come from the server together with the batch.
+        // The supplier's COMPLETE name goes on the Vendor and Referee copies only (never on the Test lot), so the stored samples can be
+        // found by the supplier and similar vendor names cannot be confused. It comes from the server together with the batch.
         const initials = String(batch.vendor_initials || '').trim().toUpperCase();
+        const vendorFull = String(batch.vendor_name || batch.company_name || '').trim().toUpperCase();
+        const vendorLabel = vendorFull || initials;
         ['test', 'ref', 'vend'].forEach(k => {
             const groupEl = document.getElementById(`lab2-${k}-group-code`);
             const codeEl = document.getElementById(`lab2-${k}-code`);
             if (groupEl) groupEl.textContent = groupLabelText;
             if (codeEl) {
-                if (k !== 'test' && initials) { codeEl.textContent = `SUPPLIER: ${initials}`; codeEl.style.display = ''; }
+                if (k !== 'test' && vendorLabel) { codeEl.textContent = `SUPPLIER: ${vendorLabel}`; codeEl.style.display = ''; }
                 else codeEl.style.display = 'none';
             }
         });
@@ -5863,18 +6030,8 @@ document.addEventListener('DOMContentLoaded', function() {
         QRCode.toCanvas(document.getElementById('qr-canvas-lab2-vend'), vendEnc, { errorCorrectionLevel: 'M', width: 246, margin: 4 });
 
         const printContainer = document.getElementById('print-section');
-        // One 50 x 50 mm label for a lot (the Vendor / Referee copies also carry the supplier initials).
-        const labelHtml = (lotId, sampleName, withInitials, canvasId) => {
-            const initLine = `<div style="font-size: 11pt; font-weight: 800; margin: 0 0 1px 0; color: #000; font-family: monospace; line-height: 1;">${(withInitials && initials) ? esc(initials) + ' &middot; ' : ''}${esc(dmy(batchDate))}</div>`;
-            return `
-                <div class="print-label-view print-label-50mm label-with-initials" style="text-align: center;">
-                    <div style="font-size: 8pt; font-weight: bold; font-family: monospace; color: #000; line-height: 1;">GROUP: ${gCodeLab2}</div>
-                    <div style="font-size: 7pt; font-weight: bold; margin: 1px 0 2px 0; color: #000; font-family: monospace;">${sampleName}</div>
-                    ${initLine}
-                    <canvas id="${canvasId}"></canvas>
-                    <div class="print-label-id" style="font-family: monospace; font-size: 7pt; font-weight: bold; margin-top: 1px;">${lotId}</div>
-                </div>`;
-        };
+        // One 50 x 50 mm label for a lot (the Vendor / Referee copies also carry the supplier's complete name).
+        const labelHtml = (lotId, sampleName, withVendor, canvasId) => labelHtmlFor(lotId, sampleName, withVendor ? vendorLabel : '', gCodeLab2, batchDate, canvasId);
         const drawQr = (canvasId, text) => new Promise((resolve) => {
             QRCode.toCanvas(document.getElementById(canvasId), text, { errorCorrectionLevel: 'M', width: 410, margin: 4 }, function(err) {
                 if (err) console.error(err);
@@ -5919,16 +6076,18 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('btn-download-lab2-ref').onclick = () => downloadQrAsPng(
             '#qr-canvas-lab2-ref',
             `REFEREE_${initials ? initials + '_' : ''}${batchDate}_${gCodeLab2}`,
-            `${initials ? initials + ' | ' : ''}REFEREE LOT ${gCodeLab2} ${dmy(batchDate)}`,
+            `REFEREE LOT | ${gCodeLab2} ${dmy(batchDate)}`,
             "REFEREE LOT",
-            true
+            true,
+            vendorLabel
         );
         document.getElementById('btn-download-lab2-vend').onclick = () => downloadQrAsPng(
             '#qr-canvas-lab2-vend',
             `VENDOR_${initials ? initials + '_' : ''}${batchDate}_${gCodeLab2}`,
-            `${initials ? initials + ' | ' : ''}VENDOR LOT ${gCodeLab2} ${dmy(batchDate)}`,
+            `VENDOR LOT | ${gCodeLab2} ${dmy(batchDate)}`,
             "VENDOR LOT",
-            true
+            true,
+            vendorLabel
         );
 
         outputDiv.scrollIntoView({ behavior: 'smooth' });
@@ -5961,7 +6120,28 @@ document.addEventListener('DOMContentLoaded', function() {
             alert('Please scan or type a composite barcode ID.');
             return;
         }
+        await openLab2Results(() => window.BiomassAPI.getCompositeDetails(barcode));
+    }
 
+    // Typed alternative to scanning: the mixing code + the date opens exactly the same results form as the composite QR.
+    function setupLab2TypedLookup() {
+        const code = document.getElementById('lab2-code-input'), date = document.getElementById('lab2-code-date'), btn = document.getElementById('btn-lab2-code-open');
+        if (!code || !btn || btn.dataset.wired) return;
+        btn.dataset.wired = '1';
+        if (!date.value) date.value = window.BiomassAPI.todayIST();
+        const go = async () => {
+            const c = code.value.trim().toUpperCase();
+            if (!c) { alert('Type the mixing code printed on the label.'); code.focus(); return; }
+            if (!date.value) { alert('Pick the date of the composite.'); return; }
+            btn.disabled = true;
+            try { await openLab2Results(() => window.BiomassAPI.getCompositeByCode(c, date.value)); }
+            finally { btn.disabled = false; }
+        };
+        btn.onclick = go;
+        code.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+    }
+
+    async function openLab2Results(fetchData) {
         const entryCard = document.getElementById('lab2-entry-card');
         const alertBox = document.getElementById('lab2-alert');
         const dup2 = document.getElementById('lab2-duplicate-notice');
@@ -5970,7 +6150,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (dup2) dup2.style.display = 'none';
 
         try {
-            const data = await window.BiomassAPI.getCompositeDetails(barcode);
+            const data = await fetchData();
             if (data.success) {
                 entryCard.style.display = 'block';
                 document.getElementById('lab2-blind-code').textContent = `✅ ACTIVE SECURE COMPOSITE (${data.lot_type})`;
@@ -6065,65 +6245,268 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ================= BARCODE INSPECTOR TAB (ADMIN) =================
-    // ================= SUPER ADMIN =================
-    // Find any sample / composite, print or download any QR, and feed / correct results. Every change is logged by the server with the IP address.
-    let superState = { samples: [], comps: [] };
+    // ================= SUPER ADMIN CONSOLE =================
+    // A console of its own (the Super Admin login has NO Admin tabs): Inspector, Toolbox, Data health, Logins and the Audit log.
+    // Every change needs a reason AND the password typed again (valid for 5 minutes); the server writes it to the audit log with the IP address.
+    const sx$ = (id) => document.getElementById(id);
+    const SX_IDLE_MS = 10 * 60 * 1000, SX_AUTH_MS = 5 * 60 * 1000;
+    let superState = { samples: [], comps: [], filter: 'all', q: '' };
+    let sxLastAuth = 0, sxLastActive = Date.now(), sxIdleTimer = null, sxCompanies = null, sxOpenTruck = null, sxGroup = null, sxWired = false, sxDetail = null;
 
-    function initSuperAdminTab() {
-        const q = document.getElementById('super-q');
-        if (!q || q.dataset.wired) return;
-        q.dataset.wired = '1';
+    // Idle protection: the Super Admin session ends after 10 minutes without a click, key or touch.
+    function startSuperIdleTimer() {
+        if (sxIdleTimer) return;
+        const bump = () => { sxLastActive = Date.now(); };
+        ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'].forEach(ev => window.addEventListener(ev, bump, { passive: true }));
+        sxLastActive = Date.now();
+        sxIdleTimer = setInterval(() => {
+            const left = SX_IDLE_MS - (Date.now() - sxLastActive);
+            const chip = sx$('sx-idle-chip');
+            if (chip) chip.textContent = left < 120000 ? `⏱ Signing out in ${Math.max(0, Math.ceil(left / 1000))} s` : '⏱ Auto sign-out after 10 min idle';
+            if (left <= 0) hardSignOut('You were signed out after 10 minutes without activity (Super Admin).');
+        }, 5000);
+    }
+
+    // Password re-check: resolves true when the Super Admin has typed the password within the last 5 minutes (or now).
+    function sxEnsureAuth() {
+        if (Date.now() - sxLastAuth < SX_AUTH_MS) return Promise.resolve(true);
+        return new Promise(resolve => {
+            const m = sx$('super-pw-modal'), pw = sx$('super-pw-input'), msg = sx$('super-pw-msg'), ok = sx$('btn-super-pw-ok'), no = sx$('btn-super-pw-cancel');
+            pw.value = ''; msg.textContent = ''; m.style.display = 'flex'; pw.focus();
+            const done = (v) => { m.style.display = 'none'; pw.value = ''; resolve(v); };
+            no.onclick = () => done(false);
+            const go = async () => {
+                if (!pw.value) { msg.style.color = '#ef4444'; msg.textContent = 'Type your password.'; return; }
+                ok.disabled = true; msg.style.color = ''; msg.textContent = 'Checking...';
+                const good = await window.BiomassAPI.verifyPassword(pw.value);
+                ok.disabled = false;
+                if (good) { sxLastAuth = Date.now(); done(true); }
+                else { msg.style.color = '#ef4444'; msg.textContent = 'That is not the Super Admin password.'; pw.value = ''; pw.focus(); }
+            };
+            ok.onclick = go;
+            pw.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+        });
+    }
+
+    function initSuperConsole() {
+        if (sxWired) return;
+        sxWired = true;
+        startSuperIdleTimer();
+        const q = sx$('super-q');
         const go = () => superSearch();
-        document.getElementById('btn-super-find').onclick = go;
-        document.getElementById('btn-super-clear').onclick = () => { q.value = ''; document.getElementById('super-from').value = ''; document.getElementById('super-to').value = ''; superSearch(); };
+        sx$('btn-super-find').onclick = go;
+        sx$('btn-super-clear').onclick = () => { q.value = ''; sx$('super-from').value = ''; sx$('super-to').value = ''; sx$('sx-group-panel').style.display = 'none'; superSearch(); };
         q.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+        const setFilter = (e) => {
+            const b = e.target.closest('button[data-f]'); if (!b) return;
+            superState.filter = b.dataset.f;
+            sxRender();
+        };
+        sx$('sx-filter-chips').onclick = setFilter;
+        sx$('sx-tiles').onclick = setFilter;
+        // QR scan (camera or uploaded picture): the code goes into the search and the result opens
+        setupSnapOnlyScanner({
+            triggerId: 'sx-scan-trigger', readerId: 'sx-qr-reader',
+            onDecode: async (decodedText) => { sxApplyScan(await processScannedCode(decodedText)); }
+        });
+        sx$('sx-file-input').addEventListener('change', (e) => {
+            const file = e.target.files[0]; if (!file) return;
+            scanUploadedFile(file, 'sx-qr-reader',
+                async (decodedText) => { try { sxApplyScan(await processScannedCode(decodedText)); } catch (err) { alert(err.message); } e.target.value = ''; },
+                (msg) => { alert(msg); e.target.value = ''; });
+        });
+        const onGrid = (e) => {
+            const b = e.target.closest('button[data-act]'); if (!b) return;
+            const i = Number(b.dataset.i), act = b.dataset.act;
+            if (b.dataset.k === 'c') {
+                const c = superState.comps[i];
+                if (act === 'cprint') superPrintComposite(c);
+                else if (act === 'cedit') superEditComposite(c);
+                else if (act === 'cvoid') superVoidComposite(c);
+                else if (act === 'group') sxGroupPanel(c.mixing_code, c.date);
+                return;
+            }
+            const r = superState.samples[i];
+            if (act === 'open') openTruckDetail(r.truck_id);
+            else if (act === 'print') superPrintSample(r);
+            else if (act === 'png') superDownloadSample(r);
+            else if (act === 'group') sxGroupPanel(r.mixing_code, r.entry_date);
+        };
+        sx$('super-samples-grid').onclick = onGrid;
+        sx$('super-comps-grid').onclick = onGrid;
+        sx$('btn-sxd-close').onclick = () => { sx$('super-detail-modal').style.display = 'none'; sxOpenTruck = null; };
+        sx$('sxd-body').onclick = sxDetailClick;
+        sx$('btn-sx-health-run').onclick = renderSuperHealth;
+        sx$('btn-sx-logins-refresh').onclick = renderSuperLogins;
         superSearch();
     }
 
+    // a scanned / uploaded QR: search it, then open the truck (or the composite's group) when it is unambiguous
+    async function sxApplyScan(code) {
+        sx$('super-q').value = code; sx$('super-from').value = ''; sx$('super-to').value = '';
+        superState.filter = 'all';
+        await superSearch();
+        const S = superState.samples, C = superState.comps;
+        if (S.length === 1 && !C.length) openTruckDetail(S[0].truck_id);
+        else if (!S.length && C.length === 1) sxGroupPanel(C[0].mixing_code, C[0].date);
+        else if (!S.length && !C.length) alert('Nothing found for the scanned code ' + code + '.');
+    }
+
+    // ---------- Inspector: search + cards ----------
+    const sxF = (v, d) => (v === null || v === undefined || v === '') ? '<span style="color:#f59e0b;">&mdash;</span>' : Number(v).toFixed(d);
+    function sxStatus(r) {
+        if (r.cancel_status === 'VOIDED') return { cls: 'st-can', badge: '<span class="sx-pill sx-void">VOIDED</span>' };
+        if (r.cancel_status === 'CANCELLED') return { cls: 'st-can', badge: '<span class="sx-pill sx-cancel">🚫 QR CANCELLED</span>' };
+        const ov = r.acceptance_override ? ' <span class="sx-pill sx-ovr" title="Accept / reject was set by the Super Admin">OVERRIDE</span>' : '';
+        if (r.acceptance_status === 'REJECTED') return { cls: 'st-rej', badge: '<span class="sx-pill sx-rej">REJECTED</span>' + ov };
+        if (r.acceptance_status === 'ACCEPTED') return { cls: 'st-ok', badge: '<span class="sx-pill sx-ok">ACCEPTED</span>' + ov };
+        return { cls: 'st-pen', badge: '<span class="sx-pill sx-pen">PENDING</span>' };
+    }
+
     async function superSearch() {
-        const note = document.getElementById('super-note'), sb = document.getElementById('super-samples-body'), cbd = document.getElementById('super-comps-body');
+        const note = sx$('super-note');
         note.textContent = 'Searching...';
         try {
-            const res = await window.BiomassAPI.superFind(document.getElementById('super-q').value, document.getElementById('super-from').value, document.getElementById('super-to').value);
-            superState = { samples: res.samples || [], comps: res.composites || [] };
+            const q = sx$('super-q').value.trim();
+            const res = await window.BiomassAPI.superFind(q, sx$('super-from').value, sx$('super-to').value);
+            superState.samples = res.samples || []; superState.comps = res.composites || []; superState.q = q;
             note.textContent = `${superState.samples.length} sample(s) and ${superState.comps.length} composite lot(s) found` + (superState.samples.length >= 200 ? ' (showing the newest 200 - narrow the search)' : '') + '.';
-            const f = (v, d) => (v === null || v === undefined) ? '<span style="color:#f59e0b;">-</span>' : Number(v).toFixed(d);
-            const vend = r => `${esc(r.company_name)}<br><small style="color:#94a3b8;">${esc(r.lot)} &middot; PO ${esc(r.po_number || '-')}</small>`;
-            sb.innerHTML = superState.samples.length ? superState.samples.map((r, i) => {
-                const bottom = r.kind === 'BOTTOM_SAMPLE';
-                const kind = bottom ? '<span class="badge badge-warning" style="background:#0ea5e9; color:#fff;">Bottom sample</span>' : (r.excluded_from_mix ? 'Truck sample <small style="color:#ef4444;">(out of mix)</small>' : 'Truck sample');
-                const res_ = r.acceptance_status === 'REJECTED' ? '<span style="color:#ef4444; font-weight:700;">REJECTED</span>' : (r.acceptance_status === 'ACCEPTED' ? '<span style="color:#10b981; font-weight:700;">ACCEPTED</span>' : '<span style="color:#f59e0b;">PENDING</span>');
-                return `<tr><td>${esc(dmy(r.entry_date))}<br><small style="color:#94a3b8;">${esc(r.entry_time || '')}</small></td><td><strong>${esc(r.mixing_code)}</strong></td><td>${vend(r)}</td>` +
-                    `<td><strong>${esc(r.truck_reg_number)}</strong><br><small style="color:#94a3b8;">${esc(r.truck_id)}</small></td><td>${kind}<br><small style="font-family:monospace;">${esc(r.sample1_barcode_id)}</small></td>` +
-                    `<td>${f(r.moisture_pct, 3)}</td><td>${f(r.fineness_value, 2)}</td><td>${res_}</td>` +
-                    `<td style="white-space:nowrap;"><button class="btn btn-secondary btn-sm" data-act="sprint" data-i="${i}">🖨️ Print QR</button> <button class="btn btn-secondary btn-sm" data-act="sdown" data-i="${i}">⬇</button> ` +
-                    `<button class="btn btn-secondary btn-sm" style="border-color:#ef4444;" data-act="sedit" data-i="${i}">✏️ Edit results</button></td></tr>`;
-            }).join('') : '<tr><td colspan="9" style="color:#94a3b8; padding:0.8rem;">No samples found.</td></tr>';
-            cbd.innerHTML = superState.comps.length ? superState.comps.map((c, i) => {
-                const l4 = c.lot === 'LOT4';
-                const vals = c.arb_gcv === null || c.arb_gcv === undefined ? '<span style="color:#f59e0b;">not tested yet</span>' :
-                    `TM ${f(c.tm_value, 2)}% &middot; AD: ${f(c.ad_moisture, 2)}% / ${f(c.ad_gcv, 0)} / ${f(c.ad_ash, 2)}%${l4 ? ` / S ${f(c.ad_sulphur, 2)}% / VM ${f(c.ad_vm, 2)}%` : ''}<br>` +
-                    `<strong>ARB: GCV ${c.arb_gcv} &middot; Ash ${f(c.arb_ash, 2)}%${l4 ? ` &middot; S ${f(c.arb_sulphur, 2)}% &middot; VM ${f(c.arb_vm, 2)}%` : ''}</strong>`;
-                return `<tr><td>${esc(dmy(c.date))}</td><td><strong>${esc(c.mixing_code)}</strong></td><td>${esc(c.company_name)}<br><small style="color:#94a3b8;">${esc(c.lot)}</small></td>` +
-                    `<td><strong>${esc(c.composite_ref_id)}</strong><br><small style="color:#94a3b8;">${c.truck_count} truck(s)</small></td><td>${vals}</td>` +
-                    `<td style="white-space:nowrap;"><button class="btn btn-secondary btn-sm" data-act="cprint" data-i="${i}">🖨️ Print 3 labels</button> ` +
-                    `<button class="btn btn-secondary btn-sm" style="border-color:#ef4444;" data-act="cedit" data-i="${i}">✏️ Edit AD values</button></td></tr>`;
-            }).join('') : '<tr><td colspan="6" style="color:#94a3b8; padding:0.8rem;">No composite lots found.</td></tr>';
-            sb.onclick = cbd.onclick = (e) => {
-                const b = e.target.closest('button[data-act]');
-                if (!b) return;
-                const i = Number(b.dataset.i), act = b.dataset.act;
-                if (act === 'sprint') superPrintSample(superState.samples[i]);
-                else if (act === 'sdown') superDownloadSample(superState.samples[i]);
-                else if (act === 'sedit') superEditLab1(superState.samples[i]);
-                else if (act === 'cprint') superPrintComposite(superState.comps[i]);
-                else if (act === 'cedit') superEditComposite(superState.comps[i]);
-            };
+            sxRender();
+            // a mixing code typed exactly: open the whole group at the top
+            const U = q.toUpperCase();
+            if (/^[A-Z0-9]{2,8}$/.test(U)) {
+                const hit = superState.samples.filter(r => String(r.mixing_code).toUpperCase() === U);
+                if (hit.length) { sxGroupPanel(U, hit[0].entry_date); return; }
+            }
+            if (sxGroup && sx$('sx-group-panel').style.display !== 'none') sxGroupPanel(sxGroup.code, sxGroup.date);
         } catch (err) {
             note.innerHTML = `<span style="color:#ef4444;">${esc(err.message)}</span>`;
         }
     }
 
+    function sxRender() {
+        const f = superState.filter, S = superState.samples, C = superState.comps;
+        const keepS = (r) => f === 'all' || f === 'samples' || (f === 'trucks' && r.kind === 'TRUCK_SAMPLE') || (f === 'bottom' && r.kind === 'BOTTOM_SAMPLE')
+            || (f === 'cancelled' && !!r.cancel_status) || (f === 'accepted' && !r.cancel_status && r.acceptance_status === 'ACCEPTED')
+            || (f === 'rejected' && !r.cancel_status && r.acceptance_status === 'REJECTED')
+            || (f === 'open' && !r.cancel_status && (r.moisture_pct === null || r.moisture_pct === undefined));
+        const keepC = (c) => f === 'all' || f === 'comps' || (f === 'open' && (c.arb_gcv === null || c.arb_gcv === undefined));
+        const showComps = f === 'all' || f === 'comps' || f === 'open';
+        const n = (fn) => S.filter(fn).length;
+        const tiles = [['Samples', S.length, 'samples'], ['Bottom samples', n(r => r.kind === 'BOTTOM_SAMPLE'), 'bottom'], ['Composites', C.length, 'comps'],
+                       ['Accepted', n(r => !r.cancel_status && r.acceptance_status === 'ACCEPTED'), 'accepted'], ['Rejected', n(r => !r.cancel_status && r.acceptance_status === 'REJECTED'), 'rejected'],
+                       ['Waiting', n(r => !r.cancel_status && (r.moisture_pct === null || r.moisture_pct === undefined)), 'open'], ['Cancelled / voided', n(r => !!r.cancel_status), 'cancelled']];
+        sx$('sx-tiles').innerHTML = tiles.map(t => `<button type="button" class="sx-tile${f === t[2] ? ' active' : ''}" data-f="${t[2]}" title="Show only: ${esc(t[0])}"><small>${t[0]}</small><b>${t[1]}</b></button>`).join('');
+        [...sx$('sx-filter-chips').querySelectorAll('button[data-f]')].forEach(b => b.classList.toggle('active', b.dataset.f === f));
+
+        const sHtml = S.map((r, i) => {
+            if (!keepS(r)) return '';
+            const st = sxStatus(r), bottom = r.kind === 'BOTTOM_SAMPLE';
+            const old = (r.old_codes || []).length ? `<div class="sx-qr" title="Old QR codes of this sample (no longer valid)">replaced: ${esc(r.old_codes.join(', '))}</div>` : '';
+            return `<div class="sx-card ${bottom && st.cls !== 'st-can' ? 'st-bot' : st.cls}">
+                <div class="sx-card-top"><div class="sx-reg">${esc(r.truck_reg_number)}</div><div>${bottom ? '<span class="sx-pill sx-bot">Bottom sample</span> ' : ''}${st.badge}</div></div>
+                <div class="sx-vendor">${esc(r.company_name)}</div>
+                <div class="sx-meta"><span class="sx-code">${esc(r.mixing_code)}</span><span>${esc(dmy(r.entry_date))} ${esc(r.entry_time || '')}</span><span>${esc(r.lot)}</span><span>PO ${esc(r.po_number || '-')}</span>${r.excluded_from_mix && !bottom ? '<span style="color:#fca5a5;">out of mix</span>' : ''}</div>
+                ${r.cancel_status && r.cancel_reason ? `<div class="sx-meta" style="color:#d1d5db;">Reason: ${esc(r.cancel_reason)}</div>` : ''}
+                <div class="sx-stats"><div><small>Moisture</small><b>${sxF(r.moisture_pct, 2)}</b></div><div><small>Fineness</small><b>${sxF(r.fineness_value, 2)}</b></div><div><small>Truck id</small><b style="font-size:0.7rem;">${esc(r.truck_id)}</b></div></div>
+                <div class="sx-qr">${esc(r.sample1_barcode_id)}</div>${old}
+                <div class="sx-actions">
+                    <button class="btn btn-primary btn-sm" data-act="open" data-i="${i}">🔍 Open &amp; edit</button>
+                    <button class="btn btn-secondary btn-sm" data-act="print" data-i="${i}">🖨️ Print QR</button>
+                    <button class="btn btn-secondary btn-sm" data-act="png" data-i="${i}" title="Download the QR as a picture">⬇</button>
+                    <button class="btn btn-secondary btn-sm" data-act="group" data-i="${i}" title="Everything of this mixing code">👥 Group</button>
+                </div></div>`;
+        }).join('');
+        sx$('super-samples-grid').innerHTML = sHtml || '<div class="sx-note">No samples to show.</div>';
+        sx$('sx-h-samples').style.display = f === 'comps' ? 'none' : '';
+        sx$('super-samples-grid').style.display = f === 'comps' ? 'none' : '';
+
+        const cHtml = C.map((c, i) => {
+            if (!keepC(c)) return '';
+            const l4 = c.lot === 'LOT4', tested = c.arb_gcv !== null && c.arb_gcv !== undefined;
+            const vals = tested
+                ? `<div class="sx-stats"><div><small>TM</small><b>${sxF(c.tm_value, 2)}</b></div><div><small>ARB GCV</small><b>${esc(c.arb_gcv)}</b></div><div><small>ARB Ash</small><b>${sxF(c.arb_ash, 2)}</b></div></div>` +
+                  `<div class="sx-meta">AD: ${sxF(c.ad_moisture, 2)}% moisture / ${sxF(c.ad_gcv, 0)} GCV / ${sxF(c.ad_ash, 2)}% ash${l4 ? ` / S ${sxF(c.ad_sulphur, 2)}% / VM ${sxF(c.ad_vm, 2)}%` : ''}${l4 ? `<br>ARB: S ${sxF(c.arb_sulphur, 2)}% / VM ${sxF(c.arb_vm, 2)}%` : ''}</div>`
+                : '<div class="sx-meta" style="color:#fcd34d;">⏳ AD values not entered yet</div>';
+            return `<div class="sx-card st-cmp">
+                <div class="sx-card-top"><div class="sx-reg">${esc(c.composite_ref_id)}</div><span class="sx-pill ${tested ? 'sx-ok' : 'sx-pen'}">${tested ? 'TESTED' : 'NOT TESTED'}</span></div>
+                <div class="sx-vendor">${esc(c.company_name)}</div>
+                <div class="sx-meta"><span class="sx-code">${esc(c.mixing_code)}</span><span>${esc(dmy(c.date))}</span><span>${esc(c.lot)}</span><span>${esc(c.truck_count)} truck(s)</span></div>
+                ${vals}
+                <div class="sx-actions">
+                    <button class="btn btn-primary btn-sm" data-k="c" data-act="cedit" data-i="${i}">✏️ Edit AD values</button>
+                    <button class="btn btn-secondary btn-sm" data-k="c" data-act="cprint" data-i="${i}">🖨️ Print 3 labels</button>
+                    <button class="btn btn-secondary btn-sm" data-k="c" data-act="group" data-i="${i}">👥 Group</button>
+                    <button class="btn btn-secondary btn-sm sx-danger" data-k="c" data-act="cvoid" data-i="${i}">🗑 Void</button>
+                </div></div>`;
+        }).join('');
+        sx$('super-comps-grid').innerHTML = cHtml || '<div class="sx-note">No composite lots to show.</div>';
+        sx$('sx-h-comps').style.display = showComps ? '' : 'none';
+        sx$('super-comps-grid').style.display = showComps ? '' : 'none';
+    }
+
+    // ---------- Group (mixing code) overview ----------
+    async function sxGroupPanel(code, date) {
+        const box = sx$('sx-group-panel');
+        code = String(code || '').toUpperCase();
+        sxGroup = { code, date };
+        box.style.display = 'block';
+        box.innerHTML = `<div class="sx-loading">Loading mixing code ${esc(code)}...</div>`;
+        try {
+            const [ms, fd] = await Promise.all([window.BiomassAPI.mixingSearch(code), window.BiomassAPI.superFind(code, date, date)]);
+            const rows = (ms.rows || []).filter(r => r.entry_date === date);
+            const comp = (fd.composites || []).find(c => String(c.mixing_code).toUpperCase() === code && c.date === date) || null;
+            const cnt = (st) => rows.filter(r => r.mix_status === st).length;
+            const incl = rows.filter(r => r.mix_status === 'ACCEPTED'), scanned = incl.filter(r => r.mixing_scanned).length;
+            const vendors = [...new Set(rows.map(r => r.company_name))];
+            const idx = {};
+            const compIdx = comp ? superState.comps.findIndex(c => c.composite_ref_id === comp.composite_ref_id) : -1;
+            // the composite object must exist in superState for the shared handlers
+            let cRef = comp;
+            if (comp && compIdx < 0) { superState.comps.push(comp); cRef = comp; }
+            box.innerHTML = `
+                <div style="display:flex; justify-content:space-between; gap:0.6rem; flex-wrap:wrap; align-items:center;">
+                    <h3>👥 Mixing code <span class="sx-code" style="font-size:1.1rem;">${esc(code)}</span> &middot; ${esc(dmy(date))}</h3>
+                    <button class="btn btn-secondary btn-sm" id="sx-group-close">✕ Hide</button>
+                </div>
+                <div class="sx-meta" style="font-size:0.85rem; color:#e2e8f0;">${esc(vendors.join(' / ') || '-')} &middot; ${esc(rows[0] ? rows[0].lot : '')} &middot; PO ${esc(rows[0] ? rows[0].po_number || '-' : '-')}</div>
+                <div class="sx-tiles" style="margin-top:0.7rem;">
+                    <div class="sx-tile"><small>In the mixture</small><b>${incl.length}</b></div>
+                    <div class="sx-tile"><small>Scanned (Fineness)</small><b>${scanned} / ${incl.length}</b></div>
+                    <div class="sx-tile"><small>Rejected</small><b>${cnt('REJECTED')}</b></div>
+                    <div class="sx-tile"><small>Cancelled</small><b>${cnt('CANCELLED')}</b></div>
+                    <div class="sx-tile"><small>Waiting</small><b>${cnt('PENDING')}</b></div>
+                    <div class="sx-tile"><small>Composite</small><b style="font-size:0.95rem;">${comp ? esc(comp.composite_ref_id) : 'not made'}</b></div>
+                </div>
+                <div class="sx-btnrow">
+                    ${comp ? `<button class="btn btn-primary btn-sm" id="sx-g-print">🖨️ Print the 3 labels</button>
+                              <button class="btn btn-secondary btn-sm" id="sx-g-edit">✏️ Edit AD values</button>
+                              <button class="btn btn-secondary btn-sm sx-danger" id="sx-g-void">🗑 Void composite (so it can be made again)</button>`
+                          : `<button class="btn btn-primary btn-sm" id="sx-g-force">⚡ Force-create the composite</button>`}
+                </div>
+                <div class="table-responsive"><table class="mixsearch-table" style="min-width:0; font-size:0.82rem;"><thead><tr><th>Truck</th><th>Sample QR</th><th>Type</th><th>Moisture</th><th>Fineness</th><th>Result</th><th>In mixture</th><th>Scanned</th><th></th></tr></thead><tbody>
+                ${rows.map(r => {
+                    const st = sxStatus(r);
+                    const inMix = r.mix_status === 'ACCEPTED' ? '<span class="sx-pill sx-ok">Included</span>' : r.mix_status === 'CANCELLED' ? '<span class="sx-pill sx-cancel">Cancelled</span>' : r.mix_status === 'REJECTED' ? '<span class="sx-pill sx-rej">Left out</span>' : '<span class="sx-pill sx-pen">Waiting</span>';
+                    return `<tr><td><b>${esc(r.truck_reg_number)}</b><br><small style="color:#94a3b8;">${esc(r.driver_name || '')}</small></td><td style="font-family:monospace; font-size:0.74rem;">${esc(r.sample1_barcode_id)}</td>
+                        <td>${r.is_bottom_sample ? '<span class="sx-pill sx-bot">Bottom</span>' : 'Truck'}</td><td>${sxF(r.moisture_pct, 2)}</td><td>${sxF(r.fineness_value, 2)}</td><td>${st.badge}</td><td>${inMix}</td><td>${r.mixing_scanned ? '✅' : '-'}</td>
+                        <td><button class="btn btn-secondary btn-sm" data-gopen="${esc(r.truck_id)}">🔍 Open</button></td></tr>`;
+                }).join('') || '<tr><td colspan="9" style="color:#94a3b8;">No trucks.</td></tr>'}
+                </tbody></table></div>`;
+            sx$('sx-group-close').onclick = () => { box.style.display = 'none'; sxGroup = null; };
+            box.onclick = (e) => { const b = e.target.closest('button[data-gopen]'); if (b) openTruckDetail(b.dataset.gopen); };
+            const bind = (id, fn) => { const el = sx$(id); if (el) el.onclick = fn; };
+            bind('sx-g-print', () => superPrintComposite(cRef));
+            bind('sx-g-edit', () => superEditComposite(cRef));
+            bind('sx-g-void', () => superVoidComposite(cRef));
+            bind('sx-g-force', () => superForceComposite(code, date));
+            box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } catch (e) {
+            box.innerHTML = `<div style="color:#ef4444;">${esc(e.message)}</div>`;
+        }
+    }
+
+    // ---------- Printing ----------
     function superPrintSample(r) {
         window.BiomassAPI.superLogAction('QR_PRINT', `Printed the label of ${r.kind === 'BOTTOM_SAMPLE' ? 'BOTTOM sample' : 'sample'} ${r.sample1_barcode_id} (truck ${r.truck_reg_number}, mixing code ${r.mixing_code}, ${dmy(r.entry_date)})`);
         window.printSampleLabel(r.sample1_barcode_id, r.entry_date);
@@ -6131,24 +6514,18 @@ document.addEventListener('DOMContentLoaded', function() {
     async function superDownloadSample(r) {
         window.BiomassAPI.superLogAction('QR_DOWNLOAD', `Downloaded the QR image of ${r.kind === 'BOTTOM_SAMPLE' ? 'BOTTOM sample' : 'sample'} ${r.sample1_barcode_id} (truck ${r.truck_reg_number}, ${dmy(r.entry_date)})`);
         const enc = await encryptPayload(r.sample1_barcode_id);
-        QRCode.toCanvas(document.getElementById('qr-canvas-super'), enc, { errorCorrectionLevel: 'M', width: 246, margin: 4 }, function(err) {
+        QRCode.toCanvas(sx$('qr-canvas-super'), enc, { errorCorrectionLevel: 'M', width: 246, margin: 4 }, function(err) {
             if (err) { alert('Could not draw the QR.'); return; }
             downloadQrAsPng('#qr-canvas-super', `Sample_${r.sample1_barcode_id}`, dmy(r.entry_date), r.sample1_barcode_id);
         });
     }
-    // The three composite labels (Test / Referee / Vendor), same layout as at Lab 2: 50 x 50 mm, one page each.
+    // The three composite labels (Test / Referee / Vendor), same layout as at Lab 2: 50 x 50 mm, one page each; Vendor and Referee carry the COMPLETE vendor name.
     async function superPrintComposite(c) {
         window.BiomassAPI.superLogAction('QR_PRINT', `Printed the 3 labels (T/R/V) of composite ${c.composite_ref_id} (mixing code ${c.mixing_code}, ${dmy(c.date)})`);
         const initials = String(c.vendor_initials || '').toUpperCase(), group = String(c.mixing_code || '').toUpperCase();
         const lots = [[c.test_lot, 'TEST LOT (-T)', false], [c.referee_lot, 'REFEREE LOT (-R)', true], [c.vendor_lot, 'VENDOR LOT (-V)', true]];
-        const label = (lotId, name, withInit, canvasId) => `
-            <div class="print-label-view print-label-50mm label-with-initials" style="text-align: center;">
-                <div style="font-size: 8pt; font-weight: bold; font-family: monospace; color: #000; line-height: 1;">GROUP: ${esc(group)}</div>
-                <div style="font-size: 7pt; font-weight: bold; margin: 1px 0 2px 0; color: #000; font-family: monospace;">${name}</div>
-                <div style="font-size: 11pt; font-weight: 800; margin: 0 0 1px 0; color: #000; font-family: monospace; line-height: 1;">${(withInit && initials) ? esc(initials) + ' &middot; ' : ''}${esc(dmy(c.date))}</div>
-                <canvas id="${canvasId}"></canvas>
-                <div class="print-label-id" style="font-family: monospace; font-size: 7pt; font-weight: bold; margin-top: 1px;">${esc(lotId)}</div>
-            </div>`;
+        const vendorLabel = String(c.company_name || '').trim().toUpperCase() || initials;
+        const label = (lotId, name, withInit, canvasId) => labelHtmlFor(lotId, name, withInit ? vendorLabel : '', group, c.date, canvasId);
         const box = document.getElementById('print-section');
         box.innerHTML = lots.map((l, i) => `<div class="label-page">${label(l[0], l[1], l[2], 'super-qr-' + i)}</div>`).join('');
         for (let i = 0; i < lots.length; i++) {
@@ -6159,33 +6536,53 @@ document.addEventListener('DOMContentLoaded', function() {
         setTimeout(() => { window.print(); document.body.classList.remove('printing-label'); setLabelPageSize(false); }, 250);
     }
 
-    // generic edit dialog: fields = [{id, label, value, step, hint}]
-    function openSuperEdit(title, info, fields, onSave) {
-        const modal = document.getElementById('super-edit-modal'), box = document.getElementById('super-edit-fields');
-        document.getElementById('super-edit-title').textContent = title;
-        document.getElementById('super-edit-info').innerHTML = info;
-        box.innerHTML = fields.map(f => `<label style="display:block; font-size:0.8rem; margin:0.4rem 0 0.15rem;">${esc(f.label)}${f.hint ? ` <small style="color:#94a3b8;">${esc(f.hint)}</small>` : ''}</label>` +
-            `<input type="number" step="${f.step || 'any'}" id="se-${f.id}" value="${f.value === null || f.value === undefined ? '' : esc(String(f.value))}" style="width:100%; padding:0.5rem;">`).join('');
-        const reason = document.getElementById('super-edit-reason'), msg = document.getElementById('super-edit-msg'), save = document.getElementById('btn-super-edit-save');
+    // ---------- The generic "change something" dialog ----------
+    // fields = [{id, label, value, type: number|text|date|select|textarea, step, hint, options:[{v,l}]}]; onSave(values, reason) does the work.
+    function openSuperEdit(title, info, fields, onSave, opts) {
+        opts = opts || {};
+        const modal = sx$('super-edit-modal'), box = sx$('super-edit-fields');
+        sx$('super-edit-title').textContent = title;
+        sx$('super-edit-info').innerHTML = info;
+        box.innerHTML = fields.map(f => {
+            const val = f.value === null || f.value === undefined ? '' : String(f.value);
+            const lab = `<label style="display:block; font-size:0.8rem; margin:0.4rem 0 0.15rem;">${esc(f.label)}${f.hint ? ` <small style="color:#94a3b8;">${esc(f.hint)}</small>` : ''}</label>`;
+            let inp;
+            if (f.type === 'select') inp = `<select id="se-${f.id}" style="width:100%; padding:0.5rem;">${(f.options || []).map(o => `<option value="${esc(o.v)}"${String(o.v) === val ? ' selected' : ''}>${esc(o.l)}</option>`).join('')}</select>`;
+            else if (f.type === 'textarea') inp = `<textarea id="se-${f.id}" rows="2" style="width:100%; padding:0.5rem;">${esc(val)}</textarea>`;
+            else if (f.type === 'text' || f.type === 'date') inp = `<input type="${f.type}" id="se-${f.id}" value="${esc(val)}" style="width:100%; padding:0.5rem;">`;
+            else inp = `<input type="number" step="${f.step || 'any'}" id="se-${f.id}" value="${esc(val)}" style="width:100%; padding:0.5rem;">`;
+            return lab + inp;
+        }).join('');
+        const reason = sx$('super-edit-reason'), msg = sx$('super-edit-msg'), save = sx$('btn-super-edit-save');
         reason.value = ''; msg.textContent = ''; save.disabled = false;
+        save.textContent = opts.saveLabel || 'Save & record';
+        save.style.background = opts.danger === false ? '' : '#dc2626';
         modal.style.display = 'flex';
-        document.getElementById('btn-super-edit-cancel').onclick = () => { modal.style.display = 'none'; };
+        sx$('btn-super-edit-cancel').onclick = () => { modal.style.display = 'none'; };
         save.onclick = async () => {
-            const vals = {}; fields.forEach(f => { vals[f.id] = document.getElementById('se-' + f.id).value.trim(); });
+            const vals = {}; fields.forEach(f => { vals[f.id] = sx$('se-' + f.id).value.trim(); });
             const why = reason.value.trim();
             if (why.length < 5) { msg.style.color = '#ef4444'; msg.textContent = 'Please type a reason (at least 5 characters).'; return; }
-            save.disabled = true; msg.style.color = ''; msg.textContent = 'Saving...';
+            save.disabled = true;
+            if (!(await sxEnsureAuth())) { msg.style.color = '#ef4444'; msg.textContent = 'The password was not confirmed - nothing was changed.'; save.disabled = false; return; }
+            msg.style.color = ''; msg.textContent = 'Saving...';
             try {
                 await onSave(vals, why);
                 modal.style.display = 'none';
-                superSearch();
+                if (opts.after) opts.after(); else sxAfter();
             } catch (e) {
                 msg.style.color = '#ef4444'; msg.textContent = e.message || String(e); save.disabled = false;
             }
         };
     }
+    // after any change: refresh the search, the open group and the open truck
+    function sxAfter() {
+        superSearch();
+        if (sxOpenTruck && sx$('super-detail-modal').style.display !== 'none') openTruckDetail(sxOpenTruck, true);
+    }
+
     function superEditLab1(r) {
-        openSuperEdit('Edit moisture / fineness', `Sample <b>${esc(r.sample1_barcode_id)}</b> &bull; truck ${esc(r.truck_reg_number)} &bull; mixing code ${esc(r.mixing_code)}.<br>Leave a box empty to keep that value. Locked values can be overwritten here.`, [
+        openSuperEdit('Feed / correct moisture & fineness', `Sample <b>${esc(r.sample1_barcode_id)}</b> &bull; truck ${esc(r.truck_reg_number)} &bull; mixing code ${esc(r.mixing_code)}.<br>Leave a box empty to keep that value. Locked values can be overwritten here. A moisture change recalculates every composite that contains the truck.`, [
             { id: 'moisture', label: 'Moisture (%)', value: r.moisture_pct, step: '0.001' },
             { id: 'fineness_value', label: 'Fineness (%) - typed directly', value: r.fineness_value, step: '0.01', hint: '(ignored when both weights below are given)' },
             { id: 'fineness_initial_weight', label: 'Fineness initial weight (kg)', value: r.fineness_initial_weight, step: '0.001' },
@@ -6196,10 +6593,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const hasW = p.fineness_initial_weight !== undefined && p.fineness_final_weight !== undefined;
             if (hasW) delete p.fineness_value;
             // unchanged values are not sent (so only real changes are written and logged)
-            if (p.moisture !== undefined && r.moisture_pct !== null && Number(p.moisture) === Number(r.moisture_pct)) delete p.moisture;
-            if (!hasW && p.fineness_value !== undefined && r.fineness_value !== null && Number(p.fineness_value) === Number(r.fineness_value)) delete p.fineness_value;
+            if (p.moisture !== undefined && r.moisture_pct !== null && r.moisture_pct !== undefined && Number(p.moisture) === Number(r.moisture_pct)) delete p.moisture;
+            if (!hasW && p.fineness_value !== undefined && r.fineness_value !== null && r.fineness_value !== undefined && Number(p.fineness_value) === Number(r.fineness_value)) delete p.fineness_value;
             if (hasW && Number(p.fineness_initial_weight) === Number(r.fineness_initial_weight) && Number(p.fineness_final_weight) === Number(r.fineness_final_weight)) { delete p.fineness_initial_weight; delete p.fineness_final_weight; }
-            if (p.fineness_initial_weight !== undefined !== (p.fineness_final_weight !== undefined)) throw new Error('Enter BOTH weights, or none.');
+            if ((p.fineness_initial_weight !== undefined) !== (p.fineness_final_weight !== undefined)) throw new Error('Enter BOTH weights, or none.');
             if (p.moisture === undefined && p.fineness_value === undefined && p.fineness_initial_weight === undefined) throw new Error('Nothing was changed.');
             const res = await window.BiomassAPI.superFeedLab1(p);
             alert(`Saved and recorded.\n\nMoisture ${res.moisture_pct}  |  Fineness ${res.fineness_value}  |  ${res.acceptance_status}\nAny composite containing this truck was recalculated.`);
@@ -6212,13 +6609,408 @@ document.addEventListener('DOMContentLoaded', function() {
             { id: 'ad_gcv', label: 'AD GCV (kcal/kg)', value: c.ad_gcv, step: '0.01' },
             { id: 'ad_ash', label: 'AD Ash (%)', value: c.ad_ash, step: '0.001' }
         ].concat(l4 ? [{ id: 'ad_sulphur', label: 'AD Sulphur (%)', value: c.ad_sulphur, step: '0.001' }, { id: 'ad_vm', label: 'AD VM (%)', value: c.ad_vm, step: '0.001' }] : []);
-        openSuperEdit('Edit AD values', `Composite <b>${esc(c.composite_ref_id)}</b> (${esc(c.lot)}), mixing code ${esc(c.mixing_code)}. TM, X and the ARB values are recalculated from what you save. All values are needed.`, fields, async (v, why) => {
+        openSuperEdit('Feed / correct the AD values', `Composite <b>${esc(c.composite_ref_id)}</b> (${esc(c.lot)}), mixing code ${esc(c.mixing_code)}. TM, X and the ARB values are recalculated from what you save. All values are needed.`, fields, async (v, why) => {
             const p = { code: c.composite_ref_id, reason: why };
             fields.forEach(f => { if (v[f.id] === '') throw new Error('Fill in ' + f.label + '.'); p[f.id] = v[f.id]; });
             const res = await window.BiomassAPI.superFeedComposite(p);
             alert(`Saved and recorded.\n\nTM ${Number(res.tm).toFixed(2)} %  |  X ${Number(res.x).toFixed(6)}\nARB GCV ${res.arb_gcv}  |  ARB Ash ${Number(res.arb_ash).toFixed(2)} %` +
                   (res.arb_sulphur !== null && res.arb_sulphur !== undefined ? `\nARB Sulphur ${Number(res.arb_sulphur).toFixed(2)} %  |  ARB VM ${Number(res.arb_vm).toFixed(2)} %` : ''));
         });
+    }
+    // Tool 1: composite although some accepted containers were not scanned in the Fineness login
+    function superForceComposite(code, date) {
+        openSuperEdit('Force-create the composite', `Mixing code <b>${esc(code)}</b>, ${esc(dmy(date))}. The composite is made <b>without</b> waiting for every accepted container to be scanned in the Fineness login. Everything else is still checked (no waiting moisture results, at least one accepted sample, no earlier composite). Only the trucks that are ACCEPTED are mixed - make sure the physical mixture matches.`, [], async (v, why) => {
+            const res = await window.BiomassAPI.superForceComposite({ group_code: code, date, reason: why });
+            const b = res.batch;
+            alert(`Composite ${b.composite_ref_id} created for mixing code ${code}.`);
+            if (confirm('Print the 3 labels (Test / Referee / Vendor) now?')) {
+                superPrintComposite({ composite_ref_id: b.composite_ref_id, test_lot: b.test_lot, referee_lot: b.referee_lot, vendor_lot: b.vendor_lot,
+                    company_name: b.vendor_name, vendor_initials: b.vendor_initials, mixing_code: b.daily_group_code, date: b.date });
+            }
+        }, { saveLabel: 'Create composite' });
+    }
+    // Tool 5: void a composite so the group can be mixed again
+    function superVoidComposite(c) {
+        openSuperEdit('Void composite', `Composite <b>${esc(c.composite_ref_id)}</b> (mixing code ${esc(c.mixing_code)}, ${esc(dmy(c.date))}) will be voided: its record (including any GCV / ash already entered) is <b>archived</b>, its trucks are released and the labels it printed stop working. The group can then be mixed again. If a truck must <b>move</b> to another group, void its composite first, then edit the truck's vendor / date.`, [], async (v, why) => {
+            await window.BiomassAPI.superVoidComposite({ code: c.composite_ref_id, reason: why });
+            alert('Composite voided. The mixing group can create a new composite.');
+        }, { saveLabel: 'Void composite' });
+    }
+
+    // ---------- Truck detail ----------
+    async function openTruckDetail(truckId, keep) {
+        const modal = sx$('super-detail-modal'), body = sx$('sxd-body');
+        sxOpenTruck = truckId;
+        modal.style.display = 'flex';
+        if (!keep) body.innerHTML = '<div class="sx-loading">Loading...</div>';
+        let d;
+        try { d = await window.BiomassAPI.superDetail({ truck_id: truckId }); }
+        catch (e) { body.innerHTML = `<div style="color:#ef4444; padding:1rem;">${esc(e.message)}</div>`; return; }
+        sxDetail = d;
+        const t = d.truck, l = d.lab1 || {}, tr = { truck_id: t.truck_id };
+        const st = sxStatus({ cancel_status: t.cancel_status, acceptance_status: d.status, acceptance_override: t.acceptance_override });
+        const kv = (k, v) => `<div><small>${k}</small>${v === null || v === undefined || v === '' ? '<span style="color:#94a3b8;">-</span>' : v}</div>`;
+        const wt = (v) => Number(v) > 0 ? Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '-';
+        const locked = (d.group_composite || (d.composites || []).length);
+        const btn = (act, label, cls, extra) => `<button class="btn ${cls || 'btn-secondary'} btn-sm" data-act="${act}" ${extra || ''}>${label}</button>`;
+        const photoBtns = [['truck', t.has_photo, 'Truck photo'], ['moisture', l.has_moisture_photo, 'Moisture photo'], ['fineness_initial', l.has_fineness_initial_photo, 'Fineness (before)'], ['fineness_final', l.has_fineness_final_photo, 'Fineness (after)']]
+            .filter(x => x[1]).map(x => btn('photo', '🖼 ' + x[2], 'btn-secondary', `data-kind="${x[0]}" data-id="${esc(x[0] === 'truck' ? t.truck_id : t.sample1_barcode_id)}"`)).join(' ');
+        const comps = d.composites || [];
+        const bs = d.bottom_sample, br = d.bottom_request;
+        const bottomState = bs && !bs.cancel_status ? `Generated: <span style="font-family:monospace;">${esc(bs.sample1_barcode_id)}</span> (mixing code ${esc(bs.daily_group_code)})`
+            : br && br.status === 'REQUESTED' ? 'Requested - waiting for the Entry login to generate the label' : 'No bottom sample';
+        const isCancelled = !!t.cancel_status;
+        const html = `
+            <div class="sxd-sec" style="border-color:rgba(239,68,68,0.5);">
+                <div style="display:flex; justify-content:space-between; gap:0.6rem; flex-wrap:wrap; align-items:center;">
+                    <div><span class="sx-code" style="font-size:1.05rem;">${esc(t.daily_group_code)}</span> &nbsp; ${st.badge} ${d.mix_status === 'REJECTED' && d.status === 'ACCEPTED' ? '<span class="sx-pill sx-bot">replaced by bottom sample</span>' : ''}
+                        ${t.cancel_status ? `<div style="font-size:0.85rem; margin-top:0.4rem; color:#d1d5db;">${esc(t.cancel_status)}: ${esc(t.cancel_reason || '')} <small>(by ${esc(t.cancelled_by || '-')})</small></div>` : ''}
+                        ${t.acceptance_override ? `<div style="font-size:0.85rem; margin-top:0.4rem; color:#c4b5fd;">Super Admin override: ${esc(t.acceptance_override)} - ${esc(t.override_reason || '')}</div>` : ''}</div>
+                    <div>${photoBtns}</div>
+                </div>
+            </div>
+
+            <div class="sxd-sec"><h5>Registration</h5>
+                <div class="sxd-kv">${kv('Vehicle no.', `<b>${esc(t.truck_reg_number)}</b>`)}${kv('Driver', esc(t.driver_name))}${kv('Invoice / challan', esc(t.invoice_no || t.challan_no))}
+                    ${kv('Vendor', esc(t.company_name))}${kv('Lot', esc(t.lot))}${kv('PO number', esc(t.po_number))}${kv('Entry', esc(dmy(t.entry_date)) + ' ' + esc(t.entry_time || ''))}${kv('Truck id', esc(t.truck_id))}</div>
+                <div class="sx-btnrow">${btn('edit-reg', '✏️ Edit registration details', 'btn-primary')}</div>
+                <div class="sx-meta">Changing the vehicle number, driver or invoice never changes the mixing group. Changing the <b>vendor</b> (or the date) moves the truck to that vendor's mixing group.</div>
+            </div>
+
+            <div class="sxd-sec"><h5>Weighment</h5>
+                <div class="sxd-kv">${kv('Gross (kg)', wt(t.gross_weight))}${kv('Final / tare (kg)', wt(t.tare_weight))}${kv('Net (kg)', wt(t.net_weight))}</div></div>
+
+            <div class="sxd-sec"><h5>Lab 1 results</h5>
+                <div class="sxd-kv">${kv('Moisture %', sxF(l.moisture_pct, 3))}${kv('Fineness %', sxF(l.fineness_value, 2))}${kv('Fineness weights (kg)', l.fineness_initial_weight ? `${esc(l.fineness_initial_weight)} &rarr; ${esc(l.fineness_final_weight)}` : '')}${kv('Tested', esc(l.tested_at || ''))}${kv('Scanned for mixing', d.mixing_scanned ? '✅ yes' : 'no')}</div>
+                <div class="sx-btnrow">${btn('feed-lab1', '✏️ Feed / correct results', 'btn-primary')}</div></div>
+
+            <div class="sxd-sec"><h5>Accept / reject decision</h5>
+                <div class="sx-meta" style="margin-bottom:0.4rem;">Normally decided by the moisture rule. Use an override only for a documented exception (needs a reason; the group's composite must not exist yet).</div>
+                <div class="sx-btnrow">${btn('ovr', '✅ Force ACCEPT', 'btn-secondary', 'data-st="ACCEPTED"')}${btn('ovr', '⛔ Force REJECT', 'btn-secondary sx-danger', 'data-st="REJECTED"')}${t.acceptance_override ? btn('ovr', '↩ Back to the moisture rule', 'btn-secondary', 'data-st="NONE"') : ''}</div></div>
+
+            <div class="sxd-sec"><h5>Sample QR code</h5>
+                <div class="sx-qr" style="font-size:0.85rem; color:#fff;">${esc(t.sample1_barcode_id)}</div>
+                ${(d.qr_history || []).length ? `<div class="sx-meta">Replaced earlier (no longer valid): ${d.qr_history.map(h => esc(h.old_barcode)).join(', ')}</div>` : ''}
+                <div class="sx-btnrow">${btn('print-qr', '🖨️ Print the QR label')}${btn('png-qr', '⬇ Download picture')}${btn('replace-qr', '🔁 Replace lost / damaged QR', 'btn-secondary sx-danger')}</div></div>
+
+            <div class="sxd-sec"><h5>Bottom sample</h5>
+                <div style="font-size:0.85rem; margin-bottom:0.4rem;">${bottomState}</div>
+                <div class="sx-btnrow">
+                    ${!br && !isCancelled ? btn('bottom', '➕ Request a bottom sample (no password)', 'btn-secondary', 'data-b="REQUEST"') : ''}
+                    ${br && br.status === 'REQUESTED' ? btn('bottom', '✖ Cancel the request', 'btn-secondary', 'data-b="CANCEL_REQUEST"') : ''}
+                    ${br && br.status === 'GENERATED' && bs && !bs.cancel_status ? btn('bottom', '↩ Undo the bottom sample', 'btn-secondary sx-danger', 'data-b="UNDO"') : ''}
+                </div></div>
+
+            <div class="sxd-sec"><h5>Composite</h5>
+                ${comps.length ? comps.map((c, i) => `<div style="display:flex; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; align-items:center; padding:0.3rem 0; border-top:1px dashed rgba(255,255,255,0.1);">
+                    <div><b>${esc(c.composite_ref_id)}</b> &middot; code ${esc(c.daily_group_code)} &middot; ${esc(dmy(c.date))} ${c.gcv_value != null ? `&middot; ARB GCV ${esc(c.gcv_value)} / ash ${esc(c.ash_pct)}` : '&middot; not tested'}</div>
+                    <div>${btn('comp-void', '🗑 Void composite', 'btn-secondary sx-danger', `data-ref="${esc(c.composite_ref_id)}"`)}</div></div>`).join('')
+                    : (d.group_composite ? `<div>The group's composite <b>${esc(d.group_composite.composite_ref_id)}</b> was made without this truck.</div>` : '<div style="color:#94a3b8;">This truck is not in a composite yet.</div>')}
+            </div>
+
+            <div class="sxd-sec"><h5>Cancel / void</h5>
+                <div class="sx-meta" style="margin-bottom:0.4rem;"><b>Cancel QR</b>: the truck stays in the reports as "QR cancelled" with the reason (the sample is left out of the mixture). <b>Void</b>: the truck was registered by mistake - it disappears from every list and report (nothing is deleted).</div>
+                <div class="sx-btnrow">
+                    ${!isCancelled ? btn('cancel', '🚫 Cancel the QR', 'btn-secondary sx-danger') + btn('void', '🗑 Void this registration', 'btn-secondary sx-danger') : btn('restore', `↩ Restore (${esc(t.cancel_status)})`, 'btn-primary')}
+                </div>${locked ? '<div class="sx-meta">⚠ This truck\'s mixing group already has a composite - void that composite first for these actions.</div>' : ''}</div>
+
+            <div class="sxd-sec"><h5>Audit trail of this truck</h5>
+                <div class="sxd-trail">${(d.audit || []).map(a => `<div><b>${esc(a.timestamp)}</b> &middot; ${esc(a.username)} &middot; <span style="color:#fca5a5;">${esc(a.action)}</span><br>${esc(a.details)}${a.ip ? ` <small style="color:#94a3b8;">[${esc(a.ip)}]</small>` : ''}</div>`).join('') || '<div>No entries.</div>'}</div></div>`;
+        sx$('sxd-title').innerHTML = `${esc(t.truck_reg_number)} <span style="font-size:0.9rem; font-weight:500; color:#94a3b8;">&middot; ${esc(t.company_name)}</span>`;
+        sx$('sxd-body').innerHTML = html;
+    }
+
+    async function sxLoadCompanies() {
+        if (!sxCompanies) sxCompanies = await window.BiomassAPI.getCompaniesDetailed();
+        return sxCompanies;
+    }
+
+    async function sxDetailClick(e) {
+        const b = e.target.closest('button[data-act]'); if (!b || !sxDetail) return;
+        const d = sxDetail, t = d.truck, l = d.lab1 || {}, act = b.dataset.act;
+        const sample = { sample1_barcode_id: t.sample1_barcode_id, truck_reg_number: t.truck_reg_number, mixing_code: t.daily_group_code, entry_date: t.entry_date, truck_id: t.truck_id,
+            kind: 'TRUCK_SAMPLE', moisture_pct: l.moisture_pct, fineness_value: l.fineness_value, fineness_initial_weight: l.fineness_initial_weight, fineness_final_weight: l.fineness_final_weight };
+        if (act === 'edit-reg') return superEditRegistration(d);
+        if (act === 'feed-lab1') return superEditLab1(sample);
+        if (act === 'print-qr') return superPrintSample(sample);
+        if (act === 'png-qr') return superDownloadSample(sample);
+        if (act === 'photo') {
+            try { const src = await window.BiomassAPI.getEvidencePhoto(b.dataset.kind, b.dataset.id); sxShowPhoto(src); } catch (err) { alert(err.message); }
+            return;
+        }
+        if (act === 'ovr') {
+            const st = b.dataset.st;
+            return openSuperEdit('Accept / reject override', `Truck <b>${esc(t.truck_reg_number)}</b> (moisture ${l.moisture_pct != null ? esc(l.moisture_pct) + ' %' : 'not entered'}). New decision: <b>${st === 'NONE' ? 'back to the moisture rule' : esc(st)}</b>. The group's composite must not exist yet. Recorded in the audit log.`, [],
+                async (v, why) => { await window.BiomassAPI.superOverride({ truck_id: t.truck_id, status: st, reason: why }); }, { saveLabel: 'Apply decision' });
+        }
+        if (act === 'replace-qr') {
+            return openSuperEdit('Replace the sample QR', `Truck <b>${esc(t.truck_reg_number)}</b>, current code <span style="font-family:monospace;">${esc(t.sample1_barcode_id)}</span>. A <b>new</b> QR code is issued for the same sample; the old code stops working; the moisture / fineness results and the mixing scan follow the new code. The new label is printed straight away.`, [],
+                async (v, why) => {
+                    const r = await window.BiomassAPI.superReplaceQr({ barcode: t.sample1_barcode_id, reason: why });
+                    alert(`New QR: ${r.sample1_barcode_id}\n(old code ${r.old_barcode} no longer works)`);
+                    window.printSampleLabel(r.sample1_barcode_id, r.entry_date);
+                }, { saveLabel: 'Issue new QR' });
+        }
+        if (act === 'bottom') {
+            const a = b.dataset.b, txt = { REQUEST: 'Request a bottom sample now (no password needed). The Entry login then generates the label.', CANCEL_REQUEST: 'Cancel the pending bottom-sample request.', UNDO: 'Undo the generated bottom sample: its QR becomes void and the original sample is part of its mixture again.' }[a];
+            return openSuperEdit('Bottom sample', `Truck <b>${esc(t.truck_reg_number)}</b>. ${txt}`, [], async (v, why) => { await window.BiomassAPI.superBottom({ truck_id: t.truck_id, action: a, reason: why }); }, { saveLabel: 'Do it' });
+        }
+        if (act === 'cancel') {
+            return openSuperEdit('Cancel the QR', `Truck <b>${esc(t.truck_reg_number)}</b> will be shown as "QR cancelled" with the reason below in every report; its sample is left out of the mixture and never blocks the composite.`, [], async (v, why) => { await window.BiomassAPI.superCancelQr({ truck_id: t.truck_id, reason: why }); }, { saveLabel: 'Cancel the QR' });
+        }
+        if (act === 'void') {
+            return openSuperEdit('Void this registration', `Truck <b>${esc(t.truck_reg_number)}</b> (${esc(t.company_name)}) was registered by mistake. It disappears from every list and report. Nothing is deleted - it can be restored here.`, [], async (v, why) => { await window.BiomassAPI.superVoidTruck({ truck_id: t.truck_id, reason: why }); }, { saveLabel: 'Void it' });
+        }
+        if (act === 'restore') {
+            return openSuperEdit('Restore this truck', `Truck <b>${esc(t.truck_reg_number)}</b> (${esc(t.cancel_status)}: ${esc(t.cancel_reason || '')}) becomes an ordinary truck again.`, [], async (v, why) => { await window.BiomassAPI.superRestoreTruck({ truck_id: t.truck_id, reason: why }); }, { saveLabel: 'Restore', danger: false });
+        }
+        if (act === 'comp-void') {
+            const c = (d.composites || []).find(x => x.composite_ref_id === b.dataset.ref);
+            return superVoidComposite({ composite_ref_id: b.dataset.ref, mixing_code: c ? c.daily_group_code : '', date: c ? c.date : '' });
+        }
+    }
+
+    // Tool 2: registration details. The vendor list shows every vendor of every lot; picking another vendor moves the truck to that vendor's mixing group.
+    async function superEditRegistration(d) {
+        const t = d.truck;
+        let comps;
+        try { comps = await sxLoadCompanies(); } catch (e) { alert(e.message); return; }
+        const cur = comps.findIndex(c => c.name === t.company_name && c.lot === t.lot);
+        openSuperEdit('Edit registration details', `Truck <b>${esc(t.truck_reg_number)}</b> &bull; mixing code <b>${esc(t.daily_group_code)}</b>.<br>Vehicle number, driver and invoice can be corrected freely - the mixing group stays. <b>Changing the vendor</b> (or the entry date) moves the truck to the mixing group of that vendor, and the container must be scanned again for the new group. Not possible while the old or the new group already has a composite.`, [
+            { id: 'truck_reg_number', label: 'Vehicle number', value: t.truck_reg_number, type: 'text' },
+            { id: 'driver_name', label: 'Driver name', value: t.driver_name, type: 'text' },
+            { id: 'invoice_no', label: 'Invoice / challan number', value: t.invoice_no || t.challan_no, type: 'text' },
+            { id: 'vendor', label: 'Vendor (changing it changes the mixing group)', value: cur, type: 'select', options: comps.map((c, i) => ({ v: i, l: `${c.name} (${c.lot})${c.po_number ? ' - PO ' + c.po_number : ''}` })) },
+            { id: 'entry_date', label: 'Entry date', value: t.entry_date, type: 'date' }
+        ], async (v, why) => {
+            const p = { truck_id: t.truck_id, reason: why };
+            if (v.truck_reg_number && v.truck_reg_number !== t.truck_reg_number) p.truck_reg_number = v.truck_reg_number;
+            if (v.driver_name && v.driver_name !== (t.driver_name || '')) p.driver_name = v.driver_name;
+            if (v.invoice_no && v.invoice_no !== (t.invoice_no || '')) p.invoice_no = v.invoice_no;
+            const c = comps[Number(v.vendor)];
+            if (c && (c.name !== t.company_name || c.lot !== t.lot)) { p.company_name = c.name; p.lot = c.lot; }
+            if (v.entry_date && v.entry_date !== t.entry_date) p.entry_date = v.entry_date;
+            if (Object.keys(p).length === 2) throw new Error('Nothing was changed.');
+            const res = await window.BiomassAPI.superEditTruck(p);
+            alert(res.regrouped ? `Saved. The truck moved to mixing code ${res.daily_group_code}. It must be scanned again in the Fineness login for that group.` : 'Saved and recorded. The mixing group is unchanged.');
+        });
+    }
+
+    function sxShowPhoto(src) {
+        if (!src) { alert('There is no picture.'); return; }
+        const o = document.createElement('div');
+        o.style.cssText = 'position:fixed; inset:0; z-index:99994; background:rgba(0,0,0,0.92); display:flex; align-items:center; justify-content:center; padding:1rem; cursor:zoom-out;';
+        o.innerHTML = `<img src="${esc(src)}" style="max-width:100%; max-height:100%; border-radius:8px;">`;
+        o.onclick = () => o.remove();
+        document.body.appendChild(o);
+    }
+
+    // ---------- Toolbox: what the 10 tools are for ----------
+    const SX_TOOLS = [
+        { n: 1, icon: '⚡', title: 'Force-create a composite',
+          use: 'The Fineness technician forgot to scan one container, or a scan was lost, and the whole group is stuck although the mixture is physically ready.',
+          how: ['Type the mixing code and pick the date below.', 'Press <b>Force-create…</b>, type a reason and confirm with your password.', 'The composite is made from all ACCEPTED trucks; the 3 labels can be printed at once.'],
+          note: 'Only the "every accepted container scanned" rule is skipped. Pending moisture results and rejected trucks are still respected.', kind: 'force' },
+        { n: 2, icon: '✏️', title: 'Edit registration details',
+          use: 'The gate operator typed the wrong vehicle number, driver name or invoice, or chose the wrong vendor.',
+          how: ['Find the truck (vehicle number, mixing code or QR).', 'In the truck window press <b>Edit registration details</b>.', 'Vehicle / driver / invoice: nothing else changes. <b>Vendor or date</b>: the truck moves to that vendor\'s mixing group (created if needed).'],
+          note: 'Not possible while the old or the new group already has a composite - void it first (tool 5).', kind: 'find' },
+        { n: 3, icon: '🗑', title: 'Void a wrong truck registration',
+          use: 'A truck was registered twice or by mistake and never came. It must disappear from every list and report but must not be deleted.',
+          how: ['Find the truck.', 'In the truck window press <b>Void this registration</b>.', 'It can be restored from the same window.'],
+          note: 'Different from "Cancel QR": a cancelled QR stays in the reports with its reason; a voided truck is hidden.', kind: 'find' },
+        { n: 4, icon: '🔁', title: 'Replace a lost or damaged QR',
+          use: 'The sticker was lost, soaked or torn, and the sample can no longer be scanned.',
+          how: ['Find the truck (or paste the old QR code).', 'Press <b>Replace lost / damaged QR</b>.', 'A new label prints; the old code stops working; moisture / fineness and scan follow the new code.'],
+          note: 'The old code is kept in the history shown in the truck window.', kind: 'find' },
+        { n: 5, icon: '🗑', title: 'Void a composite / move a truck',
+          use: 'A composite was made too early, with the wrong trucks, or a truck has to move to another group.',
+          how: ['Type the composite code (CMP-…) below and press <b>Void…</b>, or use <b>Void</b> on its card.', 'The record is archived (nothing is lost) and the group can be mixed again.', 'To move a truck: void the composite, then change the truck\'s vendor / date (tool 2).'],
+          note: 'Labels already printed for the voided composite stop working.', kind: 'void-comp' },
+        { n: 6, icon: '🧪', title: 'Bottom-sample controls without the password',
+          use: 'A bottom sample has to be requested, cancelled or undone but the unloading password is not at hand.',
+          how: ['Find the truck.', 'In the <b>Bottom sample</b> section press Request / Cancel the request / Undo.'],
+          note: 'Undo returns the original sample to its mixture (if the composite is not made yet).', kind: 'find' },
+        { n: 7, icon: '⚖️', title: 'Accept / reject override',
+          use: 'A documented exception: a truck just above the moisture limit is accepted by management, or a truck below the limit is rejected for another reason.',
+          how: ['Find the truck.', 'In <b>Accept / reject decision</b> press Force ACCEPT / Force REJECT.', 'Use "Back to the moisture rule" to remove the override.'],
+          note: 'Marked with an OVERRIDE badge everywhere and recorded with your reason.', kind: 'find' },
+        { n: 8, icon: '🔑', title: 'Reset / unlock / disable logins',
+          use: 'A worker is locked out by wrong passwords, a phone was lost, or someone left the company.',
+          how: ['Open the <b>Logins</b> tab.', 'Unlock a locked login, or Disable / Enable one.'],
+          note: 'The last active Admin and the Super Admin itself cannot be disabled. Passwords are changed in Supabase → Authentication.', kind: 'logins' },
+        { n: 9, icon: '🩺', title: 'Data-health check',
+          use: 'A routine look every morning: groups waiting for results, trucks that never left, composites without results, broken links.',
+          how: ['Open the <b>Data health</b> tab and press Run the check.', 'Each finding explains itself; <b>Open</b> jumps to the records, <b>Fix</b> repairs harmless leftovers.'],
+          note: 'Nothing changes unless you press Fix.', kind: 'health' },
+        { n: 10, icon: '🛡️', title: 'Protection of this console',
+          use: 'The Super Admin can change almost anything, so the console protects itself.',
+          how: ['<b>Idle sign-out</b>: after 10 minutes without activity you are signed out.', '<b>Password re-check</b>: the first change (and then every 5 minutes) asks for your password again.', '<b>Alerts</b>: the Admin sees a red badge on the Activity Log until the Super Admin changes are acknowledged.', '<b>Export</b>: the full audit log can be downloaded as Excel.'],
+          note: 'Every line carries the IP address and device from which it was done.', kind: 'protect' }
+    ];
+    function renderSuperTools() {
+        const box = sx$('sx-tools-grid');
+        if (box.dataset.done) return;
+        box.dataset.done = '1';
+        const today = window.BiomassAPI.todayIST();
+        box.innerHTML = SX_TOOLS.map(t => {
+            let act = '';
+            if (t.kind === 'force') act = `<input id="sxt-force-code" placeholder="Mixing code" maxlength="12" style="text-transform:uppercase; max-width:130px;"><input type="date" id="sxt-force-date" value="${today}" style="max-width:160px;"><button class="btn btn-primary btn-sm" data-tool="force">⚡ Force-create…</button>`;
+            else if (t.kind === 'find') act = `<input id="sxt-find-${t.n}" placeholder="Vehicle no., QR or mixing code"><button class="btn btn-primary btn-sm" data-tool="find" data-n="${t.n}">🔍 Find the truck</button>`;
+            else if (t.kind === 'void-comp') act = `<input id="sxt-void-code" placeholder="Composite code, e.g. CMP-20261021-001"><button class="btn btn-primary btn-sm" data-tool="void-comp">🗑 Void…</button>`;
+            else if (t.kind === 'logins') act = `<button class="btn btn-primary btn-sm" data-tool="goto" data-tab="super-logins">👥 Open Logins</button>`;
+            else if (t.kind === 'health') act = `<button class="btn btn-primary btn-sm" data-tool="goto" data-tab="super-health">🩺 Open Data health</button>`;
+            else act = `<button class="btn btn-secondary btn-sm" data-tool="goto" data-tab="admin-activity">📜 Open the Audit log</button><button class="btn btn-secondary btn-sm" data-tool="export">⬇ Export audit log (Excel)</button>`;
+            return `<div class="sx-tool"><span class="sx-tool-n">${t.n}</span><h4>${t.icon} ${t.title}</h4>
+                <div class="lbl">Useful when</div><p>${t.use}</p>
+                <div class="lbl">How to use</div><ol>${t.how.map(h => `<li>${h}</li>`).join('')}</ol>
+                <p style="font-size:0.76rem; color:#94a3b8;">${t.note}</p>
+                <div class="sx-tool-act">${act}</div></div>`;
+        }).join('');
+        box.onclick = async (e) => {
+            const b = e.target.closest('button[data-tool]'); if (!b) return;
+            const k = b.dataset.tool;
+            if (k === 'goto') { sxGoTab(b.dataset.tab); return; }
+            if (k === 'export') { exportAuditLog(false); return; }
+            if (k === 'force') {
+                const code = sx$('sxt-force-code').value.trim().toUpperCase(), date = sx$('sxt-force-date').value;
+                if (!code || !date) { alert('Type the mixing code and pick the date.'); return; }
+                superForceComposite(code, date); return;
+            }
+            if (k === 'void-comp') {
+                const code = sx$('sxt-void-code').value.trim();
+                if (!code) { alert('Type the composite code.'); return; }
+                try {
+                    const res = await window.BiomassAPI.superFind(code, null, null);
+                    const c = (res.composites || [])[0];
+                    if (!c) { alert('No composite found for "' + code + '".'); return; }
+                    superVoidComposite(c);
+                } catch (err) { alert(err.message); }
+                return;
+            }
+            if (k === 'find') {
+                const q = sx$('sxt-find-' + b.dataset.n).value.trim();
+                if (!q) { alert('Type the vehicle number, QR code or mixing code.'); return; }
+                sxQuickFind(q);
+            }
+        };
+    }
+    function sxGoTab(tab) {
+        const btn = document.querySelector(`#screen-admin .tab-btn[data-tab="${tab}"]`);
+        if (btn) btn.click();
+    }
+    // open one truck directly when the search finds exactly one; otherwise show the matches in the Inspector
+    async function sxQuickFind(q) {
+        try {
+            const res = await window.BiomassAPI.superFind(q, null, null);
+            const trucks = (res.samples || []).filter(r => !r.cancel_status || r.cancel_status);
+            const ids = [...new Set(trucks.map(r => r.truck_id))];
+            if (ids.length === 1) { sxGoTab('super-inspector'); sx$('super-q').value = q; openTruckDetail(ids[0]); superSearch(); return; }
+            sxGoTab('super-inspector');
+            sx$('super-q').value = q;
+            superSearch();
+            if (!ids.length) alert('Nothing found for "' + q + '".');
+        } catch (err) { alert(err.message); }
+    }
+
+    // ---------- Data health ----------
+    async function renderSuperHealth() {
+        const box = sx$('sx-health-body');
+        box.innerHTML = '<div class="sx-loading">Checking...</div>';
+        try {
+            const res = await window.BiomassAPI.superHealth();
+            const issues = res.issues || [];
+            if (!issues.length) { box.innerHTML = `<div class="sx-ok-banner">✅ Nothing to worry about. Checked ${esc(res.checked_at || '')}.</div>`; return; }
+            box.innerHTML = `<div class="sx-note" style="margin-bottom:0.6rem;">${issues.length} finding(s) &middot; checked ${esc(res.checked_at || '')}</div>` + issues.map((is, k) => `
+                <div class="sx-issue ${is.severity === 'INFO' ? 'info' : ''}">
+                    <div style="display:flex; justify-content:space-between; gap:0.6rem; flex-wrap:wrap;"><h4>${is.severity === 'INFO' ? 'ℹ️' : '⚠️'} ${esc(is.title)} <span class="sx-pill sx-pen">${(is.items || []).length}</span></h4>
+                        ${is.fix ? `<button class="btn btn-primary btn-sm" data-fix="${esc(is.fix)}" data-k="${k}">🛠 Fix</button>` : ''}</div>
+                    <div class="sx-note" style="margin:0 0 0.4rem;">${esc(is.help || '')}</div>
+                    ${(is.items || []).slice(0, 40).map(it => `<div class="sx-item"><span>${it.date ? esc(dmy(it.date)) + ' &middot; ' : ''}${it.code ? `<span class="sx-code">${esc(it.code)}</span> ` : ''}${esc(it.detail)}</span>
+                        <button class="btn btn-secondary btn-sm" data-open="${esc(it.code || String(it.detail).split(' ')[0])}" data-date="${esc(it.date || '')}">🔍 Open</button></div>`).join('')}
+                    ${(is.items || []).length > 40 ? `<div class="sx-note">… and ${(is.items || []).length - 40} more</div>` : ''}
+                </div>`).join('');
+            box.onclick = (e) => {
+                const o = e.target.closest('button[data-open]');
+                if (o) { sxGoTab('super-inspector'); sx$('super-q').value = o.dataset.open; sx$('super-from').value = o.dataset.date; sx$('super-to').value = o.dataset.date; superSearch(); return; }
+                const f = e.target.closest('button[data-fix]');
+                if (f) openSuperEdit('Fix: ' + f.dataset.fix, 'Repairs the harmless leftovers listed in this finding. Recorded in the audit log.', [], async (v, why) => {
+                    const r = await window.BiomassAPI.superHealthFix({ fix: f.dataset.fix, reason: why });
+                    alert(`${r.fixed} record(s) fixed.`);
+                }, { saveLabel: 'Fix it', after: renderSuperHealth });
+            };
+        } catch (e) {
+            box.innerHTML = `<div style="color:#ef4444;">${esc(e.message)}</div>`;
+        }
+    }
+
+    // ---------- Logins ----------
+    async function renderSuperLogins() {
+        const body = sx$('sx-logins-body');
+        body.innerHTML = '<tr><td colspan="5" class="sx-loading">Loading...</td></tr>';
+        try {
+            const res = await window.BiomassAPI.superLogins();
+            const L = res.logins || [];
+            body.innerHTML = L.map((u, i) => `<tr><td><b>${esc(u.username)}</b></td><td>${esc(u.name || '')}</td><td>${esc(u.role)}</td>
+                <td>${u.active ? '<span class="sx-pill sx-ok">ACTIVE</span>' : '<span class="sx-pill sx-rej">DISABLED</span>'} ${u.locked ? '<span class="sx-pill sx-pen">🔒 LOCKED (wrong passwords)</span>' : ''}</td>
+                <td>${u.locked ? `<button class="btn btn-secondary btn-sm" data-a="UNLOCK" data-i="${i}">🔓 Unlock</button>` : ''}
+                    ${u.role === 'superadmin' ? '' : (u.active ? `<button class="btn btn-secondary btn-sm sx-danger" data-a="DISABLE" data-i="${i}">⛔ Disable</button>` : `<button class="btn btn-secondary btn-sm" data-a="ENABLE" data-i="${i}">✅ Enable</button>`)}</td></tr>`).join('');
+            body.onclick = (e) => {
+                const b = e.target.closest('button[data-a]'); if (!b) return;
+                const u = L[Number(b.dataset.i)], a = b.dataset.a;
+                openSuperEdit({ UNLOCK: 'Unlock login', DISABLE: 'Disable login', ENABLE: 'Enable login' }[a] + ': ' + u.username,
+                    { UNLOCK: 'Clears the wrong-password lock so this login can use its password-protected actions again.', DISABLE: 'This login can no longer use any function of the app until it is enabled again.', ENABLE: 'This login can use the app again.' }[a],
+                    [], async (v, why) => { await window.BiomassAPI.superSetLogin({ username: u.username, action: a, reason: why }); }, { saveLabel: 'Confirm', after: renderSuperLogins });
+            };
+        } catch (e) {
+            body.innerHTML = `<tr><td colspan="5" style="color:#ef4444;">${esc(e.message)}</td></tr>`;
+        }
+    }
+
+    // ---------- Audit log export (Admin and Super Admin) ----------
+    function isExceptionLog(log) {
+        const a = String(log.action || ''), d = String(log.details || '').toLowerCase();
+        return a.toLowerCase().includes('exception') || a.toLowerCase().includes('reissue') || a.toLowerCase().includes('lockout') ||
+            a.startsWith('SUPERADMIN') || a === 'BOTTOM_PASSWORD_WRONG' || a === 'QR_CANCELLED' || d.includes('fail') || d.includes('expired') || d.includes('tampered');
+    }
+    async function exportAuditLog(onlyExceptions) {
+        try {
+            let logs = await window.BiomassAPI.getActivityLogs();
+            if (onlyExceptions) logs = logs.filter(isExceptionLog);
+            const wb = new ExcelJS.Workbook();
+            const sheet = wb.addWorksheet(onlyExceptions ? 'Exceptions' : 'Audit log');
+            sheet.columns = [{ header: 'Timestamp', width: 22 }, { header: 'User', width: 16 }, { header: 'Action', width: 26 }, { header: 'Details', width: 110 }, { header: 'IP address', width: 18 }, { header: 'Device', width: 60 }];
+            sheet.getRow(1).font = { bold: true };
+            logs.forEach(l => sheet.addRow([l.timestamp, l.username, l.action, l.details, l.ip || '', l.device || '']));
+            const buffer = await wb.xlsx.writeBuffer();
+            const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+            const a = document.createElement('a');
+            a.href = url; a.download = `${onlyExceptions ? 'Exceptions' : 'Audit_log'}_${window.BiomassAPI.todayIST().replace(/-/g, '')}.xlsx`;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        } catch (e) { alert('Export failed: ' + e.message); }
+    }
+    function initAuditButtons() {
+        const a = sx$('btn-audit-export'), b = sx$('btn-audit-export-exc');
+        if (a) a.onclick = () => exportAuditLog(false);
+        if (b) b.onclick = () => exportAuditLog(true);
+    }
+    // Admin: red badge on the Activity Log tab + banner while Super Admin changes are not acknowledged
+    async function refreshSuperAlert() {
+        const user = window.BiomassAPI.getCurrentUser();
+        if (!user || user.role !== 'admin' || user.is_super) return;
+        try {
+            const r = await window.BiomassAPI.getSuperAlerts();
+            const n = Number(r.unacknowledged) || 0;
+            const badge = sx$('activity-tab-badge'), bar = sx$('super-alert-bar');
+            if (badge) { badge.textContent = String(n); badge.style.display = n ? 'inline-block' : 'none'; }
+            if (bar) {
+                bar.style.display = n ? 'flex' : 'none';
+                sx$('super-alert-text').textContent = `⚠️ ${n} change(s) were made by the Super Admin and have not been acknowledged. Review them in the exceptions list below.`;
+                const ack = sx$('btn-super-ack');
+                ack.style.display = r.is_real_admin ? '' : 'none';
+                ack.onclick = async () => { ack.disabled = true; try { await window.BiomassAPI.ackSuperAlerts(); } catch (e) { alert(e.message); } ack.disabled = false; refreshSuperAlert(); };
+            }
+        } catch (e) { /* the next poll retries */ }
     }
 
     // ================= BOTTOM SAMPLES (Entry / Admin) =================
@@ -6412,6 +7204,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function initAdminInspectorTab() {
+        initFeatureTabs('insp-tabs');
         initMixSearch();
         document.getElementById('inspector-result-card').style.display = 'none';
         document.getElementById('inspector-manual-input').value = '';
@@ -6769,11 +7562,12 @@ document.addEventListener('DOMContentLoaded', function() {
         rows.forEach(r => {
             const acceptanceLabel = r.acceptance_status === 'REJECTED'
                 ? `<span style="color:red; font-weight:bold;">⛔ REJECTED (${r.rejection_reason || 'Moisture >14%'})</span>`
+                : r.acceptance_status === 'CANCELLED' ? `<span style="color:#444; font-weight:bold;">🚫 QR CANCELLED (${esc(r.cancel_reason || '')})</span>`
                 : r.acceptance_status === 'ACCEPTED' ? '<span style="color:green; font-weight:bold;">✅ ACCEPTED</span>' : 'Pending';
-            const gcvPrint = r.acceptance_status === 'REJECTED' ? 'N/A (REJECTED)' : (num(r.gcv_value) !== null ? num(r.gcv_value) : 'Pending');
-            const ashPrint = r.acceptance_status === 'REJECTED' ? 'N/A (REJECTED)' : (num(r.ash_pct) !== null ? num(r.ash_pct) + '%' : 'Pending');
-            const vendorGcvPrint = r.acceptance_status === 'REJECTED' ? 'N/A (REJECTED)' : formatVendorGcvDisplay(r);
-            const refereeGcvPrint = r.acceptance_status === 'REJECTED' ? 'N/A (REJECTED)' : formatRefereeGcvDisplay(r);
+            const gcvPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : (num(r.gcv_value) !== null ? num(r.gcv_value) : 'Pending');
+            const ashPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : (num(r.ash_pct) !== null ? num(r.ash_pct) + '%' : 'Pending');
+            const vendorGcvPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : formatVendorGcvDisplay(r);
+            const refereeGcvPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : formatRefereeGcvDisplay(r);
 
             rowHtml += `
                 <tr>
@@ -6952,7 +7746,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 const status = t.acceptance_status || (moisture !== null ? (moisture < 14.0 ? 'ACCEPTED' : 'REJECTED') : 'PENDING');
                 
                 let stage = 'Gate Registered';
-                if (status === 'REJECTED') stage = 'Rejected (Moisture Breach)';
+                if (status === 'CANCELLED') stage = 'QR cancelled: ' + (t.cancel_reason || '');
+                else if (status === 'REJECTED') stage = 'Rejected (Moisture Breach)';
                 else if (c2.gcv_value) stage = 'Completed & Audited';
                 else if (t.gross_weight && t.tare_weight) stage = 'Unloaded & Weighted';
                 else if (moisture !== null) stage = 'Lab Moisture Tested';
@@ -7220,7 +8015,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const dateStr = r.date_obj ? r.date_obj.toISOString().substring(0, 10) : (r.date || '-');
             const statusBadge = r.acceptance_status === 'ACCEPTED' ? 
                 '<span class="badge badge-complete">ACCEPTED</span>' : 
-                (r.acceptance_status === 'REJECTED' ? '<span class="badge badge-rejected">REJECTED</span>' : '<span class="badge badge-pending">PENDING</span>');
+                (r.acceptance_status === 'REJECTED' ? '<span class="badge badge-rejected">REJECTED</span>'
+                    : r.acceptance_status === 'CANCELLED' ? `<span class="status-cancelled" title="${esc(r.cancel_reason || '')}">🚫 QR CANCELLED</span><br><small>${esc(r.cancel_reason || '')}</small>`
+                    : '<span class="badge badge-pending">PENDING</span>');
 
             return `
                 <tr>
@@ -7339,7 +8136,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Data rows
         let r = headerRowIdx + 1;
         rows.forEach(rec => {
-            const isRejected = rec.acceptance_status === 'REJECTED';
+            const isRejected = rec.acceptance_status === 'REJECTED' || rec.acceptance_status === 'CANCELLED';
             const dateStr = rec.date_obj ? window.BiomassAPI.formatLocalYYYYMMDD(rec.date_obj) : (rec.entry_date || '-');
             const rowVals = [
                 dateStr,
@@ -7353,20 +8150,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 Number(rec.tare_weight) || 0,
                 Number(rec.net_weight_mt || 0).toFixed(3),
                 rec.moisture_pct !== null ? rec.moisture_pct : 'Pending',
-                isRejected ? 'N/A (REJECTED)' : (rec.tm !== null && rec.tm !== undefined ? Number(rec.tm.toFixed(2)) : 'Pending'),
+                isRejected ? ('N/A (' + rec.acceptance_status + ')') : (rec.tm !== null && rec.tm !== undefined ? Number(rec.tm.toFixed(2)) : 'Pending'),
                 rec.fineness_value !== null ? rec.fineness_value : 'Pending',
-                isRejected ? 'N/A (REJECTED)' : (rec.ad_moisture !== null && rec.ad_moisture !== undefined ? rec.ad_moisture : '-'),
-                isRejected ? 'N/A (REJECTED)' : (rec.ad_gcv !== null && rec.ad_gcv !== undefined ? rec.ad_gcv : '-'),
-                isRejected ? 'N/A (REJECTED)' : (rec.ad_ash !== null && rec.ad_ash !== undefined ? rec.ad_ash : '-'),
+                isRejected ? ('N/A (' + rec.acceptance_status + ')') : (rec.ad_moisture !== null && rec.ad_moisture !== undefined ? rec.ad_moisture : '-'),
+                isRejected ? ('N/A (' + rec.acceptance_status + ')') : (rec.ad_gcv !== null && rec.ad_gcv !== undefined ? rec.ad_gcv : '-'),
+                isRejected ? ('N/A (' + rec.acceptance_status + ')') : (rec.ad_ash !== null && rec.ad_ash !== undefined ? rec.ad_ash : '-'),
                 rec.lot === 'LOT4' ? (rec.ad_sulphur !== null && rec.ad_sulphur !== undefined ? rec.ad_sulphur : 'Pending') : '-',
                 rec.lot === 'LOT4' ? (rec.ad_vm !== null && rec.ad_vm !== undefined ? rec.ad_vm : 'Pending') : '-',
-                isRejected ? 'N/A (REJECTED)' : (rec.x_factor !== null && rec.x_factor !== undefined ? Number(rec.x_factor.toFixed(6)) : '-'),
-                isRejected ? 'N/A (REJECTED)' : (rec.gcv_value !== null ? rec.gcv_value : 'Pending'),
-                isRejected ? 'N/A (REJECTED)' : (rec.ash_pct !== null ? rec.ash_pct : 'Pending'),
+                isRejected ? ('N/A (' + rec.acceptance_status + ')') : (rec.x_factor !== null && rec.x_factor !== undefined ? Number(rec.x_factor.toFixed(6)) : '-'),
+                isRejected ? ('N/A (' + rec.acceptance_status + ')') : (rec.gcv_value !== null ? rec.gcv_value : 'Pending'),
+                isRejected ? ('N/A (' + rec.acceptance_status + ')') : (rec.ash_pct !== null ? rec.ash_pct : 'Pending'),
                 rec.lot === 'LOT4' ? (rec.arb_sulphur !== null && rec.arb_sulphur !== undefined ? rec.arb_sulphur : 'Pending') : '-',
                 rec.lot === 'LOT4' ? (rec.arb_vm !== null && rec.arb_vm !== undefined ? rec.arb_vm : 'Pending') : '-',
-                isRejected ? 'N/A (REJECTED)' : formatVendorGcvDisplay(rec),
-                isRejected ? 'N/A (REJECTED)' : formatRefereeGcvDisplay(rec),
+                isRejected ? ('N/A (' + rec.acceptance_status + ')') : formatVendorGcvDisplay(rec),
+                isRejected ? ('N/A (' + rec.acceptance_status + ')') : formatRefereeGcvDisplay(rec),
                 rec.acceptance_status || 'PENDING',
                 rec.pipeline_stage || '-'
             ];

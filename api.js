@@ -344,7 +344,40 @@
         async setBottomPassword(password) { return rpc('bm_admin_set_bottom_password', { password: password }); },
         async getBottomStatus() { return rpc('bm_admin_bottom_status', {}); },
         async searchMixingCode(code) { return rpc('bm_admin_mixing_search', { code: String(code || '').trim() }); },
+        // --- Unloading: cancel the QR of a truck (password + reason) / Lab 2: open a composite by mixing code + date ---
+        async cancelQr(truckId, reasonCode, note, password) { return rpc('bm_unloading_cancel_qr', { truck_id: truckId, reason_code: reasonCode, note: note || '', password: password }); },
+        async getCompositeByCode(code, date) { return rpc('bm_lab2_composite_by_code', { code: String(code || '').trim(), date: date || null }); },
+        async getSuperAlerts() { return rpc('bm_admin_super_alerts', {}); },
+        async ackSuperAlerts() { return rpc('bm_admin_super_ack', {}); },
         // --- SUPER ADMIN (the server refuses everybody else) ---
+        async superDetail(v) { return rpc('bm_super_truck_detail', v); },
+        async superEditTruck(v) { return rpc('bm_super_edit_truck', v); },
+        async superForceComposite(v) { return rpc('bm_super_force_composite', v); },
+        async superReplaceQr(v) { return rpc('bm_super_replace_qr', v); },
+        async superVoidComposite(v) { return rpc('bm_super_void_composite', v); },
+        async superVoidTruck(v) { return rpc('bm_super_void_truck', v); },
+        async superRestoreTruck(v) { return rpc('bm_super_restore_truck', v); },
+        async superCancelQr(v) { return rpc('bm_super_cancel_qr', v); },
+        async superBottom(v) { return rpc('bm_super_bottom', v); },
+        async superOverride(v) { return rpc('bm_super_set_override', v); },
+        async superLogins() { return rpc('bm_super_logins', {}); },
+        async superSetLogin(v) { return rpc('bm_super_set_login', v); },
+        async superHealth() { return rpc('bm_super_health', {}); },
+        async superHealthFix(v) { return rpc('bm_super_health_fix', v); },
+        async mixingSearch(code) { return rpc('bm_admin_mixing_search', { code: String(code || '').trim() }); },
+        /** Re-check the signed-in person's password (Super Admin edit session) without changing the current session. */
+        async verifyPassword(password) {
+            const u = this.getCurrentUser();
+            if (!u) return false;
+            try {
+                const r = await _nativeFetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+                    method: 'POST', headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: `${u.username}@${LOGIN_EMAIL_DOMAIN}`, password: String(password) })
+                });
+                return r.ok;
+            } catch (e) { return false; }
+        },
+        // --- SUPER ADMIN (older) ---
         async superFind(q, from, to) { return rpc('bm_super_find', { q: String(q || '').trim(), from: from || null, to: to || null }); },
         async superFeedLab1(v) { return rpc('bm_super_feed_lab1', v); },
         async superFeedComposite(v) { return rpc('bm_super_feed_composite', v); },
@@ -393,14 +426,15 @@
                 const acceptance = truck.acceptance_status || self.evaluateAcceptance(moistureVal);
                 const hasGcv = composite && composite.gcv_value !== null && composite.gcv_value !== undefined;
                 const hasAsh = composite && composite.ash_pct !== null && composite.ash_pct !== undefined;
-                const rejectionReason = acceptance === 'REJECTED'
+                const rejectionReason = acceptance === 'CANCELLED' ? ('QR cancelled: ' + (truck.cancel_reason || ''))
+                    : acceptance === 'REJECTED'
                     ? (moistureVal !== null ? `Moisture ${moistureVal}% ≥ ${MOISTURE_REJECT_LIMIT.toFixed(1)}% limit` : 'REJECTED')
                     : acceptance === 'ACCEPTED' ? (truck.lot === 'LOT4' ? 'Accepted (Lot-4: no moisture rejection)' : `Passed (Moisture < ${MOISTURE_REJECT_LIMIT.toFixed(1)}%)`) : 'Pending Moisture Test';
                 const chVal = truck.invoice_no || truck.challan_no || '';
                 return {
                     truck_id: truck.truck_id, truck_reg_number: truck.truck_reg_number,
                     invoice_no: chVal, challan_no: chVal,
-                    acceptance_status: acceptance, rejection_reason: rejectionReason,
+                    acceptance_status: acceptance, rejection_reason: rejectionReason, cancel_reason: truck.cancel_reason || null,
                     mixing_group_code: truck.daily_group_code || '',
                     driver_name: truck.driver_name, entry_time: truck.entry_time,
                     has_photo: !!truck.has_photo,
@@ -422,8 +456,9 @@
                 };
             });
 
-            let totalNetWeight = 0, sumMoisture = 0, sumFineness = 0, moistureCount = 0, finenessCount = 0, acceptedCount = 0, rejectedCount = 0;
+            let totalNetWeight = 0, sumMoisture = 0, sumFineness = 0, moistureCount = 0, finenessCount = 0, acceptedCount = 0, rejectedCount = 0, cancelledCount = 0;
             reportRows.forEach(r => {
+                if (r.acceptance_status === 'CANCELLED') cancelledCount++;
                 if (r.acceptance_status === 'ACCEPTED') acceptedCount++;
                 if (r.acceptance_status === 'REJECTED') rejectedCount++;
                 totalNetWeight += r.net_weight;
@@ -447,7 +482,7 @@
             return {
                 company_name: companyName, date, rows: reportRows,
                 summary: {
-                    truck_count: reportRows.length, accepted_count: acceptedCount, rejected_count: rejectedCount,
+                    truck_count: reportRows.length, accepted_count: acceptedCount, rejected_count: rejectedCount, cancelled_count: cancelledCount,
                     total_net_weight: totalNetWeight,
                     avg_moisture: moistureCount > 0 ? Number((sumMoisture / moistureCount).toFixed(2)) : null,
                     tm: tmList.length ? Number((tmList.reduce((a, b) => a + b, 0) / tmList.length).toFixed(2)) : null,
@@ -484,18 +519,18 @@
                 const net = (g > 0 && tr > 0 && g > tr) ? (g - tr) : (Number(t.net_weight) || 0);
                 totalGrossWeight += g;
                 if (isUnloaded) { unloadedCount++; totalNetWeight += net; }
-                if (status === 'ACCEPTED') approvedCount++; else if (status === 'REJECTED') rejectedCount++; else pendingCount++;
+                if (status === 'ACCEPTED') approvedCount++; else if (status === 'REJECTED' || status === 'CANCELLED') rejectedCount++; else pendingCount++;
                 const cName = t.company_name || 'Unknown';
                 const cb = companyBreakdown[cName] || (companyBreakdown[cName] = {
                     company_name: cName, total_trucks: 0, unloaded_trucks: 0, gross_weight: 0, net_weight: 0,
                     approved_count: 0, rejected_count: 0, pending_count: 0 });
                 cb.total_trucks++; cb.gross_weight += g;
                 if (isUnloaded) { cb.unloaded_trucks++; cb.net_weight += net; }
-                if (status === 'ACCEPTED') cb.approved_count++; else if (status === 'REJECTED') cb.rejected_count++; else cb.pending_count++;
+                if (status === 'ACCEPTED') cb.approved_count++; else if (status === 'REJECTED' || status === 'CANCELLED') cb.rejected_count++; else cb.pending_count++;
                 return {
                     truck_id: t.truck_id, entry_date: t.entry_date, entry_time: t.entry_time, company_name: t.company_name,
                     truck_reg_number: t.truck_reg_number, invoice_no: t.invoice_no || t.challan_no || '', driver_name: t.driver_name,
-                    gross_weight: g, tare_weight: tr, net_weight: net, is_unloaded: isUnloaded, acceptance_status: status
+                    gross_weight: g, tare_weight: tr, net_weight: net, is_unloaded: isUnloaded, acceptance_status: status, cancel_reason: t.cancel_reason || null
                 };
             });
             return {

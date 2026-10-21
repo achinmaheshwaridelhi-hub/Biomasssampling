@@ -1737,3 +1737,11 @@ header { padding-top: calc(0.75rem + env(safe-area-inset-top)); }
 button.sx-tile { text-align: left; color: inherit; font: inherit; cursor: pointer; }
 button.sx-tile:hover { border-color: rgba(239,68,68,0.7); transform: translateY(-1px); }
 button.sx-tile.active { border-color: #ef4444; background: rgba(239,68,68,0.16); box-shadow: 0 0 0 1px #ef4444 inset; }
+
+/* Admin > Vendors */
+.vd-toolbar { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+.vd-lot { font-weight: 800; font-size: 0.75rem; padding: 2px 9px; border-radius: 20px; }
+.vd-lot.l23 { background: rgba(59,130,246,0.2); color: #93c5fd; } .vd-lot.l4 { background: rgba(168,85,247,0.22); color: #d8b4fe; }
+.vd-field { display: block; font-size: 0.8rem; margin: 0.55rem 0 0.15rem; }
+.vd-dlg-input { width: 100%; padding: 0.55rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: #fff; border-radius: 8px; }
+tr.vd-retired td { opacity: 0.6; }

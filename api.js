@@ -275,6 +275,9 @@
             return (rows || []).map(r => r.name);
         },
         async getCompaniesDetailed() { return (await rpc('bm_list_companies', {})) || []; },
+        // Admin: vendor management (all vendors incl. retired, with truck counts) and the one function that applies any number of changes
+        async adminVendors() { return (await rpc('bm_admin_vendors', {})) || []; },
+        async vendorApply(rows, dryRun) { return rpc('bm_admin_vendor_apply', { rows, dry_run: dryRun ? 'true' : 'false' }); },
 
         // --- GATE ENTRY --------------------------------------------------------
         async registerTruck(truckData) {
@@ -361,6 +364,11 @@
         async superBottom(v) { return rpc('bm_super_bottom', v); },
         async superOverride(v) { return rpc('bm_super_set_override', v); },
         async superLogins() { return rpc('bm_super_logins', {}); },
+        async superLogs() { return rpc('bm_super_logs', {}); },
+        async superConvertLot(v) { return rpc('bm_super_convert_lot', v); },
+        async superMergeGroup(v) { return rpc('bm_super_merge_group', v); },
+        /** every vendor entry incl. retired ones (Admin / Super Admin) */
+        async getCompaniesAll() { return (await rpc('bm_list_companies', { include_retired: 'true' })) || []; },
         async superSetLogin(v) { return rpc('bm_super_set_login', v); },
         async superHealth() { return rpc('bm_super_health', {}); },
         async superHealthFix(v) { return rpc('bm_super_health_fix', v); },

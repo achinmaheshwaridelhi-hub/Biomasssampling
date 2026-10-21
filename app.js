@@ -1929,6 +1929,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 initAdminInspectorTab();
             } else if (targetContentId === 'tab-admin-referee') {
                 loadRefereeChallengeTable();
+            } else if (targetContentId === 'tab-admin-vendors') {
+                initVendorsTab();
             } else if (targetContentId === 'tab-super-inspector') {
                 initSuperConsole();
             } else if (targetContentId === 'tab-super-tools') {
@@ -3825,7 +3827,29 @@ document.addEventListener('DOMContentLoaded', function() {
         btnPdfComm.onclick = () => printCommReport(btnPdfComm);
     }
 
+    // Super Admin: only its own changes + the submitted lab results with their values
+    async function renderSuperAuditTab() {
+        const chg = document.getElementById('sx-audit-changes'), subs = document.getElementById('sx-audit-subs');
+        document.querySelectorAll('#tab-admin-activity .admin-only-log').forEach(el => el.style.display = 'none');
+        document.getElementById('sx-audit-panel').style.display = 'flex';
+        chg.innerHTML = subs.innerHTML = '<tr><td colspan="5" style="text-align:center;">Loading...</td></tr>';
+        try {
+            const r = await window.BiomassAPI.superLogs();
+            superAuditData = r;
+            chg.innerHTML = (r.changes || []).map(l => `<tr><td style="font-family:monospace; font-size:0.82rem; color:#ef4444; white-space:nowrap;">${esc(l.timestamp)}</td><td>${esc(l.username)}</td><td><strong style="color:#ef4444;">${esc(l.action.replace('SUPERADMIN_', ''))}</strong></td>` +
+                `<td style="font-size:0.85rem;">${esc(l.details)}</td><td style="font-family:monospace; font-size:0.8rem;">${esc(l.ip || '-')}${l.device ? `<br><span style="font-family:inherit; color:#94a3b8; font-size:0.7rem;">${esc(String(l.device).slice(0, 90))}</span>` : ''}</td></tr>`).join('')
+                || '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No changes made yet.</td></tr>';
+            subs.innerHTML = (r.submissions || []).map(l => `<tr><td style="font-family:monospace; font-size:0.82rem; white-space:nowrap;">${esc(l.timestamp)}</td><td>${esc(l.username)}</td><td style="font-size:0.9rem;"><strong>${esc(l.summary)}</strong></td></tr>`).join('')
+                || '<tr><td colspan="3" style="text-align:center; color:var(--text-muted);">No results submitted yet.</td></tr>';
+        } catch (e) {
+            chg.innerHTML = subs.innerHTML = `<tr><td colspan="5" style="color:var(--danger);">${esc(e.message)}</td></tr>`;
+        }
+    }
+    let superAuditData = null;
+
     async function renderActivityLogTab() {
+        const cu = window.BiomassAPI.getCurrentUser();
+        if (cu && cu.is_super) return renderSuperAuditTab();
         const activityBody = document.getElementById('activity-log-body');
         const exceptionsBody = document.getElementById('exceptions-log-body');
         
@@ -5756,15 +5780,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
-            history.slice().reverse().forEach((row, idx) => {
+            // the server sends them newest first (by submission time); Sample #1 is the first one submitted today
+            history.forEach((row, idx) => {
                 const tr = document.createElement('tr');
                 const moistureCell = showMoisture ? `<td>${row.moisture_pct}%</td>` : '';
                 const finenessCell = showFineness ? `<td>${row.fineness_value}%</td>` : '';
+                const when = String(row.submitted_at || row.tested_at || '');
                 tr.innerHTML = `
                     <td><strong style="font-family: monospace;">Sample #${history.length - idx}</strong></td>
                     ${moistureCell}
                     ${finenessCell}
-                    <td>${row.tested_at.split(' ')[1] || row.tested_at}</td>
+                    <td>${esc(when.split(' ')[1] || when)}</td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -6225,7 +6251,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
-            history.slice().reverse().forEach((row, idx) => {
+            history.forEach((row, idx) => {
                 const tr = document.createElement('tr');
                 const dash = v => (v === null || v === undefined) ? '-' : v;
                 tr.innerHTML = `
@@ -6245,12 +6271,187 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ================= BARCODE INSPECTOR TAB (ADMIN) =================
+    // ================= ADMIN: VENDORS (Lot 2/3 and Lot 4) =================
+    const vdState = { rows: [], lot: 'ALL', status: 'active', q: '' };
+    const vdLotCls = (l) => l === 'LOT4' ? 'l4' : 'l23';
+    const vdNormLot = (t) => { const x = String(t || '').toUpperCase().replace(/[^A-Z0-9/]/g, ''); return x === 'LOT4' || x === '4' ? 'LOT4' : (['LOT2/3', 'LOT23', 'LOT3', 'LOT2', '2/3', '3', '2'].includes(x) ? 'LOT2/3' : x); };
+
+    function vdDialog(o) {
+        const m = document.getElementById('vd-modal'), ok = document.getElementById('vd-ok'), cancel = document.getElementById('vd-cancel'), msg = document.getElementById('vd-msg');
+        document.getElementById('vd-title').innerHTML = o.title;
+        document.getElementById('vd-dlg-body').innerHTML = o.html || '';
+        msg.textContent = ''; msg.style.color = '';
+        ok.style.display = o.hideOk ? 'none' : ''; ok.disabled = false;
+        ok.textContent = o.okLabel || 'OK';
+        ok.style.background = o.danger ? '#dc2626' : ''; ok.style.borderColor = o.danger ? '#dc2626' : '';
+        m.style.display = 'flex';
+        const close = () => { m.style.display = 'none'; };
+        cancel.onclick = close;
+        ok.onclick = async () => {
+            ok.disabled = true; msg.style.color = ''; msg.textContent = 'Working...';
+            try { await o.onOk(); close(); } catch (e) { msg.style.color = '#ef4444'; msg.textContent = e.message || String(e); ok.disabled = false; }
+        };
+    }
+    async function vdApply(rows) {
+        const r = await window.BiomassAPI.vendorApply(rows, false);
+        if (!r.success) throw new Error(r.results.filter(x => x.action === 'ERROR').map(x => x.message).join('; ') || 'Nothing was changed');
+        await loadVendors();
+        return r;
+    }
+    function initVendorsTab() {
+        const box = document.getElementById('tab-admin-vendors');
+        if (!box) return;
+        if (!box.dataset.wired) {
+            box.dataset.wired = '1';
+            const pick = (barId, key) => { document.getElementById(barId).onclick = (e) => { const b = e.target.closest('button[data-v]'); if (!b) return; vdState[key] = b.dataset.v; vdRender(); }; };
+            pick('vd-lot-chips', 'lot'); pick('vd-status-chips', 'status');
+            document.getElementById('vd-q').oninput = (e) => { vdState.q = e.target.value; vdRender(); };
+            document.getElementById('vd-add').onclick = vdAddDialog;
+            document.getElementById('vd-download').onclick = vdDownloadSheet;
+            document.getElementById('vd-file').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) vdHandleSheet(f); };
+            document.getElementById('vd-body').onclick = (e) => {
+                const b = e.target.closest('button[data-act]'); if (!b) return;
+                const v = vdState.rows.find(x => String(x.id) === b.dataset.id); if (!v) return;
+                if (b.dataset.act === 'edit') vdEditDialog(v);
+                else if (b.dataset.act === 'retire') vdConfirm(`Retire <b>${esc(v.name)}</b> (${esc(v.lot)})?`, `It disappears from the gate-entry list${v.trucks ? ` (its ${v.trucks} truck(s) and their reports stay)` : ''}. You can re-activate it any time.`, 'Retire', [{ id: v.id, active: false }]);
+                else if (b.dataset.act === 'restore') vdConfirm(`Re-activate <b>${esc(v.name)}</b> (${esc(v.lot)})?`, 'It will be offered at the gate again.', 'Re-activate', [{ id: v.id, active: true }], false);
+                else if (b.dataset.act === 'delete') vdConfirm(`Delete <b>${esc(v.name)}</b> (${esc(v.lot)}) for good?`, 'It has no trucks, so nothing else is affected. This cannot be undone (you can add it again).', 'Delete', [{ id: v.id, remove: true }]);
+            };
+        }
+        loadVendors();
+    }
+    function vdConfirm(title, text, label, rows, danger) {
+        vdDialog({ title, html: `<p style="font-size:0.9rem;">${text}</p>`, okLabel: label, danger: danger !== false, onOk: async () => { await vdApply(rows); } });
+    }
+    async function loadVendors() {
+        try { vdState.rows = await window.BiomassAPI.adminVendors(); }
+        catch (e) { document.getElementById('vd-body').innerHTML = `<tr><td colspan="7" style="color:#ef4444;">${esc(e.message)}</td></tr>`; return; }
+        vdRender();
+    }
+    function vdRender() {
+        document.querySelectorAll('#vd-lot-chips button').forEach(b => b.classList.toggle('active', b.dataset.v === vdState.lot));
+        document.querySelectorAll('#vd-status-chips button').forEach(b => b.classList.toggle('active', b.dataset.v === vdState.status));
+        const q = vdState.q.trim().toLowerCase();
+        const rows = vdState.rows.filter(v => (vdState.lot === 'ALL' || v.lot === vdState.lot) && (vdState.status === 'all' || (vdState.status === 'active') === v.active)
+            && (!q || v.name.toLowerCase().includes(q) || String(v.po_number || '').includes(q)));
+        const act = vdState.rows.filter(v => v.active).length;
+        document.getElementById('vd-count').textContent = `${rows.length} shown · ${vdState.rows.length} in total (${act} active, ${vdState.rows.length - act} retired)`;
+        document.getElementById('vd-body').innerHTML = rows.map(v => `<tr class="${v.active ? '' : 'vd-retired'}">
+            <td><strong>${esc(v.name)}</strong></td><td><span class="vd-lot ${vdLotCls(v.lot)}">${esc(v.lot)}</span></td><td style="font-family:monospace;">${esc(v.po_number || '-')}</td>
+            <td>${esc(v.trucks)}</td><td>${v.last_used ? esc(dmy(v.last_used)) : '-'}</td>
+            <td>${v.active ? '<span class="badge badge-success">ACTIVE</span>' : '<span class="badge badge-pending">RETIRED</span>'}</td>
+            <td style="white-space:nowrap;"><button class="btn btn-secondary btn-sm" data-act="edit" data-id="${esc(v.id)}">✏️ Edit</button>
+                ${v.active ? `<button class="btn btn-secondary btn-sm" data-act="retire" data-id="${esc(v.id)}">⏸ Retire</button>` : `<button class="btn btn-secondary btn-sm" data-act="restore" data-id="${esc(v.id)}">▶ Re-activate</button>`}
+                ${v.trucks === 0 ? `<button class="btn btn-secondary btn-sm" style="border-color:#ef4444; color:#fca5a5;" data-act="delete" data-id="${esc(v.id)}">🗑 Delete</button>` : ''}</td></tr>`).join('')
+            || '<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No vendors match.</td></tr>';
+    }
+    function vdFormHtml(v, canLot) {
+        return `<label class="vd-field">Vendor name</label><input class="vd-dlg-input" id="vdf-name" maxlength="200" value="${esc(v.name || '')}">
+                <label class="vd-field">Lot</label><select class="vd-dlg-input" id="vdf-lot" ${canLot ? '' : 'disabled'}><option value="LOT2/3"${v.lot === 'LOT2/3' ? ' selected' : ''}>Lot 2/3</option><option value="LOT4"${v.lot === 'LOT4' ? ' selected' : ''}>Lot 4</option></select>
+                ${canLot ? '' : '<small style="color:#94a3b8;">This vendor has trucks, so its lot cannot be changed: add it under the other lot and retire this entry.</small>'}
+                <label class="vd-field">PO number</label><input class="vd-dlg-input" id="vdf-po" maxlength="40" value="${esc(v.po_number || '')}" placeholder="optional">`;
+    }
+    function vdAddDialog() {
+        vdDialog({ title: '➕ Add vendor', html: vdFormHtml({ lot: vdState.lot === 'LOT2/3' ? 'LOT2/3' : 'LOT4' }, true) +
+            '<p style="font-size:0.8rem; color:#94a3b8; margin-top:0.6rem;">A vendor that also exists under the other lot keeps the same spelling automatically.</p>', okLabel: 'Add vendor',
+            onOk: async () => {
+                const name = document.getElementById('vdf-name').value.trim(); if (!name) throw new Error('Type the vendor name.');
+                await vdApply([{ name, lot: document.getElementById('vdf-lot').value, po_number: document.getElementById('vdf-po').value.trim() }]);
+            } });
+    }
+    function vdEditDialog(v) {
+        vdDialog({ title: `✏️ Edit ${esc(v.name)}`, html: vdFormHtml(v, v.trucks === 0) + (v.trucks ? `<p style="font-size:0.8rem; color:#94a3b8; margin-top:0.6rem;">Renaming also renames the vendor on its ${esc(v.trucks)} truck(s), composites and mixing groups. The PO of trucks already booked is not changed.</p>` : ''), okLabel: 'Save',
+            onOk: async () => {
+                const name = document.getElementById('vdf-name').value.trim(); if (!name) throw new Error('Type the vendor name.');
+                const row = { id: v.id, name, po_number: document.getElementById('vdf-po').value.trim() };
+                if (v.trucks === 0) row.lot = document.getElementById('vdf-lot').value;
+                const r = await vdApply([row]);
+                if (r.results[0].action === 'UNCHANGED') throw new Error('Nothing was changed.');
+            } });
+    }
+
+    // ---- Excel: download the vendor sheet / upload the edited one (the database is changed to match)
+    async function vdDownloadSheet() {
+        if (typeof ExcelJS === 'undefined') { alert('The Excel library could not be loaded. Check the internet connection and try again.'); return; }
+        try {
+            const rows = await window.BiomassAPI.adminVendors();
+            const wb = new ExcelJS.Workbook();
+            const sh = wb.addWorksheet('Vendors', { views: [{ state: 'frozen', ySplit: 1 }] });
+            sh.columns = [{ header: 'ID', key: 'id', width: 8 }, { header: 'Vendor name', key: 'name', width: 52 }, { header: 'Lot', key: 'lot', width: 10 }, { header: 'PO number', key: 'po', width: 16 },
+                          { header: 'Status', key: 'status', width: 11 }, { header: 'Trucks (info)', key: 'trucks', width: 13 }, { header: 'Delete?', key: 'del', width: 9 }];
+            sh.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+            sh.getRow(1).eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF111827' } }; });
+            rows.forEach(v => sh.addRow({ id: v.id, name: v.name, lot: v.lot, po: v.po_number || '', status: v.active ? 'ACTIVE' : 'RETIRED', trucks: v.trucks, del: '' }));
+            const last = rows.length + 1 + 300;                    // 300 empty lines to add new vendors
+            for (let r = 2; r <= last; r++) {
+                sh.getCell(r, 3).dataValidation = { type: 'list', allowBlank: true, formulae: ['"LOT2/3,LOT4"'] };
+                sh.getCell(r, 5).dataValidation = { type: 'list', allowBlank: true, formulae: ['"ACTIVE,RETIRED"'] };
+                sh.getCell(r, 7).dataValidation = { type: 'list', allowBlank: true, formulae: ['"YES"'] };
+                sh.getCell(r, 4).numFmt = '@';
+                if (r <= rows.length + 1) [1, 6].forEach(c => { sh.getCell(r, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } }; });
+            }
+            sh.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 7 } };
+            const h = wb.addWorksheet('How to use');
+            h.getColumn(1).width = 130;
+            ['HOW TO USE THIS SHEET', '',
+             '1. Edit the sheet, save it as .xlsx, then upload it in the app: Admin > Vendors > "Upload edited sheet". You see a preview first; nothing changes until you press Apply.',
+             '2. To CHANGE a vendor: edit its name, lot, PO number or Status on its row. Do NOT change the ID (grey column) - the ID is how the app recognises the row.',
+             '3. To ADD a vendor: type it in an empty row at the bottom (leave the ID empty): name, lot (LOT2/3 or LOT4), PO number.',
+             '4. To REMOVE a vendor: type YES in the "Delete?" column. A vendor that has trucks is RETIRED instead of deleted (kept for the history, hidden at the gate).',
+             '5. Status RETIRED = no longer offered at gate entry. Status ACTIVE = offered.',
+             '6. A vendor that has trucks cannot change its lot: add it again under the other lot and set the old row to RETIRED.',
+             '7. Renaming a vendor also renames it on its trucks, composites and mixing groups. The PO printed on trucks already booked is not changed.',
+             '8. Rows that you leave out or do not touch are not changed. If anything in the sheet is wrong, NOTHING is applied.'].forEach((t, i) => { h.addRow([t]); if (i === 0) h.getRow(1).font = { bold: true, size: 14 }; });
+            const buffer = await wb.xlsx.writeBuffer();
+            const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+            const a = document.createElement('a'); a.href = url; a.download = `Vendors_${window.BiomassAPI.todayIST().replace(/-/g, '')}.xlsx`;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        } catch (e) { alert('Could not build the sheet: ' + e.message); }
+    }
+    async function vdHandleSheet(file) {
+        if (typeof ExcelJS === 'undefined') { alert('The Excel library could not be loaded. Check the internet connection and try again.'); return; }
+        try {
+            const wb = new ExcelJS.Workbook();
+            await wb.xlsx.load(await file.arrayBuffer());
+            const sh = wb.getWorksheet('Vendors') || wb.worksheets[0];
+            const cv = (cell) => { let v = cell.value; if (v && typeof v === 'object') v = v.text !== undefined ? v.text : (v.result !== undefined ? v.result : (v.richText ? v.richText.map(t => t.text).join('') : '')); return String(v === null || v === undefined ? '' : v).trim(); };
+            const head = {}; sh.getRow(1).eachCell((c, i) => { head[cv(c).toLowerCase()] = i; });
+            const col = (...names) => { for (const n of names) { const k = Object.keys(head).find(h => h.startsWith(n)); if (k) return head[k]; } return null; };
+            const cId = col('id'), cName = col('vendor', 'name'), cLot = col('lot'), cPo = col('po'), cSt = col('status'), cDel = col('delete');
+            if (!cName || !cLot) throw new Error('This does not look like the vendor sheet (columns "Vendor name" and "Lot" are missing). Download the sheet again.');
+            const cur = await window.BiomassAPI.adminVendors();
+            const ops = []; let same = 0;
+            sh.eachRow((row, n) => {
+                if (n === 1) return;
+                const id = cId ? cv(row.getCell(cId)) : '', name = cv(row.getCell(cName)), lot = cv(row.getCell(cLot)), po = cPo ? cv(row.getCell(cPo)) : '';
+                const st = cSt ? cv(row.getCell(cSt)).toUpperCase() : '', del = cDel ? cv(row.getCell(cDel)).toUpperCase() : '';
+                if (!id && !name && !lot && !po) return;                          // empty line
+                const active = st === 'ACTIVE' ? true : (st === 'RETIRED' ? false : undefined);
+                if (!id) { ops.push({ name, lot, po_number: po, active, _row: n }); return; }
+                const c = cur.find(x => String(x.id) === id);
+                if (c && del !== 'YES' && name === c.name && vdNormLot(lot) === c.lot && po === (c.po_number || '') && (active === undefined || active === c.active)) { same++; return; }
+                ops.push({ id: Number(id), name, lot, po_number: po, active, remove: del === 'YES', _row: n });
+            });
+            if (!ops.length) { alert(`Nothing to change: all ${same} vendor row(s) in the sheet are identical to the database.`); return; }
+            const dry = await window.BiomassAPI.vendorApply(ops, true);
+            const colour = { ERROR: '#ef4444', DELETED: '#f59e0b', RETIRED: '#f59e0b', ADDED: '#10b981', EDITED: '#60a5fa', RESTORED: '#10b981', UNCHANGED: '#94a3b8', SKIPPED: '#94a3b8' };
+            const cnt = Object.entries(dry.counts || {}).map(([k, v]) => `<b style="color:${colour[k] || '#fff'};">${v} ${k.toLowerCase()}</b>`).join(' &middot; ');
+            const list = dry.results.filter(x => x.action !== 'UNCHANGED').map(x => `<tr><td>${esc((ops[x.row - 1] && ops[x.row - 1]._row) || x.row)}</td><td style="color:${colour[x.action] || '#fff'}; font-weight:700;">${esc(x.action)}</td><td>${esc(x.message || x.name)}</td></tr>`).join('');
+            vdDialog({ title: `Preview of the sheet <small style="color:#94a3b8;">(${esc(file.name)})</small>`,
+                html: `<p style="font-size:0.9rem;">${cnt}${same ? ` &middot; ${same} row(s) unchanged` : ''}</p>` +
+                      (dry.errors ? '<div class="alert alert-danger" style="margin:0.5rem 0;">The sheet has errors, so <b>nothing</b> would be applied. Correct the sheet and upload it again.</div>' : '<div class="alert alert-warning" style="margin:0.5rem 0;">Nothing has been changed yet. Press <b>Apply</b> to change the database as listed.</div>') +
+                      `<div class="table-responsive" style="max-height:46vh; overflow:auto;"><table style="min-width:0; font-size:0.82rem;"><thead><tr><th>Sheet row</th><th>What</th><th>Details</th></tr></thead><tbody>${list}</tbody></table></div>`,
+                okLabel: `Apply ${dry.results.filter(x => x.action !== 'UNCHANGED' && x.action !== 'SKIPPED').length} change(s)`, hideOk: dry.errors > 0, danger: false,
+                onOk: async () => { const r = await vdApply(ops); alert('The vendors were updated: ' + Object.entries(r.counts || {}).map(([k, v]) => v + ' ' + k.toLowerCase()).join(', ') + '.'); } });
+        } catch (e) { alert('The sheet could not be processed: ' + e.message); }
+    }
+
     // ================= SUPER ADMIN CONSOLE =================
     // A console of its own (the Super Admin login has NO Admin tabs): Inspector, Toolbox, Data health, Logins and the Audit log.
     // Every change needs a reason AND the password typed again (valid for 5 minutes); the server writes it to the audit log with the IP address.
     const sx$ = (id) => document.getElementById(id);
     const SX_IDLE_MS = 10 * 60 * 1000, SX_AUTH_MS = 5 * 60 * 1000;
-    let superState = { samples: [], comps: [], filter: 'all', q: '' };
+    let superState = { samples: [], comps: [], filter: 'all', q: '', lot: 'ALL' };
     let sxLastAuth = 0, sxLastActive = Date.now(), sxIdleTimer = null, sxCompanies = null, sxOpenTruck = null, sxGroup = null, sxWired = false, sxDetail = null;
 
     // Idle protection: the Super Admin session ends after 10 minutes without a click, key or touch.
@@ -6303,6 +6504,7 @@ document.addEventListener('DOMContentLoaded', function() {
             sxRender();
         };
         sx$('sx-filter-chips').onclick = setFilter;
+        sx$('sx-lot-chips').onclick = (e) => { const b = e.target.closest('button[data-lot]'); if (!b) return; superState.lot = b.dataset.lot; sxRender(); };
         sx$('sx-tiles').onclick = setFilter;
         // QR scan (camera or uploaded picture): the code goes into the search and the result opens
         setupSnapOnlyScanner({
@@ -6385,7 +6587,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function sxRender() {
-        const f = superState.filter, S = superState.samples, C = superState.comps;
+        const f = superState.filter, S0 = superState.samples, C0 = superState.comps;
+        const lotOK = (x) => superState.lot === 'ALL' || x.lot === superState.lot;
+        const S = S0.filter(lotOK), C = C0.filter(lotOK);              // the counts follow the Lot filter
+        [...sx$('sx-lot-chips').querySelectorAll('button[data-lot]')].forEach(b => b.classList.toggle('active', b.dataset.lot === superState.lot));
         const keepS = (r) => f === 'all' || f === 'samples' || (f === 'trucks' && r.kind === 'TRUCK_SAMPLE') || (f === 'bottom' && r.kind === 'BOTTOM_SAMPLE')
             || (f === 'cancelled' && !!r.cancel_status) || (f === 'accepted' && !r.cancel_status && r.acceptance_status === 'ACCEPTED')
             || (f === 'rejected' && !r.cancel_status && r.acceptance_status === 'REJECTED')
@@ -6399,8 +6604,8 @@ document.addEventListener('DOMContentLoaded', function() {
         sx$('sx-tiles').innerHTML = tiles.map(t => `<button type="button" class="sx-tile${f === t[2] ? ' active' : ''}" data-f="${t[2]}" title="Show only: ${esc(t[0])}"><small>${t[0]}</small><b>${t[1]}</b></button>`).join('');
         [...sx$('sx-filter-chips').querySelectorAll('button[data-f]')].forEach(b => b.classList.toggle('active', b.dataset.f === f));
 
-        const sHtml = S.map((r, i) => {
-            if (!keepS(r)) return '';
+        const sHtml = S0.map((r, i) => {
+            if (!lotOK(r) || !keepS(r)) return '';
             const st = sxStatus(r), bottom = r.kind === 'BOTTOM_SAMPLE';
             const old = (r.old_codes || []).length ? `<div class="sx-qr" title="Old QR codes of this sample (no longer valid)">replaced: ${esc(r.old_codes.join(', '))}</div>` : '';
             return `<div class="sx-card ${bottom && st.cls !== 'st-can' ? 'st-bot' : st.cls}">
@@ -6421,8 +6626,8 @@ document.addEventListener('DOMContentLoaded', function() {
         sx$('sx-h-samples').style.display = f === 'comps' ? 'none' : '';
         sx$('super-samples-grid').style.display = f === 'comps' ? 'none' : '';
 
-        const cHtml = C.map((c, i) => {
-            if (!keepC(c)) return '';
+        const cHtml = C0.map((c, i) => {
+            if (!lotOK(c) || !keepC(c)) return '';
             const l4 = c.lot === 'LOT4', tested = c.arb_gcv !== null && c.arb_gcv !== undefined;
             const vals = tested
                 ? `<div class="sx-stats"><div><small>TM</small><b>${sxF(c.tm_value, 2)}</b></div><div><small>ARB GCV</small><b>${esc(c.arb_gcv)}</b></div><div><small>ARB Ash</small><b>${sxF(c.arb_ash, 2)}</b></div></div>` +
@@ -6553,6 +6758,7 @@ document.addEventListener('DOMContentLoaded', function() {
             else inp = `<input type="number" step="${f.step || 'any'}" id="se-${f.id}" value="${esc(val)}" style="width:100%; padding:0.5rem;">`;
             return lab + inp;
         }).join('');
+        if (opts.onRender) opts.onRender(box);
         const reason = sx$('super-edit-reason'), msg = sx$('super-edit-msg'), save = sx$('btn-super-edit-save');
         reason.value = ''; msg.textContent = ''; save.disabled = false;
         save.textContent = opts.saveLabel || 'Save & record';
@@ -6770,30 +6976,78 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Tool 2: registration details. The vendor list shows every vendor of every lot; picking another vendor moves the truck to that vendor's mixing group.
+    // Tool 2: registration details. Vehicle / driver / invoice never regroup. Changing the Lot / vendor / date regroups the truck automatically; or the mixing code can be chosen by hand
+    // (one of the vendor's other codes of that day - the truck takes over its lot and PO, and its Fineness scan goes along).
     async function superEditRegistration(d) {
         const t = d.truck;
-        let comps;
-        try { comps = await sxLoadCompanies(); } catch (e) { alert(e.message); return; }
+        let comps, codes = {};
+        try {
+            comps = await window.BiomassAPI.getCompaniesAll();
+            const fr = await window.BiomassAPI.superFind('', t.entry_date, t.entry_date);
+            const nv = (x) => String(x || '').trim().replace(/\s+/g, ' ').toLowerCase();
+            (fr.samples || []).filter(x => x.kind === 'TRUCK_SAMPLE' && !x.cancel_status && nv(x.company_name) === nv(t.company_name) && x.mixing_code !== t.daily_group_code)
+                .forEach(x => { const c = codes[x.mixing_code] || (codes[x.mixing_code] = { lot: x.lot, po: x.po_number, n: 0 }); c.n++; });
+        } catch (e) { alert(e.message); return; }
         const cur = comps.findIndex(c => c.name === t.company_name && c.lot === t.lot);
-        openSuperEdit('Edit registration details', `Truck <b>${esc(t.truck_reg_number)}</b> &bull; mixing code <b>${esc(t.daily_group_code)}</b>.<br>Vehicle number, driver and invoice can be corrected freely - the mixing group stays. <b>Changing the vendor</b> (or the entry date) moves the truck to the mixing group of that vendor, and the container must be scanned again for the new group. Not possible while the old or the new group already has a composite.`, [
+        const vendorOpts = (lot) => comps.map((c, i) => ({ c, i })).filter(x => x.c.lot === lot && (x.c.active || x.i === cur))
+            .map(x => ({ v: x.i, l: `${x.c.name}${x.c.po_number ? ' - PO ' + x.c.po_number : ''}${x.c.active ? '' : ' (retired - this truck\'s present entry)'}` }));
+        const codeOpts = [{ v: '', l: `Keep the present mixing code (${t.daily_group_code}) - automatic` }].concat(Object.entries(codes).map(([k, c]) =>
+            ({ v: k, l: `${k} - ${c.lot}, ${c.n} truck(s) of this vendor today, PO ${c.po || '-'}` })));
+        openSuperEdit('Edit registration details', `Truck <b>${esc(t.truck_reg_number)}</b> &bull; mixing code <b>${esc(t.daily_group_code)}</b> &bull; ${esc(t.lot)}.<br>Vehicle number, driver and invoice can be corrected freely - the mixing group stays. <b>Changing the Lot / vendor / date</b> moves the truck to the mixing group of that vendor (the container must be scanned again). Or <b>choose the mixing code yourself</b> below: the truck joins that code with its Lot and PO and <b>keeps its scan</b>. Not possible while a composite exists for the old or the new code.`, [
             { id: 'truck_reg_number', label: 'Vehicle number', value: t.truck_reg_number, type: 'text' },
             { id: 'driver_name', label: 'Driver name', value: t.driver_name, type: 'text' },
             { id: 'invoice_no', label: 'Invoice / challan number', value: t.invoice_no || t.challan_no, type: 'text' },
-            { id: 'vendor', label: 'Vendor (changing it changes the mixing group)', value: cur, type: 'select', options: comps.map((c, i) => ({ v: i, l: `${c.name} (${c.lot})${c.po_number ? ' - PO ' + c.po_number : ''}` })) },
+            { id: 'code', label: 'Mixing code (join another code of this vendor today)', value: '', type: 'select', options: codeOpts, hint: Object.keys(codes).length ? '' : '(this vendor has no other code today)' },
+            { id: 'lot', label: 'Lot (changes the mixing group)', value: t.lot, type: 'select', options: [{ v: 'LOT2/3', l: 'Lot 2/3' }, { v: 'LOT4', l: 'Lot 4' }] },
+            { id: 'vendor', label: 'Vendor entry of that lot', value: cur, type: 'select', options: vendorOpts(t.lot) },
             { id: 'entry_date', label: 'Entry date', value: t.entry_date, type: 'date' }
         ], async (v, why) => {
             const p = { truck_id: t.truck_id, reason: why };
             if (v.truck_reg_number && v.truck_reg_number !== t.truck_reg_number) p.truck_reg_number = v.truck_reg_number;
             if (v.driver_name && v.driver_name !== (t.driver_name || '')) p.driver_name = v.driver_name;
             if (v.invoice_no && v.invoice_no !== (t.invoice_no || '')) p.invoice_no = v.invoice_no;
+            if (v.code) {                                                    // join another mixing code
+                const pv = await window.BiomassAPI.superMergeGroup({ date: t.entry_date, from_code: t.daily_group_code, to_code: v.code, truck_id: t.truck_id, dry_run: 'true' });
+                let keep = false;
+                if (pv.turning_accepted > 0) keep = confirm('This truck was REJECTED under the Lot-3 rule and the new code is Lot 4.\n\nOK = keep it REJECTED\nCancel = it counts as ACCEPTED (Lot-4 rule: never rejected for moisture)');
+                if (Object.keys(p).length > 2) await window.BiomassAPI.superEditTruck(p);
+                const r = await window.BiomassAPI.superMergeGroup({ date: t.entry_date, from_code: t.daily_group_code, to_code: v.code, truck_id: t.truck_id, keep_rejected: keep ? 'true' : 'false', reason: why });
+                alert(`The truck is now in mixing code ${r.to_code} (${r.target_lot}, PO ${r.target_po || '-'}).\nThat code now has ${r.target_after.accepted_total} accepted sample(s), ${r.target_after.accepted_scanned} of them scanned.`);
+                return;
+            }
             const c = comps[Number(v.vendor)];
             if (c && (c.name !== t.company_name || c.lot !== t.lot)) { p.company_name = c.name; p.lot = c.lot; }
             if (v.entry_date && v.entry_date !== t.entry_date) p.entry_date = v.entry_date;
             if (Object.keys(p).length === 2) throw new Error('Nothing was changed.');
             const res = await window.BiomassAPI.superEditTruck(p);
             alert(res.regrouped ? `Saved. The truck moved to mixing code ${res.daily_group_code}. It must be scanned again in the Fineness login for that group.` : 'Saved and recorded. The mixing group is unchanged.');
-        });
+        }, { onRender: (box) => {
+            const lotSel = box.querySelector('#se-lot'), venSel = box.querySelector('#se-vendor'), codeSel = box.querySelector('#se-code'), dateIn = box.querySelector('#se-entry_date');
+            lotSel.onchange = () => {                                      // vendor list follows the Lot; the same vendor is preselected
+                const o = vendorOpts(lotSel.value), same = o.find(x => comps[x.v].name === t.company_name);
+                venSel.innerHTML = o.map(x => `<option value="${x.v}">${esc(x.l)}</option>`).join('');
+                if (same) venSel.value = String(same.v);
+            };
+            const lockOthers = () => { const on = !!codeSel.value; [lotSel, venSel, dateIn].forEach(x => { x.disabled = on; x.style.opacity = on ? 0.45 : 1; }); };
+            codeSel.onchange = lockOthers; lockOthers();
+        } });
+    }
+
+    // Tool 12: combine two mixing codes of the same vendor and day (all trucks of one code move into the other; scans go along)
+    async function superMergeDialog(date, from, to) {
+        let pv;
+        try { pv = await window.BiomassAPI.superMergeGroup({ date, from_code: from, to_code: to, dry_run: 'true' }); } catch (e) { alert(e.message); return; }
+        const bf = pv.target_before || {};
+        openSuperEdit(`Combine mixing code ${pv.from_code} into ${pv.to_code}`,
+            `On <b>${esc(dmy(pv.date))}</b>: <b>${esc(pv.moved)}</b> truck(s) of code <b>${esc(pv.from_code)}</b> (${esc(pv.moved_scanned)} already scanned in the Fineness login) move into code <b>${esc(pv.to_code)}</b> of ${esc(pv.target_name)}.<br>` +
+            `They take over <b>${esc(pv.target_lot)}</b> and the PO <b>${esc(pv.target_po || '-')}</b>. Their scans go along - nothing has to be scanned again.<br>` +
+            `Code ${esc(pv.to_code)} now has ${esc(bf.accepted_total)} accepted sample(s) (${esc(bf.accepted_scanned)} scanned); afterwards <b>${esc(pv.target_after.accepted_total)}</b> accepted, <b>${esc(pv.target_after.accepted_scanned)}</b> scanned.` +
+            (pv.turning_accepted ? `<br><b>${esc(pv.turning_accepted)}</b> truck(s) were rejected under the Lot-3 rule - choose below what happens to them.` : ''),
+            pv.turning_accepted ? [{ id: 'keep', label: 'Trucks rejected under the Lot-3 rule', type: 'select', value: 'keep', options: [{ v: 'keep', l: 'Keep them REJECTED' }, { v: 'accept', l: 'They count as ACCEPTED (Lot 4 never rejects for moisture)' }] }] : [],
+            async (v, why) => {
+                const r = await window.BiomassAPI.superMergeGroup({ date, from_code: from, to_code: to, keep_rejected: v.keep === 'keep' ? 'true' : 'false', reason: why });
+                alert(`Done. Mixing code ${r.to_code} now has ${r.target_after.accepted_total} accepted sample(s), ${r.target_after.accepted_scanned} of them scanned. Lab 2 can create the composite when all are scanned.`);
+            }, { saveLabel: 'Combine the codes' });
     }
 
     function sxShowPhoto(src) {
@@ -6843,6 +7097,14 @@ document.addEventListener('DOMContentLoaded', function() {
           use: 'A routine look every morning: groups waiting for results, trucks that never left, composites without results, broken links.',
           how: ['Open the <b>Data health</b> tab and press Run the check.', 'Each finding explains itself; <b>Open</b> jumps to the records, <b>Fix</b> repairs harmless leftovers.'],
           note: 'Nothing changes unless you press Fix.', kind: 'health' },
+        { n: 12, icon: '🧩', title: 'Combine two mixing codes of the same vendor and day',
+          use: 'The same vendor, day, lot and PO ended up with two mixing codes (for example a Lot-3 code and a Lot-4 code), and no composite has been made yet. They must be ONE mixing code.',
+          how: ['Type the date, the code that goes away (FROM) and the code that stays (TO).', 'Press <b>Preview…</b>: you see how many trucks move and how many accepted / scanned samples the code will have afterwards.', 'Confirm with a reason: the trucks take the Lot and PO of the TO code and <b>keep their Fineness scans</b>. In Lab 2 you then see one code with all samples scanned.', 'To move just ONE truck, use Inspector &rarr; Open truck &rarr; Edit registration &rarr; Mixing code.'],
+          note: 'Refused when a composite exists for either code (void it first, tool 5) or when the codes belong to different vendors.', kind: 'merge' },
+        { n: 11, icon: '🔁', title: 'Convert a vendor\'s existing samples to Lot 4 (in place)',
+          use: 'A vendor already has samples, mixing codes and composites under Lot 2/3 but is to be treated as Lot 4 (it finished its Lot-3 quantity). Re-booking everything would create havoc; this changes only the lot.',
+          how: ['Type the vendor (it needs an active LOT4 entry in Admin > Vendors). Optionally limit it to a date range.', 'Press <b>Preview…</b>: you see how many trucks, mixing codes and composites are affected - nothing is changed yet.', 'Confirm with a reason: trucks, mixing codes, scans, composites and labels stay exactly as they are; only the lot becomes LOT4.', 'Composites <b>not yet tested</b>: Lab 2 now also asks for sulphur and VM. Composites <b>already tested</b>: Inspector &rarr; Edit AD values (the old values are pre-filled) &rarr; add AD sulphur and VM; GCV / ash stay the same.'],
+          note: 'A truck that was rejected under the Lot-3 rule stays rejected. The PO of the trucks is kept unless you choose to switch it. Refused when the vendor has both a Lot-3 and a LOT4 mixing code on the same day.', kind: 'convert' },
         { n: 10, icon: '🛡️', title: 'Protection of this console',
           use: 'The Super Admin can change almost anything, so the console protects itself.',
           how: ['<b>Idle sign-out</b>: after 10 minutes without activity you are signed out.', '<b>Password re-check</b>: the first change (and then every 5 minutes) asks for your password again.', '<b>Alerts</b>: the Admin sees a red badge on the Activity Log until the Super Admin changes are acknowledged.', '<b>Export</b>: the full audit log can be downloaded as Excel.'],
@@ -6853,11 +7115,13 @@ document.addEventListener('DOMContentLoaded', function() {
         if (box.dataset.done) return;
         box.dataset.done = '1';
         const today = window.BiomassAPI.todayIST();
-        box.innerHTML = SX_TOOLS.map(t => {
+        box.innerHTML = SX_TOOLS.slice().sort((a, b) => a.n - b.n).map(t => {
             let act = '';
             if (t.kind === 'force') act = `<input id="sxt-force-code" placeholder="Mixing code" maxlength="12" style="text-transform:uppercase; max-width:130px;"><input type="date" id="sxt-force-date" value="${today}" style="max-width:160px;"><button class="btn btn-primary btn-sm" data-tool="force">⚡ Force-create…</button>`;
             else if (t.kind === 'find') act = `<input id="sxt-find-${t.n}" placeholder="Vehicle no., QR or mixing code"><button class="btn btn-primary btn-sm" data-tool="find" data-n="${t.n}">🔍 Find the truck</button>`;
             else if (t.kind === 'void-comp') act = `<input id="sxt-void-code" placeholder="Composite code, e.g. CMP-20261021-001"><button class="btn btn-primary btn-sm" data-tool="void-comp">🗑 Void…</button>`;
+            else if (t.kind === 'merge') act = `<input type="date" id="sxt-mg-date" value="${today}" style="max-width:150px; flex:0 0 auto;"><input id="sxt-mg-from" placeholder="FROM code, e.g. MRQ" maxlength="12" style="text-transform:uppercase; max-width:150px;"><input id="sxt-mg-to" placeholder="TO code, e.g. NRB" maxlength="12" style="text-transform:uppercase; max-width:150px;"><button class="btn btn-primary btn-sm" data-tool="merge">🧩 Preview…</button>`;
+            else if (t.kind === 'convert') act = `<input id="sxt-conv-name" list="sxt-conv-list" placeholder="Vendor, e.g. KARNI TRADING COMPANY"><datalist id="sxt-conv-list"></datalist><input type="date" id="sxt-conv-from" title="From (optional)" style="max-width:150px; flex:0 0 auto;"><input type="date" id="sxt-conv-to" title="To (optional)" style="max-width:150px; flex:0 0 auto;"><label style="font-size:0.78rem; color:#cbd5e1; display:flex; gap:0.35rem; align-items:center; flex-basis:100%;"><input type="checkbox" id="sxt-conv-both" style="flex:0 0 auto; min-width:0;"> If the vendor already has a LOT4 mixing code that day, keep BOTH codes (the Lot-3 code stays as it is)</label><button class="btn btn-primary btn-sm" data-tool="convert">🔁 Preview…</button>`;
             else if (t.kind === 'logins') act = `<button class="btn btn-primary btn-sm" data-tool="goto" data-tab="super-logins">👥 Open Logins</button>`;
             else if (t.kind === 'health') act = `<button class="btn btn-primary btn-sm" data-tool="goto" data-tab="super-health">🩺 Open Data health</button>`;
             else act = `<button class="btn btn-secondary btn-sm" data-tool="goto" data-tab="admin-activity">📜 Open the Audit log</button><button class="btn btn-secondary btn-sm" data-tool="export">⬇ Export audit log (Excel)</button>`;
@@ -6867,11 +7131,36 @@ document.addEventListener('DOMContentLoaded', function() {
                 <p style="font-size:0.76rem; color:#94a3b8;">${t.note}</p>
                 <div class="sx-tool-act">${act}</div></div>`;
         }).join('');
+        sxLoadCompanies().then(cs => { const dl = sx$('sxt-conv-list'); if (dl) dl.innerHTML = [...new Set(cs.filter(c => c.lot === 'LOT4').map(c => c.name))].map(n => `<option value="${esc(n)}">`).join(''); }).catch(() => { });
         box.onclick = async (e) => {
             const b = e.target.closest('button[data-tool]'); if (!b) return;
             const k = b.dataset.tool;
             if (k === 'goto') { sxGoTab(b.dataset.tab); return; }
             if (k === 'export') { exportAuditLog(false); return; }
+            if (k === 'merge') {
+                const date = sx$('sxt-mg-date').value, f = sx$('sxt-mg-from').value.trim().toUpperCase(), to = sx$('sxt-mg-to').value.trim().toUpperCase();
+                if (!date || !f || !to) { alert('Pick the date and type both mixing codes.'); return; }
+                superMergeDialog(date, f, to); return;
+            }
+            if (k === 'convert') {
+                const name = sx$('sxt-conv-name').value.trim(), from = sx$('sxt-conv-from').value, to = sx$('sxt-conv-to').value;
+                if (!name) { alert('Type the vendor first.'); return; }
+                try {
+                    const base = { company_name: name, from: from || null, to: to || null, keep_both: sx$('sxt-conv-both').checked ? 'true' : 'false' };
+                    const pv = await window.BiomassAPI.superConvertLot(Object.assign({ dry_run: 'true' }, base));
+                    openSuperEdit('Convert to Lot 4: ' + pv.company_name,
+                        `<b>${esc(pv.trucks)}</b> truck(s) (+ ${esc(pv.bottom_samples)} bottom sample(s)) in <b>${esc(pv.groups)}</b> mixing code(s) and <b>${esc(pv.composites_to_test + pv.composites_tested)}</b> composite(s) ` +
+                        `(${esc(pv.composites_to_test)} still to be tested, ${esc(pv.composites_tested)} already tested) will become <b>LOT4</b> - ${from || to ? 'in the chosen period' : 'all dates'}.<br>` +
+                        `Mixing codes, scans, composites and labels stay exactly the same. ${pv.kept_rejected ? `<b>${esc(pv.kept_rejected)}</b> truck(s) rejected under the Lot-3 rule stay rejected. ` : ''}` +
+                        `${(pv.both_codes_days || []).length ? `<b>On ${esc(pv.both_codes_days.map(d => dmy(d)).join(', '))} the vendor already has a LOT4 mixing code: both codes stay (the Lot-3 code keeps its number, both are Lot 4).</b> ` : ''}${pv.composites_tested ? 'For the already tested composite(s) add sulphur and VM afterwards in the Inspector (Edit AD values). ' : ''}${pv.composites_to_test ? 'Lab 2 will ask for sulphur and VM on the untested composite(s).' : ''}`,
+                        [{ id: 'switch_po', label: 'PO number of these trucks', type: 'select', value: 'keep', options: [{ v: 'keep', l: 'Keep the PO each truck already has' }, { v: 'switch', l: 'Switch to the Lot-4 PO (' + (pv.lot4_po || 'none') + ')' }] }],
+                        async (v, why) => {
+                            const r = await window.BiomassAPI.superConvertLot(Object.assign({ switch_po: v.switch_po === 'switch' ? 'true' : 'false', reason: why }, base));
+                            alert(`Done: ${r.trucks} truck(s), ${r.groups} mixing code(s) and ${r.composites_to_test + r.composites_tested} composite(s) are Lot 4 now.`);
+                        }, { saveLabel: 'Convert to Lot 4' });
+                } catch (err) { alert(err.message); }
+                return;
+            }
             if (k === 'force') {
                 const code = sx$('sxt-force-code').value.trim().toUpperCase(), date = sx$('sxt-force-date').value;
                 if (!code || !date) { alert('Type the mixing code and pick the date.'); return; }
@@ -6989,8 +7278,33 @@ document.addEventListener('DOMContentLoaded', function() {
             document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
         } catch (e) { alert('Export failed: ' + e.message); }
     }
+    async function exportSuperLogs() {
+        try {
+            const r = await window.BiomassAPI.superLogs();
+            const wb = new ExcelJS.Workbook();
+            const s1 = wb.addWorksheet('Super Admin changes');
+            s1.columns = [{ header: 'Timestamp', width: 22 }, { header: 'User', width: 14 }, { header: 'Action', width: 28 }, { header: 'Details', width: 110 }, { header: 'IP address', width: 18 }, { header: 'Device', width: 60 }];
+            s1.getRow(1).font = { bold: true };
+            (r.changes || []).forEach(l => s1.addRow([l.timestamp, l.username, l.action, l.details, l.ip || '', l.device || '']));
+            const s2 = wb.addWorksheet('Results submitted');
+            s2.columns = [{ header: 'Timestamp', width: 22 }, { header: 'Login', width: 16 }, { header: 'Reference', width: 24 }, { header: 'Submitted', width: 120 }];
+            s2.getRow(1).font = { bold: true };
+            (r.submissions || []).forEach(l => s2.addRow([l.timestamp, l.username, l.ref || '', l.summary]));
+            const buffer = await wb.xlsx.writeBuffer();
+            const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+            const a = document.createElement('a');
+            a.href = url; a.download = `SuperAdmin_log_${window.BiomassAPI.todayIST().replace(/-/g, '')}.xlsx`;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        } catch (e) { alert('Export failed: ' + e.message); }
+    }
     function initAuditButtons() {
         const a = sx$('btn-audit-export'), b = sx$('btn-audit-export-exc');
+        const cu = window.BiomassAPI.getCurrentUser();
+        if (cu && cu.is_super) {
+            if (a) { a.onclick = exportSuperLogs; a.innerHTML = '&#11015;&#65039; Export (Excel)'; }
+            if (b) b.style.display = 'none';
+            return;
+        }
         if (a) a.onclick = () => exportAuditLog(false);
         if (b) b.onclick = () => exportAuditLog(true);
     }

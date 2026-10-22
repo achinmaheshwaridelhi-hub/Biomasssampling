@@ -365,6 +365,9 @@
         async superOverride(v) { return rpc('bm_super_set_override', v); },
         async superLogins() { return rpc('bm_super_logins', {}); },
         async superLogs() { return rpc('bm_super_logs', {}); },
+        async superIps() { return rpc('bm_super_ips', {}); },
+        async superIpLabel(ip, label) { return rpc('bm_super_ip_label', { ip, label }); },
+        async superIpLogs(ip, q, limit) { return rpc('bm_super_ip_logs', { ip: ip || null, q: q || null, limit: limit || 500 }); },
         async superConvertLot(v) { return rpc('bm_super_convert_lot', v); },
         async superMergeGroup(v) { return rpc('bm_super_merge_group', v); },
         /** every vendor entry incl. retired ones (Admin / Super Admin) */

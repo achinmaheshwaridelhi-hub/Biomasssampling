@@ -1566,7 +1566,7 @@ header { padding-top: calc(0.75rem + env(safe-area-inset-top)); }
 
 /* Vendor / Referee label carries an extra line (supplier initials): a slightly smaller QR keeps it inside the 50mm label */
 @media print {
-    .print-label-50mm.label-with-initials canvas { width: 30mm !important; height: 30mm !important; }
+    .print-label-50mm.label-with-initials canvas { width: 31mm !important; height: 31mm !important; }
 }
 
 /* The Print buttons on the WHITE label cards were light-on-white (invisible): give them dark text and a visible border */
@@ -1745,3 +1745,29 @@ button.sx-tile.active { border-color: #ef4444; background: rgba(239,68,68,0.16);
 .vd-field { display: block; font-size: 0.8rem; margin: 0.55rem 0 0.15rem; }
 .vd-dlg-input { width: 100%; padding: 0.55rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: #fff; border-radius: 8px; }
 tr.vd-retired td { opacity: 0.6; }
+
+/* unknown IP address lines (Exceptions & Security Violations) */
+tr.ip-unknown td { background: rgba(239,68,68,0.10); }
+.ip-tag { display: inline-block; font-size: 0.72rem; font-weight: 800; padding: 1px 8px; border-radius: 20px; white-space: nowrap; }
+.ip-tag.known { background: rgba(16,185,129,0.18); color: #6ee7b7; } .ip-tag.unknown { background: #dc2626; color: #fff; }
+.ip-input { padding: 0.4rem; min-width: 190px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: #fff; border-radius: 8px; }
+
+/* Label size selector (header) */
+.label-fmt { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--text-muted); }
+.label-fmt select { background: rgba(255,255,255,0.06); color: #fff; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.35rem 0.5rem; font-size: 0.8rem; }
+.label-fmt select option { color: #000; }
+@media (max-width: 700px) { .label-fmt span { display: none; } }
+
+/* ===== 4 x 6 inch thermal sticker (101.6 x 152.4 mm, portrait): the whole page is the label =====
+   The label is designed on half size (50.8 x 76.2 mm) and doubled with zoom, so the text is large and the QR fills the sticker. */
+@media print {
+    body.label-4x6 .label-page { height: 152.4mm !important; }
+    body.label-4x6 .print-label-50mm {
+        zoom: 2; width: 50.8mm !important; height: 76.2mm !important; max-width: 50.8mm !important; max-height: 76.2mm !important;
+        padding: 2mm !important; border: none !important; margin: 0 !important;
+    }
+    body.label-4x6 .print-label-50mm canvas,
+    body.label-4x6 .print-label-50mm.label-with-initials canvas,
+    body.label-4x6 .print-label-50mm.label-with-vendor canvas { width: 44mm !important; height: 44mm !important; margin: 1mm auto !important; }
+    body.label-4x6 .label-vendor { width: 46mm; max-height: 18mm; }
+}

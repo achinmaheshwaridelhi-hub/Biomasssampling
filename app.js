@@ -1131,7 +1131,7 @@ document.addEventListener('DOMContentLoaded', function() {
             } else if (res.cancelled) {
                 showMixFeedback('exclude', `<div style="font-weight:800; font-size:1.25rem;">🚫 QR CANCELLED &mdash; set this container aside</div>` +
                     `<div style="margin-top:0.25rem;">Mixing Code: ${pill}</div>` +
-                    `<div style="font-size:0.85rem;">${esc(res.sample1_barcode_id)} &bull; <strong>Do NOT add it to the mixture.</strong> It is not counted and does not hold up the composite.</div>${prog}`);
+                    `<div style="font-size:0.85rem;">${esc(res.sample1_barcode_id)} &bull; <strong>Do NOT add it to the mixture.</strong> It is not counted and does not hold up the composite.${res.cancel_reason ? '<br>Reason: ' + esc(res.cancel_reason) : ''}</div>${prog}`);
             } else if (res.include) {
                 showMixFeedback('include', `<div style="font-weight:800; font-size:1.25rem;">✅ INCLUDE in the mix</div>` +
                     `<div style="margin-top:0.25rem;">Mixing Code: ${pill}</div>` +
@@ -1937,6 +1937,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 renderSuperTools();
             } else if (targetContentId === 'tab-super-health') {
                 if (!document.getElementById('sx-health-body').innerHTML.trim()) renderSuperHealth();
+            } else if (targetContentId === 'tab-super-ips') {
+                renderSuperIps();
             } else if (targetContentId === 'tab-super-logins') {
                 renderSuperLogins();
             } else if (targetContentId === 'tab-admin-activity') {
@@ -3847,68 +3849,29 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     let superAuditData = null;
 
+    const ipUnknown = (log) => !!log.ip && log.ip !== 'unknown' && !log.ip_label;
+    const ipCell = (log, red) => {
+        const tag = ipUnknown(log) ? '<span class="ip-tag unknown">⚠ UNKNOWN IP</span>' : (log.ip_label ? `<span class="ip-tag known">${esc(log.ip_label)}</span>` : '');
+        return `${tag}<br><span style="font-family:monospace; font-size:0.78rem;${red ? ' color:#ef4444;' : ''}">${esc(log.ip || '-')}</span>` +
+               (log.device ? `<br><span style="color:#94a3b8; font-size:0.7rem;">${esc(String(log.device).slice(0, 80))}</span>` : '');
+    };
     async function renderActivityLogTab() {
         const cu = window.BiomassAPI.getCurrentUser();
         if (cu && cu.is_super) return renderSuperAuditTab();
-        const activityBody = document.getElementById('activity-log-body');
         const exceptionsBody = document.getElementById('exceptions-log-body');
-        
-        activityBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Loading activity log...</td></tr>';
         exceptionsBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Loading exception logs...</td></tr>';
-        
         try {
             const logs = await window.BiomassAPI.getActivityLogs();
-            activityBody.innerHTML = '';
-            exceptionsBody.innerHTML = '';
-            
-            const generalLogs = [];
-            const exceptionLogs = [];
-            
-            logs.forEach(log => {
-                const isException = isExceptionLog(log);
-                
-                if (isException) {
-                    exceptionLogs.push(log);
-                }
-                generalLogs.push(log); // Keep everything in general log for complete auditing
-            });
-            
-            // Render general logs
-            if (generalLogs.length === 0) {
-                activityBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No activity logs recorded.</td></tr>';
-            } else {
-                generalLogs.forEach(log => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td style="font-family: monospace; font-size: 0.85rem;">${esc(log.timestamp)}</td>
-                        <td><span class="user-role" style="background: rgba(59, 130, 246, 0.15); color: var(--secondary); padding: 0.1rem 0.4rem; border-radius: 4px;">${esc(log.username)}</span></td>
-                        <td><strong>${esc(log.action)}</strong></td>
-                        <td style="font-size: 0.85rem;">${esc(log.details)}</td>
-                        <td style="font-family: monospace; font-size: 0.8rem;">${esc(log.ip || '-')}</td>
-                    `;
-                    activityBody.appendChild(tr);
-                });
-            }
-            
-            // Render exceptions
-            if (exceptionLogs.length === 0) {
-                exceptionsBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No critical exceptions or security violations flagged.</td></tr>';
-            } else {
-                exceptionLogs.forEach(log => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td style="font-family: monospace; font-size: 0.85rem; color: #ef4444;">${esc(log.timestamp)}</td>
-                        <td><span class="user-role" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; padding: 0.1rem 0.4rem; border-radius: 4px;">${esc(log.username)}</span></td>
-                        <td><strong style="color: #ef4444;">${esc(log.action)}</strong></td>
-                        <td style="font-size: 0.85rem; font-weight: 500;">${esc(log.details)}</td>
-                        <td style="font-family: monospace; font-size: 0.8rem; color: #ef4444;">${esc(log.ip || '-')}${log.device ? `<br><span style="font-family: inherit; color: #94a3b8; font-size: 0.7rem;">${esc(String(log.device).slice(0, 90))}</span>` : ''}</td>
-                    `;
-                    exceptionsBody.appendChild(tr);
-                });
-            }
+            // the full activity log is not shown here any more (it lives with the Super Admin, "IP addresses"); the Excel export still has everything
+            const ex = logs.filter(l => isExceptionLog(l) || ipUnknown(l) || l.action === 'NEW_IP_DETECTED').slice(0, 600);
+            exceptionsBody.innerHTML = ex.length ? ex.map(l => {
+                const unk = ipUnknown(l), red = unk || isExceptionLog(l);
+                return `<tr class="${unk ? 'ip-unknown' : ''}"><td style="font-family:monospace; font-size:0.85rem;${red ? ' color:#ef4444;' : ''}">${esc(l.timestamp)}</td>` +
+                    `<td><span class="user-role" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; padding: 0.1rem 0.4rem; border-radius: 4px;">${esc(l.username)}</span></td>` +
+                    `<td><strong style="${red ? 'color:#ef4444;' : ''}">${esc(l.action)}</strong></td><td style="font-size:0.85rem;">${esc(l.details)}</td><td>${ipCell(l, unk)}</td></tr>`;
+            }).join('') : '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Nothing flagged. All activity comes from named places.</td></tr>';
         } catch (e) {
-            activityBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--danger);">Failed to load logs: ${esc(e.message)}</td></tr>`;
-            exceptionsBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--danger);">Failed to load exceptions: ${esc(e.message)}</td></tr>`;
+            exceptionsBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--danger);">Failed to load exceptions: ${esc(e.message)}</td></tr>`;
         }
     }
 
@@ -5494,14 +5457,26 @@ document.addEventListener('DOMContentLoaded', function() {
         initMixScanCard();
     }
 
-    // While a 50mm label is printed, ask the browser for a 50 x 50 mm page (removed again afterwards) so the thermal
-    // label roll is selected instead of A4. Normal reports keep the default page.
+    // Label paper: '4x6' = a 4 x 6 inch thermal sticker (default; the label fills the whole page), '50' = a 50 x 50 mm roll. The choice is kept per computer
+    // (select in the header). While a label is printed the browser is asked for exactly that page size (removed again afterwards), so the thermal
+    // printer is used at full size instead of A4. Normal reports keep the default page.
+    function labelFormat() {
+        try { return localStorage.getItem('BM_LABEL_FMT') === '50' ? '50' : '4x6'; } catch (e) { return '4x6'; }
+    }
     function setLabelPageSize(on) {
         let st = document.getElementById('label-page-size');
-        if (!on) { if (st) st.remove(); return; }
+        if (!on) { if (st) st.remove(); document.body.classList.remove('label-4x6'); return; }
         if (!st) { st = document.createElement('style'); st.id = 'label-page-size'; document.head.appendChild(st); }
-        st.textContent = '@page { size: 50mm 50mm; margin: 0; }';
+        const big = labelFormat() === '4x6';
+        document.body.classList.toggle('label-4x6', big);
+        st.textContent = big ? '@page { size: 101.6mm 152.4mm; margin: 0; }' : '@page { size: 50mm 50mm; margin: 0; }';
     }
+    (function () {
+        const sel = document.getElementById('label-fmt-select');
+        if (!sel) return;
+        sel.value = labelFormat();
+        sel.onchange = () => { try { localStorage.setItem('BM_LABEL_FMT', sel.value); } catch (e) { /* kept for this session only */ } };
+    })();
 
     // A scanned QR whose result is already saved is refused: the entry form is not opened, a banner explains why, and a
     // pop-up makes sure the operator notices (the server also refuses to overwrite a locked result).
@@ -5877,7 +5852,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (group.is_batch_created) {
                     actionHtml = `
                         <div style="color: #10b981; font-weight: bold; font-size: 0.85rem; margin-top: 0.5rem;">
-                            ✅ Composite generated (${esc(group.batch_ref_id)}) - cannot be generated again
+                            ✅ Composite generated - cannot be generated again
                         </div>
                         <div style="font-size: 0.82rem; color: #cbd5e1; background: rgba(16,185,129,0.1); border-radius: 6px; padding: 0.4rem 0.6rem;">
                             <strong>${esc(group.mixed_samples_count != null ? group.mixed_samples_count : acc)}</strong> sample(s) mixed
@@ -5953,7 +5928,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const res = await window.BiomassAPI.createCompositeBatchForGroup(date, groupCode);
             if (!res || !res.success) throw new Error((res && res.message) || 'Composite could not be created');
 
-            alert(`Composite Batch ${res.batch.composite_ref_id} created successfully for Mixing Code [${groupCode}]!`);
+            alert(`The composite for Mixing Code [${groupCode}] was created successfully!`);
             await renderLab2MixingGroups();
             const grp = lab2State.groups.find(x => x.group_code === groupCode && x.date === date);
             await renderLab2CompositeOutput(res.batch, groupCode, grp);
@@ -5983,26 +5958,25 @@ document.addEventListener('DOMContentLoaded', function() {
     // One 50 x 50 mm composite label. With a vendor name (Vendor / Referee copies) the COMPLETE name is printed above the QR in up to 3
     // lines; the font shrinks for long names so the whole label always fits the 50 x 50 mm roll.
     function labelHtmlFor(lotId, sampleName, vendorName, group, dateStr, canvasId) {
+        // The operator sees NO composite code on any composite label: Test = mixing code + date; Vendor / Referee = date + the COMPLETE vendor name + mixing code.
+        // (The code is inside the QR for the scanner. The font shrinks for long vendor names so the label always fits 50 x 50 mm.)
         const v = String(vendorName || '').trim();
-        const plain = `<div class="print-label-id" style="font-family: monospace; font-size: 7pt; font-weight: bold; margin-top: 1px;">${esc(lotId)}</div>`;
         if (!v) {
             return `
                 <div class="print-label-view print-label-50mm label-with-initials" style="text-align: center;">
-                    <div style="font-size: 8pt; font-weight: bold; font-family: monospace; color: #000; line-height: 1;">GROUP: ${esc(group)}</div>
-                    <div style="font-size: 7pt; font-weight: bold; margin: 1px 0 2px 0; color: #000; font-family: monospace;">${esc(sampleName)}</div>
-                    <div style="font-size: 11pt; font-weight: 800; margin: 0 0 1px 0; color: #000; font-family: monospace; line-height: 1;">${esc(dmy(dateStr))}</div>
+                    <div style="font-size: 11pt; font-weight: 800; font-family: monospace; color: #000; line-height: 1.1;">MIXING CODE: ${esc(group)}</div>
+                    <div style="font-size: 8pt; font-weight: bold; margin: 2px 0 3px 0; color: #000; font-family: monospace;">${esc(sampleName)}</div>
+                    <div style="font-size: 12pt; font-weight: 800; margin: 0 0 2px 0; color: #000; font-family: monospace; line-height: 1;">${esc(dmy(dateStr))}</div>
                     <canvas id="${canvasId}"></canvas>
-                    ${plain}
                 </div>`;
         }
-        const pt = v.length <= 22 ? 8 : (v.length <= 44 ? 7 : (v.length <= 66 ? 6 : 5));
+        const pt = labelFormat() === '4x6' ? (v.length <= 22 ? 10 : (v.length <= 44 ? 9 : (v.length <= 66 ? 8 : 7))) : (v.length <= 22 ? 8 : (v.length <= 44 ? 7 : (v.length <= 66 ? 6 : 5)));
         return `
             <div class="print-label-view print-label-50mm label-with-vendor" style="text-align: center;">
-                <div style="font-size: 7.5pt; font-weight: bold; font-family: monospace; color: #000; line-height: 1;">GROUP: ${esc(group)} &middot; ${esc(dmy(dateStr))}</div>
+                <div style="font-size: 8.5pt; font-weight: bold; font-family: monospace; color: #000; line-height: 1;">MIXING CODE: ${esc(group)} &middot; ${esc(dmy(dateStr))}</div>
                 <div style="font-size: 6.5pt; font-weight: bold; margin: 1px 0; color: #000; font-family: monospace;">${esc(sampleName)}</div>
                 <div class="label-vendor" style="font-size: ${pt}pt;">${esc(v)}</div>
                 <canvas id="${canvasId}"></canvas>
-                ${plain}
             </div>`;
     }
 
@@ -6023,7 +5997,7 @@ document.addEventListener('DOMContentLoaded', function() {
             let sum = document.getElementById('lab2-output-summary');
             if (!sum) { sum = document.createElement('div'); sum.id = 'lab2-output-summary'; sum.style.cssText = 'font-size:0.88rem; color:#e2e8f0; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.4); border-radius:8px; padding:0.6rem 0.8rem; margin-bottom:0.75rem;'; outputDiv.insertBefore(sum, outputDiv.firstChild); }
             const mixed = batch.mixed_samples_count != null ? batch.mixed_samples_count : (grp ? grp.mixed_samples_count : null);
-            sum.innerHTML = `<strong>Mixing Code ${esc(String(batch.daily_group_code || groupCode || '').toUpperCase())}</strong> &bull; ${esc(batch.date || '')} &bull; Composite ${esc(batch.composite_ref_id || '')}` +
+            sum.innerHTML = `<strong>Mixing Code ${esc(String(batch.daily_group_code || groupCode || '').toUpperCase())}</strong> &bull; ${esc(dmy(batch.date || ''))}` +
                 (grp ? `<br>Approved: <strong>${esc(grp.accepted_count)}</strong> &nbsp; Rejected: <strong>${esc(grp.rejected_count)}</strong> &nbsp; Total registered: <strong>${esc(grp.total_registered)}</strong> &nbsp; <strong>Total samples mixed: ${esc(mixed != null ? mixed : grp.accepted_count)}</strong>`
                        : (mixed != null ? `<br>Total samples mixed: <strong>${esc(mixed)}</strong>` : ''));
         }
@@ -6540,6 +6514,11 @@ document.addEventListener('DOMContentLoaded', function() {
         sx$('sxd-body').onclick = sxDetailClick;
         sx$('btn-sx-health-run').onclick = renderSuperHealth;
         sx$('btn-sx-logins-refresh').onclick = renderSuperLogins;
+        sx$('btn-sx-ips-refresh').onclick = renderSuperIps;
+        sx$('btn-sx-ipl-go').onclick = () => renderSuperIpLog();
+        sx$('sx-ipl-ip').onchange = () => renderSuperIpLog();
+        sx$('sx-ipl-q').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); renderSuperIpLog(); } };
+        refreshSuperIpBadge();
         superSearch();
     }
 
@@ -7256,21 +7235,74 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // ---------- IP addresses (Super Admin) ----------
+    let sxIps = [];
+    async function refreshSuperIpBadge() {
+        try {
+            const r = await window.BiomassAPI.superIps();
+            const b = sx$('sx-ip-badge'); if (b) { b.textContent = String(r.unknown); b.style.display = r.unknown ? 'inline-block' : 'none'; }
+            return r;
+        } catch (e) { return null; }
+    }
+    async function renderSuperIps() {
+        const body = sx$('sx-ips-body');
+        body.innerHTML = '<tr><td colspan="7" class="sx-loading">Loading...</td></tr>';
+        try {
+            const r = await window.BiomassAPI.superIps();
+            sxIps = r.ips || [];
+            const b = sx$('sx-ip-badge'); if (b) { b.textContent = String(r.unknown); b.style.display = r.unknown ? 'inline-block' : 'none'; }
+            body.innerHTML = sxIps.map((k, i) => `<tr class="${k.label ? '' : 'ip-unknown'}"><td style="font-family:monospace; font-weight:700;">${esc(k.ip)}</td>
+                <td><span class="ip-tag ${k.label ? 'known' : 'unknown'}" style="margin-bottom:4px;">${k.label ? 'NAMED' : '⚠ UNKNOWN'}</span><br>
+                    <input class="ip-input" id="sx-ipn-${i}" value="${esc(k.label || '')}" maxlength="60" placeholder="e.g. CHP Coal Bhawan PC"> <button class="btn btn-primary btn-sm" data-ipsave="${i}">Save</button></td>
+                <td>${esc(k.first_seen)}</td><td>${esc(k.last_seen)}</td><td>${esc(k.seen_count)}</td><td>${esc(k.last_user || '-')}<br><small style="color:#94a3b8;">${esc(k.last_action || '')}</small></td>
+                <td style="font-size:0.72rem; color:#94a3b8; max-width:240px;">${esc(String(k.device || '').slice(0, 110))}</td></tr>`).join('')
+                || '<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No address has been recorded yet.</td></tr>';
+            body.onclick = async (e) => {
+                const bt = e.target.closest('button[data-ipsave]'); if (!bt) return;
+                const i = Number(bt.dataset.ipsave), label = sx$('sx-ipn-' + i).value.trim();
+                bt.disabled = true;
+                try { await window.BiomassAPI.superIpLabel(sxIps[i].ip, label); await renderSuperIps(); await renderSuperIpLog(); }
+                catch (err) { alert(err.message); bt.disabled = false; }
+            };
+            const sel = sx$('sx-ipl-ip'), cur = sel.value;
+            sel.innerHTML = '<option value="">All places</option>' + sxIps.map(k => `<option value="${esc(k.ip)}">${esc(k.label ? k.label + ' (' + k.ip + ')' : '⚠ UNKNOWN ' + k.ip)}</option>`).join('');
+            sel.value = cur;
+            renderSuperIpLog();
+        } catch (e) {
+            body.innerHTML = `<tr><td colspan="7" style="color:#ef4444;">${esc(e.message)}</td></tr>`;
+        }
+    }
+    async function renderSuperIpLog() {
+        const body = sx$('sx-ipl-body');
+        body.innerHTML = '<tr><td colspan="4" class="sx-loading">Loading...</td></tr>';
+        try {
+            const lines = await window.BiomassAPI.superIpLogs(sx$('sx-ipl-ip').value, sx$('sx-ipl-q').value.trim(), 500);
+            body.innerHTML = lines.map(l => {
+                const unk = ipUnknown(l);
+                return `<tr class="${unk ? 'ip-unknown' : ''}"><td style="font-family:monospace; font-size:0.82rem; white-space:nowrap;">${esc(l.timestamp)}</td>
+                    <td>${unk ? '<span class="ip-tag unknown">⚠ UNKNOWN</span>' : `<span class="ip-tag known">${esc(l.ip_label || '-')}</span>`}<br><small style="font-family:monospace; color:#94a3b8;">${esc(l.ip || '-')}</small></td>
+                    <td>${esc(l.username)}</td><td><b>${esc(l.action)}</b><br><span style="font-size:0.82rem;">${esc(l.details)}</span></td></tr>`;
+            }).join('') || '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No activity found.</td></tr>';
+        } catch (e) {
+            body.innerHTML = `<tr><td colspan="4" style="color:#ef4444;">${esc(e.message)}</td></tr>`;
+        }
+    }
+
     // ---------- Audit log export (Admin and Super Admin) ----------
     function isExceptionLog(log) {
         const a = String(log.action || ''), d = String(log.details || '').toLowerCase();
         return a.toLowerCase().includes('exception') || a.toLowerCase().includes('reissue') || a.toLowerCase().includes('lockout') ||
-            a.startsWith('SUPERADMIN') || a === 'BOTTOM_PASSWORD_WRONG' || a === 'QR_CANCELLED' || d.includes('fail') || d.includes('expired') || d.includes('tampered');
+            a.startsWith('SUPERADMIN') || a === 'NEW_IP_DETECTED' || a === 'BOTTOM_PASSWORD_WRONG' || a === 'QR_CANCELLED' || d.includes('fail') || d.includes('expired') || d.includes('tampered');
     }
     async function exportAuditLog(onlyExceptions) {
         try {
             let logs = await window.BiomassAPI.getActivityLogs();
-            if (onlyExceptions) logs = logs.filter(isExceptionLog);
+            if (onlyExceptions) logs = logs.filter(l => isExceptionLog(l) || ipUnknown(l) || l.action === 'NEW_IP_DETECTED');
             const wb = new ExcelJS.Workbook();
             const sheet = wb.addWorksheet(onlyExceptions ? 'Exceptions' : 'Audit log');
-            sheet.columns = [{ header: 'Timestamp', width: 22 }, { header: 'User', width: 16 }, { header: 'Action', width: 26 }, { header: 'Details', width: 110 }, { header: 'IP address', width: 18 }, { header: 'Device', width: 60 }];
+            sheet.columns = [{ header: 'Timestamp', width: 22 }, { header: 'User', width: 16 }, { header: 'Action', width: 26 }, { header: 'Details', width: 110 }, { header: 'IP address', width: 18 }, { header: 'Place (name of the IP)', width: 28 }, { header: 'Device', width: 60 }];
             sheet.getRow(1).font = { bold: true };
-            logs.forEach(l => sheet.addRow([l.timestamp, l.username, l.action, l.details, l.ip || '', l.device || '']));
+            logs.forEach(l => sheet.addRow([l.timestamp, l.username, l.action, l.details, l.ip || '', l.ip_label || (ipUnknown(l) ? 'UNKNOWN' : ''), l.device || '']));
             const buffer = await wb.xlsx.writeBuffer();
             const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
             const a = document.createElement('a');
@@ -7314,14 +7346,15 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!user || user.role !== 'admin' || user.is_super) return;
         try {
             const r = await window.BiomassAPI.getSuperAlerts();
-            const n = Number(r.unacknowledged) || 0;
+            const n = Number(r.unacknowledged) || 0, u = Number(r.unknown_ips) || 0;
             const badge = sx$('activity-tab-badge'), bar = sx$('super-alert-bar');
-            if (badge) { badge.textContent = String(n); badge.style.display = n ? 'inline-block' : 'none'; }
+            if (badge) { badge.textContent = String(n + u); badge.style.display = (n + u) ? 'inline-block' : 'none'; }
             if (bar) {
-                bar.style.display = n ? 'flex' : 'none';
-                sx$('super-alert-text').textContent = `⚠️ ${n} change(s) were made by the Super Admin and have not been acknowledged. Review them in the exceptions list below.`;
+                bar.style.display = (n + u) ? 'flex' : 'none';
+                sx$('super-alert-text').innerHTML = [u ? `🌐 <b>${u} UNKNOWN IP address(es)</b> have been used - see the red lines below. The Super Admin must name them.` : '',
+                    n ? `⚠️ ${n} change(s) were made by the Super Admin and have not been acknowledged.` : ''].filter(Boolean).join('<br>');
                 const ack = sx$('btn-super-ack');
-                ack.style.display = r.is_real_admin ? '' : 'none';
+                ack.style.display = (r.is_real_admin && n) ? '' : 'none';
                 ack.onclick = async () => { ack.disabled = true; try { await window.BiomassAPI.ackSuperAlerts(); } catch (e) { alert(e.message); } ack.disabled = false; refreshSuperAlert(); };
             }
         } catch (e) { /* the next poll retries */ }

@@ -27,7 +27,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20261026_v36">
+    <link rel="stylesheet" href="style.css?v=20261029_v39">
     <!-- Chart.js for Executive Management Dashboard (version pinned; local copy used if the CDN is unreachable) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script>
@@ -62,6 +62,8 @@
                 <span class="user-name" id="display-user-name">Loading...</span>
                 <span class="user-role" id="display-user-role">Guest</span>
             </div>
+            <label class="label-fmt" title="Paper size of the QR labels printed from THIS computer"><span>&#128424;&#65039;</span>
+                <select id="label-fmt-select"><option value="4x6">Label 4 &times; 6 in</option><option value="50">Label 50 &times; 50 mm</option></select></label>
             <button class="btn-logout" id="btn-logout-action">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
                 Logout
@@ -152,6 +154,7 @@
                 <button class="tab-btn sx-tab" data-tab="super-tools" id="tab-btn-sx-tools" style="display: none;">&#129520; Toolbox</button>
                 <button class="tab-btn sx-tab" data-tab="super-health" id="tab-btn-sx-health" style="display: none;">&#129658; Data health</button>
                 <button class="tab-btn sx-tab" data-tab="super-logins" id="tab-btn-sx-logins" style="display: none;">&#128101; Logins</button>
+                <button class="tab-btn sx-tab" data-tab="super-ips" id="tab-btn-sx-ips" style="display: none;">&#127760; IP addresses <span id="sx-ip-badge" class="bottom-badge" style="display: none;">0</span></button>
             </div>
 
             <!-- TAB 0: EXECUTIVE DASHBOARD -->
@@ -1148,6 +1151,31 @@
                 <div class="card"><div class="table-responsive"><table style="min-width: 0;"><thead><tr><th>Login</th><th>Name</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody id="sx-logins-body"></tbody></table></div></div>
             </div>
 
+            <!-- IP ADDRESSES (Super Admin) -->
+            <div id="tab-super-ips" class="tab-content">
+                <div class="sx-hero">
+                    <div class="sx-hero-left">
+                        <div class="sx-hero-title">&#127760; IP addresses</div>
+                        <div class="sx-hero-sub">Every address the app has ever been used from is saved here. Give each one a name (for example &ldquo;CHP Coal Bhawan PC&rdquo;). An address <b>without a name is UNKNOWN</b>: everything done from it is shown in red in the Admin's
+                            &ldquo;Exceptions &amp; Security Violations&rdquo; view, and the first time a new address appears the Admin is warned at once. Note: all computers behind one router share the same public address, so a name describes a <i>place</i>.</div>
+                    </div>
+                    <div><button type="button" class="btn btn-secondary" id="btn-sx-ips-refresh">&#8635; Refresh</button></div>
+                </div>
+                <div class="card">
+                    <h3 class="card-title">Addresses</h3>
+                    <div class="table-responsive"><table style="min-width: 0; font-size: 0.85rem;"><thead><tr><th>IP address</th><th>Name</th><th>First seen</th><th>Last seen</th><th>Times</th><th>Last login / action</th><th>Device</th></tr></thead><tbody id="sx-ips-body"></tbody></table></div>
+                </div>
+                <div class="card">
+                    <h3 class="card-title">Activity by place</h3>
+                    <div class="vd-toolbar" style="margin-bottom: 0.8rem;">
+                        <select id="sx-ipl-ip" style="padding: 0.5rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: #fff; border-radius: 8px;"><option value="">All places</option></select>
+                        <input type="search" id="sx-ipl-q" placeholder="Search login, action or text" autocomplete="off" style="flex: 1; min-width: 180px; padding: 0.5rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: #fff; border-radius: 8px;">
+                        <button type="button" class="btn btn-primary btn-sm" id="btn-sx-ipl-go">&#128269; Show</button>
+                    </div>
+                    <div class="table-responsive"><table style="min-width: 0; font-size: 0.85rem;"><thead><tr><th>Time</th><th>Place</th><th>Login</th><th>What</th></tr></thead><tbody id="sx-ipl-body"></tbody></table></div>
+                </div>
+            </div>
+
             <!-- TAB: ACTIVITY LOG & EXCEPTIONS -->
             <div id="tab-admin-activity" class="tab-content">
                 <div style="display: flex; flex-direction: column; gap: 1.5rem;">
@@ -1176,7 +1204,7 @@
                         <h3 class="card-title" style="color: #ef4444; display: flex; align-items: center; gap: 0.5rem;">
                             ⚠️ Exceptions & Security Violations View
                         </h3>
-                        <p style="font-size: 0.85rem; margin-bottom: 1.25rem;">This panel highlights critical system exceptions, double-blind bypass operations, locked accounts, and expired scan attempts requiring investigation.</p>
+                        <p style="font-size: 0.85rem; margin-bottom: 1.25rem;">Critical exceptions, security violations, cancelled QR codes, Super Admin changes &mdash; and <b style="color:#ef4444;">everything done from an UNKNOWN IP address</b> (shown in red). The Super Admin names the known places.</p>
                         <div class="table-responsive">
                             <table>
                                 <thead>
@@ -1185,7 +1213,7 @@
                                         <th>User</th>
                                         <th>Exception Type</th>
                                         <th>Details</th>
-                                        <th>IP address / device</th>
+                                        <th>Place / IP address</th>
                                     </tr>
                                 </thead>
                                 <tbody id="exceptions-log-body">
@@ -1195,64 +1223,6 @@
                         </div>
                     </div>
 
-                    <!-- General Activity Audit Log Panel -->
-                    <div class="card admin-only-log" style="margin-bottom: 0;">
-                        <h3 class="card-title">System Activity Log</h3>
-                        <p style="font-size: 0.85rem; margin-bottom: 1.25rem;">Full audit trace of actions performed across the blind sampling network (QR generation, reissues, logins, overrides).</p>
-                        <div class="table-responsive">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Timestamp</th>
-                                        <th>Operator</th>
-                                        <th>Action Taken</th>
-                                        <th>Audit Message / Target ID</th>
-                                        <th>IP address</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="activity-log-body">
-                                    <!-- Dynamic -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAB: VENDORS (Lot 2/3 and Lot 4) -->
-            <div id="tab-admin-vendors" class="tab-content">
-                <div class="card">
-                    <h3 class="card-title">&#127981; Vendors &mdash; Lot 2/3 and Lot 4</h3>
-                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-                        Add a vendor, change its name or PO, <b>retire</b> it (it stays for old trucks and reports but can no longer be booked at the gate) or delete it (only possible while it has no trucks).
-                        A vendor that books under both lots has one entry per lot. You can also download everything as an Excel sheet, edit it there and upload it back.
-                    </p>
-                    <div class="vd-toolbar">
-                        <div class="sx-chips" id="vd-lot-chips" style="margin: 0;">
-                            <button type="button" class="sx-fchip active" data-v="ALL">All lots</button>
-                            <button type="button" class="sx-fchip" data-v="LOT2/3">Lot 2/3</button>
-                            <button type="button" class="sx-fchip" data-v="LOT4">Lot 4</button>
-                        </div>
-                        <div class="sx-chips" id="vd-status-chips" style="margin: 0;">
-                            <button type="button" class="sx-fchip active" data-v="active">Active</button>
-                            <button type="button" class="sx-fchip" data-v="retired">Retired</button>
-                            <button type="button" class="sx-fchip" data-v="all">Both</button>
-                        </div>
-                        <input type="search" id="vd-q" placeholder="Search vendor name or PO" autocomplete="off" style="flex: 1; min-width: 180px; padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 8px;">
-                    </div>
-                    <div class="vd-toolbar" style="margin-top: 0.7rem;">
-                        <button type="button" class="btn btn-primary btn-sm" id="vd-add">&#10133; Add vendor</button>
-                        <button type="button" class="btn btn-secondary btn-sm" id="vd-download">&#11015;&#65039; Download vendor sheet (Excel)</button>
-                        <label class="btn btn-secondary btn-sm" for="vd-file" style="cursor: pointer;">&#11014;&#65039; Upload edited sheet</label>
-                        <input type="file" id="vd-file" accept=".xlsx" style="display: none;">
-                        <span id="vd-count" style="font-size: 0.85rem; color: var(--text-muted);"></span>
-                    </div>
-                    <div class="table-responsive" style="margin-top: 0.8rem;">
-                        <table style="min-width: 0;">
-                            <thead><tr><th>Vendor</th><th>Lot</th><th>PO number</th><th>Trucks</th><th>Last used</th><th>Status</th><th>Actions</th></tr></thead>
-                            <tbody id="vd-body"></tbody>
-                        </table>
-                    </div>
                 </div>
             </div>
 
@@ -1941,14 +1911,14 @@
 
     <!-- Moisture-meter reader (trained offline OCR). Small loaders only; the ~8 MB engine in lib/ocr/ is fetched
          on first use. If these fail to load the app simply falls back to manual photo + typing. -->
-    <script src="lib/ocr/moisture-reader-core.js?v=20261026_v36"></script>
-    <script src="lib/ocr/led-weight-reader.js?v=20261026_v36"></script>
-    <script src="lib/ocr/led-templates.js?v=20261026_v36"></script>
-    <script src="moisture-ocr.js?v=20261026_v36"></script>
+    <script src="lib/ocr/moisture-reader-core.js?v=20261029_v39"></script>
+    <script src="lib/ocr/led-weight-reader.js?v=20261029_v39"></script>
+    <script src="lib/ocr/led-templates.js?v=20261029_v39"></script>
+    <script src="moisture-ocr.js?v=20261029_v39"></script>
 
     <!-- App JavaScript files -->
-    <script src="api.js?v=20261026_v36" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261026_v36" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="api.js?v=20261029_v39" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261029_v39" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

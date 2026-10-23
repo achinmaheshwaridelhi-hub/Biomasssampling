@@ -1247,10 +1247,19 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
 
-    // ================= AFTER WEIGHMENT / UNLOADING AREA =================
-    // ================= UNLOADING: DAILY REPORT (screen + Excel) =================
-    const dayReport = { data: null };
+    // ================= LOTS (three: Lot 2, Lot 3, Lot 4; "LOT2/3" is the old combined value of history booked before the split) =================
+    const LOT_LABEL = { 'LOT2': 'Lot 2', 'LOT3': 'Lot 3', 'LOT4': 'Lot 4', 'LOT2/3': 'Lot 2/3' };
+    const lotLabel = (l) => LOT_LABEL[l] || String(l || '');
+    const lotCls = (l) => l === 'LOT4' ? 'lot-4' : l === 'LOT3' ? 'lot-3' : l === 'LOT2' ? 'lot-2' : 'lot-23';
+    // a name without its leading "M/s" (vendor names are stored as "M/s NAME"; searching and matching must not depend on the prefix)
+    const stripMs = (s) => String(s || '').replace(/\s+/g, ' ').trim().replace(/^(m\s*\/\s*s\.?\s+)+/i, '');
+    // the old LOT2/3 entries (not yet split by the vendor-sheet upload) show up under both the Lot 2 and the Lot 3 filter
+    const lotMatches = (lot, f) => !f || f === 'ALL' || lot === f || (lot === 'LOT2/3' && (f === 'LOT2' || f === 'LOT3'));
 
+    // ================= AFTER WEIGHMENT / UNLOADING AREA =================
+    // ================= UNLOADING: DAILY REPORT (a password-protected PDF only: nothing is shown on screen, no Excel) =================
+    // The rows are fetched only after the server has checked the unloading action password (the one used for bottom samples and Cancel QR, asked EVERY time).
+    // They are turned into an AES-256 encrypted PDF that opens only with that same password, and are not kept in the page afterwards.
     function initDayReportCard() {
         const dateEl = document.getElementById('dayreport-date');
         if (!dateEl) return;
@@ -1258,117 +1267,342 @@ document.addEventListener('DOMContentLoaded', function() {
         const shift = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
         dateEl.max = today;
         if (!dateEl.value) dateEl.value = today;
-        document.getElementById('btn-dayreport-generate').onclick = () => loadDayReport();
-        document.getElementById('btn-dayreport-today').onclick = () => { dateEl.value = window.BiomassAPI.todayIST(); loadDayReport(); };
-        document.getElementById('btn-dayreport-yesterday').onclick = () => { dateEl.value = shift(window.BiomassAPI.todayIST(), -1); loadDayReport(); };
-        document.getElementById('btn-dayreport-excel').onclick = downloadDayReportExcel;
-        dateEl.onchange = () => { dayReport.data = null; document.getElementById('dayreport-table-wrap').style.display = 'none'; document.getElementById('btn-dayreport-excel').style.display = 'none'; document.getElementById('dayreport-note').textContent = ''; };
+        document.getElementById('btn-dayreport-today').onclick = () => { dateEl.value = window.BiomassAPI.todayIST(); };
+        document.getElementById('btn-dayreport-yesterday').onclick = () => { dateEl.value = shift(window.BiomassAPI.todayIST(), -1); };
+        document.getElementById('btn-dayreport-summary').onclick = () => openDayReportPdf('summary');
+        document.getElementById('btn-dayreport-details').onclick = () => openDayReportPdf('details');
     }
 
-    const dr = (v, d) => (v === null || v === undefined || v === '') ? null : Number(v).toFixed(d);
-
-    async function loadDayReport() {
-        const note = document.getElementById('dayreport-note'), wrap = document.getElementById('dayreport-table-wrap'), body = document.getElementById('dayreport-body');
-        const xl = document.getElementById('btn-dayreport-excel');
+    function openDayReportPdf(kind) {
         const date = document.getElementById('dayreport-date').value || window.BiomassAPI.todayIST();
-        note.style.color = ''; note.textContent = 'Loading...';
-        wrap.style.display = 'none'; xl.style.display = 'none'; dayReport.data = null;
-        try {
-            const res = await window.BiomassAPI.getDayReport(date);
-            dayReport.data = res;
-            const rows = res.rows || [];
-            if (!rows.length) { note.textContent = `No trucks were registered on ${res.date}.`; return; }
-            const accepted = rows.filter(r => r.acceptance_status === 'ACCEPTED').length, rejected = rows.filter(r => r.acceptance_status === 'REJECTED').length, cancelled = rows.filter(r => r.acceptance_status === 'CANCELLED').length;
-            const netKg = rows.reduce((a, r) => a + (Number(r.net_weight) || 0), 0);
-            const accKg = rows.filter(r => r.acceptance_status === 'ACCEPTED').reduce((a, r) => a + (Number(r.net_weight) || 0), 0);
-            const rejKg = rows.filter(r => r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED').reduce((a, r) => a + (Number(r.net_weight) || 0), 0);
-            note.innerHTML = `<strong>${esc(dmy(res.date))}</strong> &bull; ${rows.length} truck(s) &bull; ${accepted} accepted / ${rejected} rejected${cancelled ? ' / ' + cancelled + ' QR cancelled' : ''} &bull; net weight: all <strong>${(netKg / 1000).toFixed(3)} MT</strong> (accepted ${(accKg / 1000).toFixed(3)} MT, rejected ${(rejKg / 1000).toFixed(3)} MT)` +
-                ` <span style="color:#94a3b8;">(generated ${esc(res.generated_at)} IST)</span>`;
-            body.innerHTML = rows.map((r, i) => {
-                const rej = r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED';
-                const cell = (v, d) => rej && (v === null || v === undefined) ? '<span style="color:#ef4444;">N/A</span>' : (dr(v, d) !== null ? dr(v, d) : '<span style="color:#f59e0b;">Pending</span>');
-                const wt = v => Number(v) > 0 ? Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '<span style="color:#f59e0b;">-</span>';
-                return `<tr${rej ? ' style="background:rgba(239,68,68,0.08);"' : ''}><td>${i + 1}</td><td><strong>${esc(r.truck_reg_number)}</strong></td><td>${esc(r.company_name)}</td><td>${esc(r.lot || '')}<br><small style="color:#94a3b8;">PO ${esc(r.po_number || '-')}</small></td>` +
-                    `<td>${wt(r.gross_weight)}</td><td>${wt(r.tare_weight)}</td><td>${wt(r.net_weight)}</td>` +
-                    `<td>${cell(r.moisture_pct, 2)}</td><td>${cell(r.tm, 2)}</td><td>${cell(r.gcv, 0)}</td><td>${cell(r.fineness_value, 2)}</td><td>${cell(r.ash, 2)}</td>` +
-                    `<td>${r.lot === 'LOT4' ? cell(r.sulphur, 2) : '-'}</td><td>${r.lot === 'LOT4' ? cell(r.vm, 2) : '-'}</td><td>${esc(r.gcv_source || '-')}</td>` +
-                    `<td style="font-weight:700; color:${rej ? '#ef4444' : r.acceptance_status === 'ACCEPTED' ? '#10b981' : '#f59e0b'};">${r.acceptance_status === 'CANCELLED' ? '🚫 QR CANCELLED<br><small style="font-weight:400;">' + esc(r.cancel_reason || '') + '</small>' : esc(r.acceptance_status)}</td></tr>`;
-            }).join('');
-            wrap.style.display = ''; xl.style.display = '';
-        } catch (err) {
-            note.style.color = '#f59e0b';
-            note.textContent = '⏰ ' + err.message;
-        }
+        const note = document.getElementById('dayreport-note');
+        const modal = document.getElementById('dayreport-pw-modal');
+        const pw = document.getElementById('dayreport-pw'), msg = document.getElementById('dayreport-pw-msg'), send = document.getElementById('btn-dayreport-pw-send');
+        document.getElementById('dayreport-pw-what').textContent = (kind === 'summary' ? 'Summary report' : 'Truck-wise details') + ' for ' + dmy(date);
+        pw.value = ''; msg.textContent = ''; send.disabled = true;
+        modal.style.display = 'flex';
+        pw.focus();
+        pw.oninput = () => { send.disabled = pw.value.length === 0; };
+        pw.onkeydown = (e) => { if (e.key === 'Enter' && !send.disabled) send.click(); };
+        document.getElementById('btn-dayreport-pw-cancel').onclick = () => { pw.value = ''; modal.style.display = 'none'; };
+        send.onclick = async () => {
+            const password = pw.value;
+            send.disabled = true; msg.style.color = ''; msg.textContent = 'Checking...';
+            try {
+                const res = await window.BiomassAPI.getDayReport(date, password);
+                if (!res || res.success === false) { msg.style.color = '#ef4444'; msg.textContent = (res && res.message) || 'The report was not opened.'; pw.value = ''; pw.focus(); return; }
+                if (!(res.rows || []).length) { msg.style.color = '#f59e0b'; msg.textContent = `No trucks were registered on ${dmy(res.date)}.`; send.disabled = false; return; }
+                msg.textContent = 'Creating the PDF...';
+                const bytes = kind === 'summary' ? await buildDaySummaryPdf(res, password) : await buildDayDetailsPdf(res, password);
+                const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+                const link = document.createElement('a');
+                link.href = url; link.download = `${kind === 'summary' ? 'Unloading_Summary' : 'Truck_Details'}_${compactDate(res.date)}.pdf`;
+                document.body.appendChild(link); link.click(); document.body.removeChild(link);
+                setTimeout(() => URL.revokeObjectURL(url), 4000);
+                pw.value = ''; modal.style.display = 'none';
+                note.style.color = '#10b981';
+                note.textContent = `${kind === 'summary' ? 'Summary report' : 'Truck-wise details'} for ${dmy(res.date)} downloaded as a PDF (${res.rows.length} truck(s)). Open it with the same action password.`;
+            } catch (err) {
+                msg.style.color = '#f59e0b'; msg.textContent = '⏰ ' + (err.message || String(err)); send.disabled = pw.value.length === 0;
+            }
+        };
     }
 
-    async function downloadDayReportExcel() {
-        const res = dayReport.data;
-        if (!res || !(res.rows || []).length) { alert('Generate the report first.'); return; }
-        if (typeof ExcelJS === 'undefined') { alert('Excel export library failed to load. Please check your internet connection and try again.'); return; }
-        const rows = res.rows;
-        const cols = [['S.No.', 7], ['Truck No.', 15], ['Vendor', 28], ['Lot', 10], ['PO No.', 14], ['Gross Wt (kg)', 14], ['Tare Wt (kg)', 14], ['Net Wt (kg)', 14], ['Net Wt (MT)', 12],
-                      ['Moisture %', 11], ['TM %', 10], ['ARB GCV (kcal/kg)', 14], ['Fineness %', 11], ['ARB Ash %', 10], ['ARB Sulphur % (Lot-4)', 13], ['ARB VM % (Lot-4)', 12], ['GCV / Ash from', 16], ['Result', 12]];
-        const wb = new ExcelJS.Workbook();
-        wb.creator = 'BiomassBlind'; wb.created = new Date();
-        const sheet = wb.addWorksheet('Day Report', { views: [{ state: 'frozen', ySplit: 4 }] });
-        const border = st => ({ top: { style: st }, left: { style: st }, bottom: { style: st }, right: { style: st } });
-        const band = (row, argb) => { for (let c = 1; c <= cols.length; c++) sheet.getCell(row, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } }; };
-        sheet.mergeCells(1, 1, 1, cols.length);
-        Object.assign(sheet.getCell(1, 1), { value: `Biomass Procurement — Daily Report for ${dmy(res.date)}` });
-        sheet.getCell(1, 1).font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } };
-        sheet.getCell(1, 1).alignment = { vertical: 'middle', horizontal: 'center' };
-        sheet.getRow(1).height = 28; band(1, 'FF059669');
-        sheet.mergeCells(2, 1, 2, cols.length);
-        sheet.getCell(2, 1).value = `Trucks: ${rows.length}    |    Generated: ${res.generated_at} IST`;
-        sheet.getCell(2, 1).font = { italic: true, size: 10, color: { argb: 'FF374151' } };
-        sheet.getCell(2, 1).alignment = { vertical: 'middle', horizontal: 'center' };
-        band(2, 'FFE5E7EB'); sheet.getRow(3).height = 6;
-        cols.forEach(([h, w], i) => {
-            const c = sheet.getCell(4, i + 1);
-            c.value = h; c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-            c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF111827' } };
-            c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }; c.border = border('thin');
-            sheet.getColumn(i + 1).width = w;
-        });
-        sheet.getRow(4).height = 24;
-        const num = v => (v === null || v === undefined || v === '') ? null : Number(v);
-        let r = 5;
-        rows.forEach((x, i) => {
-            const rej = x.acceptance_status === 'REJECTED' || x.acceptance_status === 'CANCELLED';
-            const na = rej ? ('N/A (' + x.acceptance_status + ')') : 'Pending';
-            const w = v => Number(v) > 0 ? Number(v) : '-';
-            const vals = [i + 1, x.truck_reg_number, x.company_name, x.lot || '-', x.po_number || '-', w(x.gross_weight), w(x.tare_weight), w(x.net_weight),
-                          Number(x.net_weight) > 0 ? Number((Number(x.net_weight) / 1000).toFixed(3)) : '-',
-                          num(x.moisture_pct) ?? na, num(x.tm) ?? na, num(x.gcv) ?? na, num(x.fineness_value) ?? na, num(x.ash) ?? na,
-                          x.lot === 'LOT4' ? (num(x.sulphur) ?? na) : '-', x.lot === 'LOT4' ? (num(x.vm) ?? na) : '-', x.gcv_source || '-', x.acceptance_status === 'CANCELLED' ? ('QR CANCELLED: ' + (x.cancel_reason || '')) : x.acceptance_status];
-            vals.forEach((v, k) => {
-                const c = sheet.getCell(r, k + 1);
-                c.value = v; c.border = border('hair');
-                c.alignment = { vertical: 'middle', horizontal: (k === 1 || k === 2) ? 'left' : 'center' };
-                if (typeof v === 'number' && k >= 5 && k <= 7) c.numFmt = '#,##0.###';
-                if (rej) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
-                else if (r % 2 === 0) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
+    // ---- a tiny page-layout helper on top of MiniPdf (A4 landscape, points; y grows downwards)
+    function newReportDoc(title, dateTxt, subtitle, generated) {
+        const pdf = new MiniPdf();
+        const W = 842, H = 595, M = 30, d = { pdf, W, H, M, CW: W - 2 * M, y: 0, title, dateTxt };
+        const NAVY = '#1F2A5A';
+        d.header = (first) => {
+            pdf.addPage(W, H);
+            if (first) {
+                pdf.rect(M, 26, d.CW, 34, { fill: NAVY });
+                pdf.text(title, M + 12, 35, { size: 19, bold: true, color: '#FFFFFF' });
+                pdf.text('DATE: ' + dateTxt, W - M - 12, 38, { size: 13, bold: true, color: '#FFFFFF', align: 'right' });
+                pdf.rect(M, 60, d.CW, 20, { fill: '#3B4A85' });
+                pdf.text(subtitle, M + 12, 65, { size: 10.5, bold: true, color: '#FFFFFF' });
+                pdf.text('Generated: ' + generated + ' IST', W - M - 12, 66, { size: 8, color: '#FFFFFF', align: 'right' });
+                d.y = 94;
+            } else {
+                pdf.rect(M, 26, d.CW, 20, { fill: NAVY });
+                pdf.text(title, M + 10, 31, { size: 10.5, bold: true, color: '#FFFFFF' });
+                pdf.text('DATE: ' + dateTxt, W - M - 10, 31, { size: 10.5, bold: true, color: '#FFFFFF', align: 'right' });
+                d.y = 58;
+            }
+        };
+        d.ensure = (h) => { if (d.y + h > H - 38) d.header(false); };
+        // wrap a text into lines no wider than w
+        d.wrap = (str, w, size, bold) => {
+            const out = []; let line = '';
+            String(str === null || str === undefined ? '' : str).split(/\s+/).filter(Boolean).forEach((word) => {
+                let t = line ? line + ' ' + word : word;
+                if (pdf.textWidth(t, size, bold) <= w) { line = t; return; }
+                if (line) out.push(line);
+                while (pdf.textWidth(word, size, bold) > w && word.length > 1) {       // a word longer than the cell is cut
+                    let k = word.length - 1; while (k > 1 && pdf.textWidth(word.slice(0, k), size, bold) > w) k--;
+                    out.push(word.slice(0, k)); word = word.slice(k);
+                }
+                line = word;
             });
-            r++;
+            if (line) out.push(line);
+            return out.length ? out : [''];
+        };
+        d.section = (text, color) => {
+            d.ensure(24 + 40);
+            pdf.rect(M, d.y, d.CW, 18, { fill: color || NAVY });
+            pdf.text(text, M + 8, d.y + 4.5, { size: 10, bold: true, color: '#FFFFFF' });
+            d.y += 22;
+        };
+        // columns: [{ h, w, align }]; rows: arrays of strings (or { t, color, bold }); opts: size, headFill, headColor, subHead, rowFill(row, i), totalRow
+        d.table = (cols, rows, o) => {
+            o = o || {}; const size = o.size || 8.5, lh = size * 1.25, padX = 3.5, padY = 3;
+            const isB = (cl) => !!(cl && typeof cl === 'object' && cl.bold);       // (a plain string also has a .bold method)
+            const head = () => {
+                const hl = cols.map(c => d.wrap(c.h, c.w - 2 * padX, size - 0.5, true));
+                const hh = Math.max(...hl.map(l => l.length)) * (lh - 0.5) + 2 * padY;
+                let x = M;
+                cols.forEach((c, i) => {
+                    pdf.rect(x, d.y, c.w, hh, { fill: o.headFill || '#3B4A85', stroke: '#B6BCC8', lw: 0.4 });
+                    hl[i].forEach((ln, k) => pdf.text(ln, c.align === 'left' ? x + padX : x + c.w / 2, d.y + padY + k * (lh - 0.5), { size: size - 0.5, bold: true, color: o.headColor || '#FFFFFF', align: c.align === 'left' ? 'left' : 'center' }));
+                    x += c.w;
+                });
+                d.y += hh;
+            };
+            const rowHeight = (cells) => Math.max(...cells.map((cl, i) => { const t = cl && cl.t !== undefined ? cl.t : cl; return d.wrap(t, cols[i].w - 2 * padX, size, isB(cl)).length; })) * lh + 2 * padY;
+            d.ensure(40); head();
+            rows.forEach((cells, ri) => {
+                const rh = rowHeight(cells);
+                if (d.y + rh > H - 38) { d.header(false); head(); }
+                const isTotal = o.totalRow && ri === rows.length - 1;
+                let x = M; const fill = isTotal ? NAVY : (o.rowFill && o.rowFill(cells, ri)) || (ri % 2 ? '#F6F7FA' : '#FFFFFF');
+                cols.forEach((c, i) => {
+                    const cl = cells[i], t = cl && cl.t !== undefined ? cl.t : cl;
+                    pdf.rect(x, d.y, c.w, rh, { fill, stroke: isTotal ? NAVY : '#C9CDD6', lw: 0.4 });
+                    const lines = d.wrap(t, c.w - 2 * padX, size, isB(cl) || isTotal);
+                    lines.forEach((ln, k) => pdf.text(ln, c.align === 'left' ? x + padX : (c.align === 'right' ? x + c.w - padX : x + c.w / 2), d.y + padY + k * lh,
+                        { size, bold: isB(cl) || isTotal, color: isTotal ? '#FFFFFF' : ((cl && cl.color) || '#111827'), align: c.align === 'left' ? 'left' : (c.align === 'right' ? 'right' : 'center') }));
+                    x += c.w;
+                });
+                d.y += rh;
+            });
+        };
+        // a row of equal tiles: [{ label, value, sub, color }]
+        d.tiles = (items, h) => {
+            h = h || 58; d.ensure(h + 6);
+            const gap = 8, w = (d.CW - gap * (items.length - 1)) / items.length;
+            items.forEach((t, i) => {
+                const x = M + i * (w + gap);
+                pdf.rect(x, d.y, w, h, { fill: '#FFFFFF', stroke: '#B6BCC8', lw: 0.6 });
+                pdf.rect(x, d.y, w, 16, { fill: '#F0F1F5' });
+                const fit = (txt, size, bold) => { while (size > 5 && pdf.textWidth(txt, size, bold) > w - 6) size -= 0.3; return size; };
+                pdf.text(t.label, x + w / 2, d.y + 4.5, { size: fit(t.label, 7.6, true), bold: true, color: '#374151', align: 'center' });
+                pdf.text(String(t.value), x + w / 2, d.y + 19, { size: fit(String(t.value), h > 50 ? 20 : 16, true), bold: true, color: t.color || '#111827', align: 'center' });
+                if (t.sub) pdf.text(t.sub, x + w / 2, d.y + h - 12, { size: fit(t.sub, 7, false), color: '#6B7280', align: 'center' });
+            });
+            d.y += h + 6;
+        };
+        d.footers = () => {
+            const n = pdf.pages.length;
+            pdf.pages.forEach((p, i) => {
+                pdf.cur = p;
+                pdf.line(M, H - 30, W - M, H - 30, { color: '#C9CDD6', lw: 0.5 });
+                pdf.text(title + '  •  ' + dateTxt + '  •  Confidential', M, H - 24, { size: 7.5, color: '#6B7280' });
+                pdf.text('Page ' + (i + 1) + ' of ' + n, W - M, H - 24, { size: 7.5, color: '#6B7280', align: 'right' });
+            });
+        };
+        return d;
+    }
+
+    // ================= UNLOADING: DAILY SUMMARY REPORT (for seniors) =================
+    // Only the unloading department's view: trucks received / approved / unloaded / rejected and the unloaded quantity (net weighbridge weight).
+    // No laboratory results. Vendors are ranked by net quantity unloaded; every vendor also shows its Lot 2 / Lot 3 / Lot 4 split.
+    const SUMMARY_LOTS = ['LOT2', 'LOT3', 'LOT4', 'LOT2/3'];        // LOT2/3 = trucks booked before the split of Lot 2 and Lot 3 (shown only when present)
+    function daySummaryData(rows) {
+        const lotOf = (r) => { const k = String(r.lot || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); return k === 'LOT4' ? 'LOT4' : k === 'LOT3' ? 'LOT3' : k === 'LOT2' ? 'LOT2' : 'LOT2/3'; };
+        const kg = (r) => Number(r.net_weight) || 0;
+        const isCancelled = (r) => r.acceptance_status === 'CANCELLED';
+        const isRej = (r) => r.acceptance_status === 'REJECTED' || isCancelled(r);
+        const isApp = (r) => r.acceptance_status === 'ACCEPTED';
+        const isUnl = (r) => isApp(r) && Number(r.tare_weight) > 0 && kg(r) > 0;
+        const lotBlank = () => { const o = {}; SUMMARY_LOTS.forEach(l => { o[l] = { unloaded: 0, kg: 0 }; }); return o; };
+        const blank = () => ({ received: 0, approved: 0, unloaded: 0, rejected: 0, cancelled: 0, awaiting: 0, notUnloaded: 0, kg: 0, rejKg: 0, lots: lotBlank() });
+        const add = (o, r) => {
+            o.received++;
+            if (isApp(r)) { o.approved++; if (!isUnl(r)) o.notUnloaded++; }
+            if (isUnl(r)) { o.unloaded++; o.kg += kg(r); const L = o.lots[lotOf(r)]; L.unloaded++; L.kg += kg(r); }
+            if (isRej(r)) { o.rejected++; o.rejKg += kg(r); if (isCancelled(r)) o.cancelled++; }
+            if (!isApp(r) && !isRej(r)) o.awaiting++;
+        };
+        const total = blank(), vendors = {}, lots = {}, lotVendors = {};
+        SUMMARY_LOTS.forEach(l => { lots[l] = blank(); lotVendors[l] = new Set(); });
+        rows.forEach((r) => {
+            const name = String(r.company_name || '-').trim();
+            const v = vendors[name] || (vendors[name] = Object.assign(blank(), { name }));
+            add(v, r); add(total, r); add(lots[lotOf(r)], r); lotVendors[lotOf(r)].add(name);
         });
-        sheet.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: cols.length } };
-        r += 1;
+        const list = Object.values(vendors).sort((a, b) => (b.kg - a.kg) || (b.received - a.received) || a.name.localeCompare(b.name));
+        const rejected = rows.filter(isRej).sort((a, b) => String(a.company_name).localeCompare(String(b.company_name)) || String(a.truck_reg_number).localeCompare(String(b.truck_reg_number)));
+        // the lots that appear in the report: the three real lots always, the old combined one only if trucks were booked under it
+        const shownLots = SUMMARY_LOTS.filter(l => l !== 'LOT2/3' || lots[l].received > 0);
+        return { total, vendors: list, lots, lotVendors, rejected, lotOf, kg, isCancelled, shownLots };
+    }
+
+    // a pie / donut chart drawn on a canvas (2x for a crisp picture inside the PDF)
+    function drawPieImage(items, title, w, h, donut) {
+        const palette = ['#2E7D32', '#00897B', '#1A237E', '#C62828', '#6A1B9A', '#8D6E63', '#37474F', '#F9A825', '#0288D1', '#AD1457', '#558B2F', '#EF6C00'];
+        const SC = 2, c = document.createElement('canvas'); c.width = w * SC; c.height = h * SC;
+        const x = c.getContext('2d'); x.scale(SC, SC);
+        x.fillStyle = '#FFFFFF'; x.fillRect(0, 0, w, h);
+        x.fillStyle = '#1F2A5A'; x.font = 'bold 15px Arial'; x.textAlign = 'left'; x.textBaseline = 'top'; x.fillText(title, 10, 8);
+        const sum = items.reduce((a, i) => a + i.value, 0);
+        if (!(sum > 0)) { x.fillStyle = '#6B7280'; x.font = '14px Arial'; x.fillText('No biomass was unloaded.', 10, 50); return c; }
+        const R = Math.min(h - 50, w * 0.42) / 2, cx = 14 + R + 6, cy = 34 + (h - 34) / 2;
+        let a0 = -Math.PI / 2;
+        items.forEach((it, i) => {
+            const a1 = a0 + (it.value / sum) * Math.PI * 2;
+            x.beginPath(); x.moveTo(cx, cy); x.arc(cx, cy, R, a0, a1); x.closePath();
+            x.fillStyle = it.color || palette[i % palette.length]; x.fill();
+            x.strokeStyle = '#FFFFFF'; x.lineWidth = 2; x.stroke();
+            const pct = it.value / sum * 100;
+            if (pct >= 5) {
+                const am = (a0 + a1) / 2, rr = donut ? R * 0.78 : R * 0.64;
+                x.fillStyle = '#FFFFFF'; x.font = 'bold 12px Arial'; x.textAlign = 'center'; x.textBaseline = 'middle';
+                x.fillText(pct.toFixed(1) + '%', cx + Math.cos(am) * rr, cy + Math.sin(am) * rr);
+            }
+            a0 = a1;
+        });
+        if (donut) {
+            x.beginPath(); x.arc(cx, cy, R * 0.5, 0, Math.PI * 2); x.fillStyle = '#FFFFFF'; x.fill();
+            x.fillStyle = '#1F2A5A'; x.font = 'bold 15px Arial'; x.textAlign = 'center'; x.textBaseline = 'middle';
+            x.fillText((sum / 1000).toFixed(2), cx, cy - 8); x.font = '11px Arial'; x.fillText('MT unloaded', cx, cy + 10);
+        }
+        const lx = cx + R + 22; let ly = 40;
+        const step = Math.min(22, (h - 52) / Math.max(1, items.length));
+        items.forEach((it, i) => {
+            x.fillStyle = it.color || palette[i % palette.length]; x.fillRect(lx, ly, 11, 11);
+            x.fillStyle = '#111827'; x.font = '12px Arial'; x.textAlign = 'left'; x.textBaseline = 'top';
+            const full = it.label + ' (' + (it.value / sum * 100).toFixed(1) + '%)';
+            let t = full;
+            const maxW = w - lx - 20;
+            while (x.measureText(t).width > maxW && t.length > 8) t = t.slice(0, -2);
+            if (t !== full) t += '…';
+            x.fillText(t, lx + 17, ly - 1); ly += step;
+        });
+        return c;
+    }
+
+    async function buildDaySummaryPdf(res, password) {
+        const S = daySummaryData(res.rows), T = S.total;
+        const mt = (kg) => ((Number(kg) || 0) / 1000);
+        const f2 = (kg) => mt(kg).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const f3 = (kg) => mt(kg).toLocaleString('en-IN', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+        const GREEN = '#2E7D32', RED = '#C62828', PURPLE = '#6A1B9A', BLUE = '#1565C0';
+        const d = newReportDoc('BIOMASS RECEIPT & UNLOADING REPORT', dmy(res.date), 'PLANT SUMMARY  —  Unloading Department', res.generated_at || '');
+        d.header(true);
+        const avg = T.unloaded ? T.kg / T.unloaded : 0;
+        d.tiles([
+            { label: 'TRUCKS RECEIVED', value: T.received, sub: 'registered on this date', color: '#1F2A5A' },
+            { label: 'APPROVED', value: T.approved, sub: (T.approved - T.notUnloaded) + ' unloaded' + (T.notUnloaded ? ', ' + T.notUnloaded + ' to unload' : ''), color: GREEN },
+            { label: 'UNLOADED', value: T.unloaded, sub: 'approved and weighed out', color: GREEN },
+            { label: 'REJECTED', value: T.rejected, sub: T.cancelled ? 'incl. ' + T.cancelled + ' QR cancelled' : 'by the laboratory', color: RED },
+            { label: 'NET UNLOADED (MT)', value: f2(T.kg), sub: 'tonnes of biomass', color: PURPLE },
+            { label: 'AVG WT / TRUCK (MT)', value: f2(avg), sub: 'unloaded trucks only', color: BLUE }
+        ], 60);
+        d.y += 4;
+        // ---- vendor-wise table
+        d.section('VENDOR-WISE SUMMARY — in descending order of net quantity unloaded');
+        const lotsShown = S.shownLots, lotW = 74, fixed = 30 + 50 * 4 + lotW * lotsShown.length + 66 + 46;
+        const cols = [{ h: 'Rank', w: 30 }, { h: 'Vendor name', w: d.CW - fixed, align: 'left' }, { h: 'Received', w: 50 }, { h: 'Approved', w: 50 }, { h: 'Unloaded', w: 50 }, { h: 'Rejected', w: 50 }]
+            .concat(lotsShown.map(l => ({ h: lotLabel(l) + ' MT (trucks)', w: lotW })), [{ h: 'Total unloaded (MT)', w: 66 }, { h: '% share', w: 46 }]);
+        const vrows = S.vendors.map((v, i) => [String(i + 1), { t: v.name, bold: false }, String(v.received), String(v.approved), String(v.unloaded), { t: String(v.rejected), color: v.rejected ? RED : undefined }]
+            .concat(lotsShown.map(l => v.lots[l].unloaded ? f2(v.lots[l].kg) + ' (' + v.lots[l].unloaded + ')' : '-'), [{ t: f2(v.kg), bold: true }, (T.kg ? (v.kg / T.kg * 100).toFixed(2) : '0.00') + '%']));
+        vrows.push(['', 'TOTAL', String(T.received), String(T.approved), String(T.unloaded), String(T.rejected)].concat(lotsShown.map(l => f2(T.lots[l].kg) + ' (' + T.lots[l].unloaded + ')'), [f2(T.kg), T.kg ? '100.00%' : '0.00%']));
+        d.table(cols, vrows, { totalRow: true });
+        d.y += 12;
+        // ---- charts
+        d.ensure(22 + 190);
+        d.section('CONTRIBUTION OF EACH VENDOR AND EACH LOT TO THE UNLOADED BIOMASS');
+        const items = S.vendors.filter(v => v.kg > 0).map(v => ({ label: v.name, value: v.kg }));
+        let vItems = items;
+        if (items.length > 9) { const rest = items.slice(9); vItems = items.slice(0, 9).concat([{ label: 'Others (' + rest.length + ' vendors)', value: rest.reduce((a, i) => a + i.value, 0), color: '#9CA3AF' }]); }
+        const lotColor = { 'LOT2': '#0288D1', 'LOT3': '#1565C0', 'LOT4': '#6A1B9A', 'LOT2/3': '#00897B' };
+        const lotItems = lotsShown.map(l => ({ label: lotLabel(l), value: T.lots[l].kg, color: lotColor[l] })).filter(i => i.value > 0);
+        d.pdf.image(drawPieImage(vItems, 'Unloaded biomass by vendor (MT share)', 700, 300, false), d.M, d.y, 450, 193);
+        d.pdf.image(drawPieImage(lotItems, 'Unloaded biomass by lot', 420, 300, true), d.M + 462, d.y, 290, 193);
+        d.y += 200;
+        // ---- rejected trucks
+        d.ensure(22 + 24 + 3 * 18);
+        d.section('REJECTED TRUCKS — details (weights are as weighed; they are NOT part of the unloaded quantity)', RED);
+        if (!S.rejected.length) {
+            d.table([{ h: 'Result', w: d.CW, align: 'left' }], [['No truck was rejected on this date.']], { headFill: RED });
+        } else {
+            d.table([{ h: 'Sl.', w: 30 }, { h: 'Vendor name', w: d.CW - 30 - 110 - 70 - 90 - 250, align: 'left' }, { h: 'Truck no.', w: 110 }, { h: 'Lot', w: 70 }, { h: 'Weighed (MT)', w: 90 }, { h: 'Remark', w: 250, align: 'left' }],
+                S.rejected.map((x, i) => [String(i + 1), x.company_name, x.truck_reg_number, lotLabel(S.lotOf(x)), S.kg(x) > 0 ? f2(S.kg(x)) : '-', S.isCancelled(x) ? 'QR cancelled' + (x.cancel_reason ? ': ' + x.cancel_reason : '') : 'Rejected']),
+                { headFill: RED, rowFill: (c, i) => i % 2 ? '#FEF2F2' : '#FFFFFF' });
+            const byV = {}; S.rejected.forEach(x => { const v = byV[x.company_name] || (byV[x.company_name] = { n: 0, kg: 0 }); v.n++; v.kg += S.kg(x); });
+            d.y += 10;
+            d.ensure(40);
+            d.pdf.text('REJECTION SUMMARY BY VENDOR', d.M, d.y, { size: 9, bold: true, color: '#991B1B' }); d.y += 14;
+            d.table([{ h: 'Vendor name', w: 400, align: 'left' }, { h: 'Trucks rejected', w: 100 }, { h: 'Weighed (MT)', w: 100 }],
+                Object.keys(byV).sort((a, b) => byV[b].n - byV[a].n || a.localeCompare(b)).map(name => [name, byV[name].n + ' truck' + (byV[name].n > 1 ? 's' : ''), byV[name].kg > 0 ? f2(byV[name].kg) : '-']), { headFill: '#991B1B' });
+        }
+        d.y += 14;
+        // ---- bottom: daily total + lot-wise breakdown
+        d.ensure(22 + 64 + 6);
+        d.section('DAILY SUMMARY — total trucks');
+        d.tiles([
+            { label: 'TOTAL TRUCKS RECEIVED', value: T.received }, { label: 'APPROVED', value: T.approved, color: GREEN }, { label: 'UNLOADED', value: T.unloaded, color: GREEN },
+            { label: 'APPROVED, TO UNLOAD', value: T.notUnloaded }, { label: 'REJECTED' + (T.cancelled ? ' (incl. ' + T.cancelled + ' QR cancelled)' : ''), value: T.rejected, color: RED },
+            { label: 'AWAITING LAB DECISION', value: T.awaiting }, { label: 'NET QTY UNLOADED (MT)', value: f2(T.kg), color: PURPLE }, { label: 'REJECTED, WEIGHED (MT)', value: f2(T.rejKg), color: RED }
+        ], 46);
+        d.y += 6;
+        d.ensure(22 + 24 + (lotsShown.length + 1) * 18 + 50);
+        d.section('LOT-WISE BREAKDOWN OF UNLOADED BIOMASS');
+        const lc = [{ h: 'Lot', w: 150, align: 'left' }, { h: 'Received', w: 80 }, { h: 'Approved', w: 80 }, { h: 'Unloaded', w: 80 }, { h: 'Rejected', w: 80 }, { h: 'Net qty (MT)', w: 100 }, { h: '% share', w: 80 }, { h: 'Vendors', w: d.CW - 650 }];
+        const lr = lotsShown.map(l => { const L = S.lots[l]; return [{ t: lotLabel(l), bold: true }, String(L.received), String(L.approved), String(L.unloaded), String(L.rejected), { t: f2(L.kg), bold: true }, (T.kg ? (L.kg / T.kg * 100).toFixed(2) : '0.00') + '%', String(S.lotVendors[l].size)]; });
+        lr.push(['TOTAL', String(T.received), String(T.approved), String(T.unloaded), String(T.rejected), f2(T.kg), T.kg ? '100.00%' : '0.00%', String(S.vendors.length)]);
+        d.table(lc, lr, { totalRow: true });
+        d.y += 10; d.ensure(40);
+        d.wrap('Notes: Net quantity = final weighbridge net weight (gross − tare) of trucks that were approved and unloaded. Rejected trucks are listed with the weight recorded for them and are not part of the unloaded quantity. ' +
+            'A vendor that supplied under more than one lot is shown once, with the lot-wise split' + (lotsShown.indexOf('LOT2/3') >= 0 ? ' (“Lot 2/3” = trucks booked before Lot 2 and Lot 3 were separated)' : '') + '. Prepared from the unloading department records; laboratory results are not part of this summary.', d.CW, 8, false)
+            .forEach((ln, i) => d.pdf.text(ln, d.M, d.y + i * 10.5, { size: 8, color: '#6B7280' }));
+        d.footers();
+        return await d.pdf.build(password);
+    }
+
+    // ================= UNLOADING: TRUCK-WISE DETAILS (every truck, weights and test results) =================
+    async function buildDayDetailsPdf(res, password) {
+        const rows = res.rows;
+        const d = newReportDoc('BIOMASS DAILY REPORT — TRUCK-WISE DETAILS', dmy(res.date), rows.length + ' truck(s)  •  weights in kg  •  results as recorded', res.generated_at || '');
+        d.header(true);
+        const fx = (v, n) => (v === null || v === undefined || v === '') ? null : Number(v).toFixed(n);
+        const wt = (v) => Number(v) > 0 ? Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '-';
+        const others = [['#', 22], ['Truck No.', 62], ['Lot / PO', 80], ['Gross', 44], ['Tare', 44], ['Net', 44], ['Moist. %', 34], ['TM %', 32], ['GCV', 34], ['Fine. %', 34], ['Ash %', 32], ['Sulph. %', 34], ['VM %', 30], ['GCV/Ash from', 48], ['Result', 66]];
+        const vendorW = d.CW - others.reduce((a, c) => a + c[1], 0);
+        const cols = others.slice(0, 2).map(c => ({ h: c[0], w: c[1], align: c[0] === 'Truck No.' ? 'left' : undefined })).concat([{ h: 'Vendor', w: vendorW, align: 'left' }], others.slice(2).map(c => ({ h: c[0], w: c[1] })));
+        const RED = '#C62828', AMBER = '#B45309', GREEN = '#2E7D32';
+        const body = rows.map((r, i) => {
+            const rej = r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED';
+            const cell = (v, n) => { const s = fx(v, n); return s !== null ? s : (rej ? { t: 'N/A', color: RED } : { t: 'Pend.', color: AMBER }); };
+            const l4 = r.lot === 'LOT4';
+            return [String(i + 1), { t: r.truck_reg_number, bold: true }, r.company_name, lotLabel(r.lot) + ' / ' + (r.po_number || '-'),
+                wt(r.gross_weight), wt(r.tare_weight), { t: wt(r.net_weight), bold: true },
+                cell(r.moisture_pct, 2), cell(r.tm, 2), cell(r.gcv, 0), cell(r.fineness_value, 2), cell(r.ash, 2), l4 ? cell(r.sulphur, 2) : '-', l4 ? cell(r.vm, 2) : '-', r.gcv_source || '-',
+                r.acceptance_status === 'CANCELLED' ? { t: 'QR CANCELLED' + (r.cancel_reason ? ': ' + r.cancel_reason : ''), color: RED, bold: true } : { t: r.acceptance_status, bold: true, color: rej ? RED : r.acceptance_status === 'ACCEPTED' ? GREEN : AMBER }];
+        });
+        d.table(cols, body, { size: 7.4, headFill: '#111827', rowFill: (c, i) => /REJECTED|CANCELLED/.test(String((c[15] && c[15].t) || '')) ? '#FDECEC' : (i % 2 ? '#F6F7FA' : '#FFFFFF') });
+        d.y += 8;
+        d.ensure(14);
+        d.pdf.text('Pend. = result not available yet.   N/A = not tested because the truck was rejected.   GCV / Ash come from the composite sample of the day, or from the bottom sample when one was taken.', d.M, d.y, { size: 7.2, color: '#6B7280' });
+        d.y += 14;
         const acc = rows.filter(x => x.acceptance_status === 'ACCEPTED'), rej = rows.filter(x => x.acceptance_status === 'REJECTED' || x.acceptance_status === 'CANCELLED');
-        const totalKg = rows.reduce((a, x) => a + (Number(x.net_weight) || 0), 0);
-        const accKgX = acc.reduce((a, x) => a + (Number(x.net_weight) || 0), 0), rejKgX = rej.reduce((a, x) => a + (Number(x.net_weight) || 0), 0);
-        [['Total trucks', rows.length], ['Accepted / Rejected', `${acc.length} / ${rej.length}`],
-         ['Total net weight (kg)', Number(totalKg.toFixed(3))], ['Total net weight (MT)', Number((totalKg / 1000).toFixed(3))],
-         ['Accepted net weight (MT)', Number((accKgX / 1000).toFixed(3))], ['Rejected net weight (MT)', Number((rejKgX / 1000).toFixed(3))]].forEach(([label, val]) => {
-            sheet.getCell(r, 2).value = label; sheet.getCell(r, 2).font = { bold: true };
-            sheet.getCell(r, 3).value = val; sheet.getCell(r, 3).alignment = { horizontal: 'left' };
-            r++;
-        });
-        const buffer = await wb.xlsx.writeBuffer();
-        const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-        const link = document.createElement('a');
-        link.href = url; link.download = `Daily_Report_${compactDate(res.date)}.xlsx`;
-        document.body.appendChild(link); link.click(); document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+        const sum = (a) => a.reduce((s, x) => s + (Number(x.net_weight) || 0), 0);
+        const mtS = (kg) => (kg / 1000).toLocaleString('en-IN', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+        d.ensure(30);
+        d.tiles([{ label: 'TOTAL TRUCKS', value: rows.length }, { label: 'ACCEPTED / REJECTED', value: acc.length + ' / ' + rej.length },
+                 { label: 'TOTAL NET WEIGHT (MT)', value: mtS(sum(rows)) }, { label: 'ACCEPTED NET (MT)', value: mtS(sum(acc)), color: GREEN }, { label: 'REJECTED NET (MT)', value: mtS(sum(rej)), color: RED }], 46);
+        d.footers();
+        return await d.pdf.build(password);
     }
 
     function initUnloadingScreen() {
@@ -1670,8 +1904,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // ================= ADMIN & ENTRY DASHBOARD CONTROLLERS =================
     let companiesSet = new Set();
     let companyRecords = [];       // [{name, po_number, lot}] - one entry per vendor + PO + lot
-    const companyLabel = (r) => `${r.name} (PO ${r.po_number || 'not set'} \u00B7 ${r.lot})`;
-    const normName = (v) => String(v || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const companyLabel = (r) => `${r.name} (PO ${r.po_number || 'not set'} \u00B7 ${lotLabel(r.lot)})`;
+    const normName = (v) => stripMs(v).toLowerCase();
 
     // What did the operator pick / type in the supplier box?
     //   exact    : an entry chosen from the list  -> its name, PO and lot
@@ -1685,7 +1919,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const exact = companyRecords.find(r => companyLabel(r) === v);
         if (exact) return { kind: 'exact', rec: exact };
         const allSame = companyRecords.filter(r => normName(r.name) === normName(v));
-        const same = vendorLotFilter ? allSame.filter(r => r.lot === vendorLotFilter) : allSame;
+        const same = vendorLotFilter ? allSame.filter(r => lotMatches(r.lot, vendorLotFilter)) : allSame;
         if (same.length === 1) return { kind: 'one', rec: same[0] };
         if (same.length > 1) return { kind: 'ambiguous', recs: same };
         if (allSame.length) return { kind: 'otherlot', recs: allSame };
@@ -1703,14 +1937,14 @@ document.addEventListener('DOMContentLoaded', function() {
             const hasBoth = companyRecords.filter(x => normName(x.name) === normName(r.rec.name)).length > 1;
             box.style.background = r.rec.lot === 'LOT4' ? 'rgba(59,130,246,0.18)' : 'rgba(16,185,129,0.15)';
             box.style.border = '1px solid ' + (r.rec.lot === 'LOT4' ? '#3b82f6' : '#10b981');
-            box.innerHTML = `Selected: <strong>${esc(r.rec.name)}</strong> &mdash; PO <strong>${esc(r.rec.po_number || 'not set')}</strong> &mdash; <strong>${esc(r.rec.lot)}</strong>` +
+            box.innerHTML = `Selected: <strong>${esc(r.rec.name)}</strong> &mdash; PO <strong>${esc(r.rec.po_number || 'not set')}</strong> &mdash; <strong>${esc(lotLabel(r.rec.lot))}</strong>` +
                 (hasBoth ? '<br><span style="color:#fbbf24;">This vendor also exists under another Lot / PO &mdash; check that this is the right one.</span>' : '');
         } else if (r.kind === 'ambiguous') {
             box.style.background = 'rgba(245,158,11,0.18)'; box.style.border = '1px solid #f59e0b';
-            box.innerHTML = '⚠️ This vendor exists under more than one Lot / PO. <strong>Pick the right one from the list</strong> or press LOT2/3 / LOT4 above the box.';
+            box.innerHTML = '⚠️ This vendor exists under more than one Lot / PO. <strong>Pick the right one from the list</strong> or press the Lot buttons above the box.';
         } else if (r.kind === 'otherlot') {
             box.style.background = 'rgba(245,158,11,0.18)'; box.style.border = '1px solid #f59e0b';
-            box.innerHTML = `⚠️ This vendor is <strong>not under ${esc(vendorLotFilter)}</strong>. It exists as: ` + r.recs.map(x => `<strong>${esc(x.lot)}</strong> (PO ${esc(x.po_number || 'not set')})`).join(', ') +
+            box.innerHTML = `⚠️ This vendor is <strong>not under ${esc(lotLabel(vendorLotFilter))}</strong>. It exists as: ` + r.recs.map(x => `<strong>${esc(lotLabel(x.lot))}</strong> (PO ${esc(x.po_number || 'not set')})`).join(', ') +
                 '. Press <strong>All</strong> or the right lot above the box.';
         } else {
             box.style.background = 'rgba(148,163,184,0.15)'; box.style.border = '1px solid #94a3b8';
@@ -1726,13 +1960,13 @@ document.addEventListener('DOMContentLoaded', function() {
     function renderVendorList(showAll) {
         const box = document.getElementById('reg-vendor-list'), input = document.getElementById('reg-company');
         if (!box || !input) return;
-        const q = showAll ? '' : input.value.replace(/\s*\(PO .*$/, '').trim().toLowerCase();
-        vendorShown = companyRecords.filter(r => (!vendorLotFilter || r.lot === vendorLotFilter) && (!q || (r.name + ' ' + (r.po_number || '')).toLowerCase().includes(q))).slice(0, 300);
+        const q = showAll ? '' : stripMs(input.value.replace(/\s*\(PO .*$/, '')).toLowerCase();
+        vendorShown = companyRecords.filter(r => lotMatches(r.lot, vendorLotFilter) && (!q || (stripMs(r.name) + ' ' + r.name + ' ' + (r.po_number || '')).toLowerCase().includes(q))).slice(0, 300);
         vendorActive = -1;
         box.innerHTML = vendorShown.length
             ? vendorShown.map((r, i) => `<div class="vendor-item" data-i="${i}"><span class="vendor-name">${esc(r.name)}</span>` +
-                `<span class="vendor-meta"><span class="lot-tag ${r.lot === 'LOT4' ? 'lot-4' : 'lot-23'}">${esc(r.lot)}</span> &nbsp;PO ${esc(r.po_number || 'not set')}</span></div>`).join('')
-            : '<div class="vendor-empty">No vendor matches' + (vendorLotFilter ? ' under ' + esc(vendorLotFilter) : '') + '. You can still type a new supplier name.</div>';
+                `<span class="vendor-meta"><span class="lot-tag ${lotCls(r.lot)}">${esc(lotLabel(r.lot))}</span> &nbsp;PO ${esc(r.po_number || 'not set')}</span></div>`).join('')
+            : '<div class="vendor-empty">No vendor matches' + (vendorLotFilter ? ' under ' + esc(lotLabel(vendorLotFilter)) : '') + '. You can still type a new supplier name.</div>';
     }
     function showVendorList(showAll) { const box = document.getElementById('reg-vendor-list'); if (box) { renderVendorList(showAll); box.style.display = 'block'; } }
     function hideVendorList() { const box = document.getElementById('reg-vendor-list'); if (box) box.style.display = 'none'; }
@@ -2492,25 +2726,8 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             if (btnPrint) {
-                btnPrint.onclick = async function() {
-                    const printContainer = document.getElementById('print-section');
-                    if (!printContainer) return;
-                    printContainer.innerHTML = `
-                        <div class="print-label-view" style="text-align: center;">
-                            <div>
-                                <canvas id="print-qr-target"></canvas>
-                            </div>
-                            <div style="font-family: monospace; font-weight: 800; margin-top: 4px; color: #000;">${esc(dmy(truck.entry_date))}</div>
-                            <div style="font-family: monospace; font-size: 9pt; color: #000;">${esc(truck.sample1_barcode_id)}</div>
-                        </div>
-                    `;
-                    QRCode.toCanvas(document.getElementById('print-qr-target'), encrypted, {
-                        errorCorrectionLevel: 'M', width: 410, margin: 4
-                    }, function(err) {
-                        if (err) console.error(err);
-                        setTimeout(() => { window.print(); }, 200);
-                    });
-                };
+                // same label as the Entry login prints (QR + date, no serial number, 4x6 / 50x50 mm format)
+                btnPrint.onclick = () => window.printSampleLabel(truck.sample1_barcode_id, truck.entry_date);
             }
 
             if (btnDownload) {
@@ -2609,6 +2826,37 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // Read-back dialog shown before a truck is saved; resolves true only when the operator presses the confirm button
+    function confirmRegistrationDetails(data, isNewSupplier) {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('regconfirm-modal'), rows = document.getElementById('regconfirm-rows'), warn = document.getElementById('regconfirm-warn');
+            const okBtn = document.getElementById('btn-regconfirm-ok'), backBtn = document.getElementById('btn-regconfirm-back');
+            const line = (k, v, strong) => `<div style="color:#94a3b8;">${k}</div><div style="${strong ? 'font-weight:800; font-size:1.15rem; letter-spacing:0.5px;' : 'font-weight:600;'} word-break:break-word;">${v}</div>`;
+            const lotTxt = esc(lotLabel(data.lot)) + (isNewSupplier ? ' <span style="color:#fbbf24; font-weight:600;">(new supplier)</span>' : '');
+            rows.innerHTML = line('Supplier', esc(data.company_name)) + line('Lot', lotTxt) + line('PO number', esc(data.po_number || '-')) +
+                line('Truck number', esc(data.truck_reg_number), true) + line('Driver', esc(data.driver_name)) + line('Invoice / Challan', esc(data.invoice_no)) +
+                line('Photo', data.photo_url ? '<span style="color:#10b981;">&#10003; attached</span>' : '<span style="color:#fbbf24;">no photo attached</span>');
+            const notes = [];
+            if (isNewSupplier) notes.push('This supplier is not in the vendor list and will be created under ' + lotLabel(data.lot) + '. Check the spelling.');
+            if (!data.photo_url) notes.push('No driver / truck photo is attached.');
+            warn.style.display = notes.length ? 'block' : 'none'; warn.innerHTML = notes.map(n => '&bull; ' + esc(n)).join('<br>');
+            const done = (v) => { modal.style.display = 'none'; okBtn.onclick = null; backBtn.onclick = null; resolve(v); };
+            okBtn.onclick = () => done(true);
+            backBtn.onclick = () => done(false);
+            modal.style.display = 'flex';
+            backBtn.focus();          // Enter must not confirm by accident
+        });
+    }
+
+    // Coming back to a page that was left open: reload the vendor list so an outdated list is not shown at the gate
+    let lastVendorRefresh = Date.now();
+    document.addEventListener('visibilitychange', async () => {
+        const box = document.getElementById('reg-company');
+        if (document.visibilityState !== 'visible' || !box || !box.offsetParent || Date.now() - lastVendorRefresh < 30000) return;
+        lastVendorRefresh = Date.now();
+        try { companyRecords = await window.BiomassAPI.getCompaniesDetailed(); renderVendorList(); updateVendorInfo(); } catch (e) { /* keep the list we have */ }
+    });
+
     // --- Admin: Handle Truck Registration Submit ---
     const truckRegForm = document.getElementById('truck-reg-form');
     if (truckRegForm) {
@@ -2619,6 +2867,21 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!vehicle) {
                 alert('Please enter a vehicle registration number.');
                 return;
+            }
+
+            // The vendor list may have changed since this page was loaded (sheet upload, retired vendor): load it again now and make sure
+            // the vendor the operator picked still exists with the same lot / PO, otherwise nothing is saved.
+            {
+                const typed = document.getElementById('reg-company').value;
+                const picked = resolveVendorInput(typed).rec || null;
+                try { companyRecords = await window.BiomassAPI.getCompaniesDetailed(); renderVendorList(); }
+                catch (listErr) { alert('The vendor list could not be refreshed, so nothing was saved: ' + (listErr && listErr.message ? listErr.message : listErr)); return; }
+                if (picked && !companyRecords.some(r => r.name === picked.name && r.lot === picked.lot && (r.po_number || '') === (picked.po_number || ''))) {
+                    document.getElementById('reg-company').value = '';
+                    updateVendorInfo();
+                    alert('The vendor list was updated by the administrator after this page was loaded, and "' + picked.name + '" (' + lotLabel(picked.lot) + ') is no longer available as chosen.\n\nNothing was saved. Please choose the vendor again from the list.');
+                    return;
+                }
             }
 
             // Duplicate vehicle guard: Warn operator if vehicle is already in the yard without outbound tare weight
@@ -2634,7 +2897,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const vend = resolveVendorInput(document.getElementById('reg-company').value);
             if (vend.kind === 'ambiguous') {
-                alert('This vendor exists under more than one Lot / PO.\n\nPick the correct entry from the supplier list, or press LOT2/3 / LOT4 above the supplier box.');
+                alert('This vendor exists under more than one Lot / PO.\n\nPick the correct entry from the supplier list, or press a Lot button above the supplier box.');
                 return;
             }
             if (vend.kind === 'otherlot') {
@@ -2644,7 +2907,7 @@ document.addEventListener('DOMContentLoaded', function() {
             let regLot = '', regPo = '', regName = document.getElementById('reg-company').value.trim();
             if (vend.kind === 'new') {
                 regLot = document.getElementById('reg-lot').value || vendorLotFilter;
-                if (!regLot) { alert('This is a new supplier. Please choose its Lot (LOT2/3 or LOT4).'); return; }
+                if (!regLot) { alert('This is a new supplier. Please choose its Lot (Lot 2, Lot 3 or Lot 4).'); return; }
             } else {
                 regName = vend.rec.name; regLot = vend.rec.lot; regPo = vend.rec.po_number || '';
                 const both = companyRecords.filter(x => normName(x.name) === normName(vend.rec.name)).length > 1;
@@ -2662,6 +2925,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 tare_weight: 0,
                 photo_url: capturedPhotoBase64
             };
+
+            // Second look before anything is saved: the operator reads the details back and confirms
+            if (!(await confirmRegistrationDetails(data, vend.kind === 'new'))) return;
 
             try {
                 const truck = await window.BiomassAPI.registerTruck(data);
@@ -2741,7 +3007,7 @@ document.addEventListener('DOMContentLoaded', function() {
         box.addEventListener('change', function () { try { localStorage.setItem('BIOMASS_AUTOPRINT_LABEL', box.checked ? '1' : '0'); } catch (e) { /* ignore */ } });
     })();
 
-    // Print one sample label (50 x 50 mm): QR + the sample date (DD-MM-YYYY) + the code text.
+    // Print one sample label: QR + the sample date (DD-MM-YYYY) only. The serial number (S1-...) is deliberately NOT printed under the QR.
     window.printSampleLabel = async function(s1Id, dateStr) {
         const printContainer = document.getElementById('print-section');
         const encrypted = await encryptPayload(s1Id);
@@ -2750,7 +3016,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div class="print-label-view print-label-50mm" style="text-align: center;">
                     <canvas id="print-qr-target"></canvas>
                     <div style="font-family: monospace; font-size: 9pt; font-weight: 800; margin-top: 0.5mm; color: #000;">${esc(dmy(dateStr))}</div>
-                    <div class="print-label-id" style="font-family: monospace; font-size: 8pt; font-weight: bold; margin-top: 0.5mm;">${esc(s1Id)}</div>
                 </div>
             `;
         }
@@ -3850,8 +4115,8 @@ document.addEventListener('DOMContentLoaded', function() {
     let superAuditData = null;
 
     const ipUnknown = (log) => !!log.ip && log.ip !== 'unknown' && !log.ip_label;
-    const ipCell = (log, red) => {
-        const tag = ipUnknown(log) ? '<span class="ip-tag unknown">⚠ UNKNOWN IP</span>' : (log.ip_label ? `<span class="ip-tag known">${esc(log.ip_label)}</span>` : '');
+    const ipCell = (log, red, noUnknownTag) => {
+        const tag = (ipUnknown(log) && !noUnknownTag) ? '<span class="ip-tag unknown">⚠ UNKNOWN IP</span>' : (log.ip_label ? `<span class="ip-tag known">${esc(log.ip_label)}</span>` : '');
         return `${tag}<br><span style="font-family:monospace; font-size:0.78rem;${red ? ' color:#ef4444;' : ''}">${esc(log.ip || '-')}</span>` +
                (log.device ? `<br><span style="color:#94a3b8; font-size:0.7rem;">${esc(String(log.device).slice(0, 80))}</span>` : '');
     };
@@ -3863,13 +4128,14 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             const logs = await window.BiomassAPI.getActivityLogs();
             // the full activity log is not shown here any more (it lives with the Super Admin, "IP addresses"); the Excel export still has everything
-            const ex = logs.filter(l => isExceptionLog(l) || ipUnknown(l) || l.action === 'NEW_IP_DETECTED').slice(0, 600);
+            // The Admin gets NO unknown-IP / "new IP address detected" alerts (owner's decision): such lines are not listed and not marked.
+            const ex = logs.filter(l => isExceptionLog(l)).slice(0, 600);
             exceptionsBody.innerHTML = ex.length ? ex.map(l => {
-                const unk = ipUnknown(l), red = unk || isExceptionLog(l);
+                const unk = false, red = isExceptionLog(l);
                 return `<tr class="${unk ? 'ip-unknown' : ''}"><td style="font-family:monospace; font-size:0.85rem;${red ? ' color:#ef4444;' : ''}">${esc(l.timestamp)}</td>` +
                     `<td><span class="user-role" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; padding: 0.1rem 0.4rem; border-radius: 4px;">${esc(l.username)}</span></td>` +
-                    `<td><strong style="${red ? 'color:#ef4444;' : ''}">${esc(l.action)}</strong></td><td style="font-size:0.85rem;">${esc(l.details)}</td><td>${ipCell(l, unk)}</td></tr>`;
-            }).join('') : '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Nothing flagged. All activity comes from named places.</td></tr>';
+                    `<td><strong style="${red ? 'color:#ef4444;' : ''}">${esc(l.action)}</strong></td><td style="font-size:0.85rem;">${esc(l.details)}</td><td>${ipCell(l, false, true)}</td></tr>`;
+            }).join('') : '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No critical exceptions flagged.</td></tr>';
         } catch (e) {
             exceptionsBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--danger);">Failed to load exceptions: ${esc(e.message)}</td></tr>`;
         }
@@ -6247,8 +6513,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // ================= BARCODE INSPECTOR TAB (ADMIN) =================
     // ================= ADMIN: VENDORS (Lot 2/3 and Lot 4) =================
     const vdState = { rows: [], lot: 'ALL', status: 'active', q: '' };
-    const vdLotCls = (l) => l === 'LOT4' ? 'l4' : 'l23';
-    const vdNormLot = (t) => { const x = String(t || '').toUpperCase().replace(/[^A-Z0-9/]/g, ''); return x === 'LOT4' || x === '4' ? 'LOT4' : (['LOT2/3', 'LOT23', 'LOT3', 'LOT2', '2/3', '3', '2'].includes(x) ? 'LOT2/3' : x); };
+    const vdLotCls = (l) => l === 'LOT4' ? 'l4' : l === 'LOT3' ? 'l3' : l === 'LOT2' ? 'l2' : 'l23';
+    const vdNormLot = (t) => { const x = String(t || '').toUpperCase().replace(/[^A-Z0-9/]/g, ''); return ({ 'LOT4': 'LOT4', 'LOT04': 'LOT4', '4': 'LOT4', 'LOT3': 'LOT3', 'LOT03': 'LOT3', '3': 'LOT3', '03': 'LOT3', 'LOT2': 'LOT2', 'LOT02': 'LOT2', '2': 'LOT2', '02': 'LOT2', 'LOT2/3': 'LOT2/3', 'LOT23': 'LOT2/3', '2/3': 'LOT2/3' })[x] || x; };
 
     function vdDialog(o) {
         const m = document.getElementById('vd-modal'), ok = document.getElementById('vd-ok'), cancel = document.getElementById('vd-cancel'), msg = document.getElementById('vd-msg');
@@ -6307,26 +6573,30 @@ document.addEventListener('DOMContentLoaded', function() {
         document.querySelectorAll('#vd-status-chips button').forEach(b => b.classList.toggle('active', b.dataset.v === vdState.status));
         const q = vdState.q.trim().toLowerCase();
         const rows = vdState.rows.filter(v => (vdState.lot === 'ALL' || v.lot === vdState.lot) && (vdState.status === 'all' || (vdState.status === 'active') === v.active)
-            && (!q || v.name.toLowerCase().includes(q) || String(v.po_number || '').includes(q)));
+            && (!q || (stripMs(v.name) + ' ' + v.name).toLowerCase().includes(stripMs(q).toLowerCase()) || String(v.po_number || '').includes(q)));
         const act = vdState.rows.filter(v => v.active).length;
         document.getElementById('vd-count').textContent = `${rows.length} shown · ${vdState.rows.length} in total (${act} active, ${vdState.rows.length - act} retired)`;
         document.getElementById('vd-body').innerHTML = rows.map(v => `<tr class="${v.active ? '' : 'vd-retired'}">
-            <td><strong>${esc(v.name)}</strong></td><td><span class="vd-lot ${vdLotCls(v.lot)}">${esc(v.lot)}</span></td><td style="font-family:monospace;">${esc(v.po_number || '-')}</td>
+            <td><strong>${esc(v.name)}</strong></td><td><span class="vd-lot ${vdLotCls(v.lot)}">${esc(lotLabel(v.lot))}</span></td><td style="font-family:monospace;">${esc(v.po_number || '-')}</td>
             <td>${esc(v.trucks)}</td><td>${v.last_used ? esc(dmy(v.last_used)) : '-'}</td>
             <td>${v.active ? '<span class="badge badge-success">ACTIVE</span>' : '<span class="badge badge-pending">RETIRED</span>'}</td>
-            <td style="white-space:nowrap;"><button class="btn btn-secondary btn-sm" data-act="edit" data-id="${esc(v.id)}">✏️ Edit</button>
+            <td style="min-width:250px;"><button class="btn btn-secondary btn-sm" data-act="edit" data-id="${esc(v.id)}">✏️ Edit</button>
                 ${v.active ? `<button class="btn btn-secondary btn-sm" data-act="retire" data-id="${esc(v.id)}">⏸ Retire</button>` : `<button class="btn btn-secondary btn-sm" data-act="restore" data-id="${esc(v.id)}">▶ Re-activate</button>`}
                 ${v.trucks === 0 ? `<button class="btn btn-secondary btn-sm" style="border-color:#ef4444; color:#fca5a5;" data-act="delete" data-id="${esc(v.id)}">🗑 Delete</button>` : ''}</td></tr>`).join('')
             || '<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No vendors match.</td></tr>';
     }
     function vdFormHtml(v, canLot) {
+        const legacy = v.lot === 'LOT2/3';
+        const opts = (legacy ? [['LOT2/3', 'Lot 2/3 (old - choose Lot 2 or Lot 3)']] : []).concat([['LOT2', 'Lot 2'], ['LOT3', 'Lot 3'], ['LOT4', 'Lot 4']]);
+        // a vendor that has trucks cannot change its lot - except the old Lot 2/3, which may be split into Lot 2 or Lot 3 (its trucks and reports follow)
+        const only23 = legacy && !canLot;
         return `<label class="vd-field">Vendor name</label><input class="vd-dlg-input" id="vdf-name" maxlength="200" value="${esc(v.name || '')}">
-                <label class="vd-field">Lot</label><select class="vd-dlg-input" id="vdf-lot" ${canLot ? '' : 'disabled'}><option value="LOT2/3"${v.lot === 'LOT2/3' ? ' selected' : ''}>Lot 2/3</option><option value="LOT4"${v.lot === 'LOT4' ? ' selected' : ''}>Lot 4</option></select>
-                ${canLot ? '' : '<small style="color:#94a3b8;">This vendor has trucks, so its lot cannot be changed: add it under the other lot and retire this entry.</small>'}
+                <label class="vd-field">Lot</label><select class="vd-dlg-input" id="vdf-lot" ${(canLot || only23) ? '' : 'disabled'}>${opts.filter(o => !only23 || o[0] === 'LOT2/3' || o[0] === 'LOT2' || o[0] === 'LOT3').map(o => `<option value="${o[0]}"${v.lot === o[0] ? ' selected' : ''}>${o[1]}</option>`).join('')}</select>
+                ${(canLot || only23) ? '' : '<small style="color:#94a3b8;">This vendor has trucks, so its lot cannot be changed: add it under the other lot and retire this entry.</small>'}
                 <label class="vd-field">PO number</label><input class="vd-dlg-input" id="vdf-po" maxlength="40" value="${esc(v.po_number || '')}" placeholder="optional">`;
     }
     function vdAddDialog() {
-        vdDialog({ title: '➕ Add vendor', html: vdFormHtml({ lot: vdState.lot === 'LOT2/3' ? 'LOT2/3' : 'LOT4' }, true) +
+        vdDialog({ title: '➕ Add vendor', html: vdFormHtml({ lot: ['LOT2', 'LOT3', 'LOT4'].includes(vdState.lot) ? vdState.lot : 'LOT3' }, true) +
             '<p style="font-size:0.8rem; color:#94a3b8; margin-top:0.6rem;">A vendor that also exists under the other lot keeps the same spelling automatically.</p>', okLabel: 'Add vendor',
             onOk: async () => {
                 const name = document.getElementById('vdf-name').value.trim(); if (!name) throw new Error('Type the vendor name.');
@@ -6338,7 +6608,7 @@ document.addEventListener('DOMContentLoaded', function() {
             onOk: async () => {
                 const name = document.getElementById('vdf-name').value.trim(); if (!name) throw new Error('Type the vendor name.');
                 const row = { id: v.id, name, po_number: document.getElementById('vdf-po').value.trim() };
-                if (v.trucks === 0) row.lot = document.getElementById('vdf-lot').value;
+                if (v.trucks === 0 || v.lot === 'LOT2/3') row.lot = document.getElementById('vdf-lot').value;
                 const r = await vdApply([row]);
                 if (r.results[0].action === 'UNCHANGED') throw new Error('Nothing was changed.');
             } });
@@ -6358,7 +6628,7 @@ document.addEventListener('DOMContentLoaded', function() {
             rows.forEach(v => sh.addRow({ id: v.id, name: v.name, lot: v.lot, po: v.po_number || '', status: v.active ? 'ACTIVE' : 'RETIRED', trucks: v.trucks, del: '' }));
             const last = rows.length + 1 + 300;                    // 300 empty lines to add new vendors
             for (let r = 2; r <= last; r++) {
-                sh.getCell(r, 3).dataValidation = { type: 'list', allowBlank: true, formulae: ['"LOT2/3,LOT4"'] };
+                sh.getCell(r, 3).dataValidation = { type: 'list', allowBlank: true, formulae: ['"LOT2,LOT3,LOT4"'] };
                 sh.getCell(r, 5).dataValidation = { type: 'list', allowBlank: true, formulae: ['"ACTIVE,RETIRED"'] };
                 sh.getCell(r, 7).dataValidation = { type: 'list', allowBlank: true, formulae: ['"YES"'] };
                 sh.getCell(r, 4).numFmt = '@';
@@ -6370,10 +6640,10 @@ document.addEventListener('DOMContentLoaded', function() {
             ['HOW TO USE THIS SHEET', '',
              '1. Edit the sheet, save it as .xlsx, then upload it in the app: Admin > Vendors > "Upload edited sheet". You see a preview first; nothing changes until you press Apply.',
              '2. To CHANGE a vendor: edit its name, lot, PO number or Status on its row. Do NOT change the ID (grey column) - the ID is how the app recognises the row.',
-             '3. To ADD a vendor: type it in an empty row at the bottom (leave the ID empty): name, lot (LOT2/3 or LOT4), PO number.',
+             '3. To ADD a vendor: type it in an empty row at the bottom (leave the ID empty): name, lot (LOT2, LOT3 or LOT4), PO number.',
              '4. To REMOVE a vendor: type YES in the "Delete?" column. A vendor that has trucks is RETIRED instead of deleted (kept for the history, hidden at the gate).',
              '5. Status RETIRED = no longer offered at gate entry. Status ACTIVE = offered.',
-             '6. A vendor that has trucks cannot change its lot: add it again under the other lot and set the old row to RETIRED.',
+             '6. A vendor that has trucks cannot change its lot (add it again under the other lot and set the old row to RETIRED). One exception: an old "LOT2/3" vendor may be set to LOT2 or LOT3 - its trucks and reports follow.',
              '7. Renaming a vendor also renames it on its trucks, composites and mixing groups. The PO printed on trucks already booked is not changed.',
              '8. Rows that you leave out or do not touch are not changed. If anything in the sheet is wrong, NOTHING is applied.'].forEach((t, i) => { h.addRow([t]); if (i === 0) h.getRow(1).font = { bold: true, size: 14 }; });
             const buffer = await wb.xlsx.writeBuffer();
@@ -6567,7 +6837,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function sxRender() {
         const f = superState.filter, S0 = superState.samples, C0 = superState.comps;
-        const lotOK = (x) => superState.lot === 'ALL' || x.lot === superState.lot;
+        const lotOK = (x) => lotMatches(x.lot, superState.lot);
         const S = S0.filter(lotOK), C = C0.filter(lotOK);              // the counts follow the Lot filter
         [...sx$('sx-lot-chips').querySelectorAll('button[data-lot]')].forEach(b => b.classList.toggle('active', b.dataset.lot === superState.lot));
         const keepS = (r) => f === 'all' || f === 'samples' || (f === 'trucks' && r.kind === 'TRUCK_SAMPLE') || (f === 'bottom' && r.kind === 'BOTTOM_SAMPLE')
@@ -6977,7 +7247,7 @@ document.addEventListener('DOMContentLoaded', function() {
             { id: 'driver_name', label: 'Driver name', value: t.driver_name, type: 'text' },
             { id: 'invoice_no', label: 'Invoice / challan number', value: t.invoice_no || t.challan_no, type: 'text' },
             { id: 'code', label: 'Mixing code (join another code of this vendor today)', value: '', type: 'select', options: codeOpts, hint: Object.keys(codes).length ? '' : '(this vendor has no other code today)' },
-            { id: 'lot', label: 'Lot (changes the mixing group)', value: t.lot, type: 'select', options: [{ v: 'LOT2/3', l: 'Lot 2/3' }, { v: 'LOT4', l: 'Lot 4' }] },
+            { id: 'lot', label: 'Lot (changes the mixing group)', value: t.lot, type: 'select', options: (t.lot === 'LOT2/3' ? [{ v: 'LOT2/3', l: 'Lot 2/3 (old)' }] : []).concat([{ v: 'LOT2', l: 'Lot 2' }, { v: 'LOT3', l: 'Lot 3' }, { v: 'LOT4', l: 'Lot 4' }]) },
             { id: 'vendor', label: 'Vendor entry of that lot', value: cur, type: 'select', options: vendorOpts(t.lot) },
             { id: 'entry_date', label: 'Entry date', value: t.entry_date, type: 'date' }
         ], async (v, why) => {
@@ -7292,17 +7562,17 @@ document.addEventListener('DOMContentLoaded', function() {
     function isExceptionLog(log) {
         const a = String(log.action || ''), d = String(log.details || '').toLowerCase();
         return a.toLowerCase().includes('exception') || a.toLowerCase().includes('reissue') || a.toLowerCase().includes('lockout') ||
-            a.startsWith('SUPERADMIN') || a === 'NEW_IP_DETECTED' || a === 'BOTTOM_PASSWORD_WRONG' || a === 'QR_CANCELLED' || d.includes('fail') || d.includes('expired') || d.includes('tampered');
+            a.startsWith('SUPERADMIN') || a === 'BOTTOM_PASSWORD_WRONG' || a === 'QR_CANCELLED' || d.includes('fail') || d.includes('expired') || d.includes('tampered');
     }
     async function exportAuditLog(onlyExceptions) {
         try {
             let logs = await window.BiomassAPI.getActivityLogs();
-            if (onlyExceptions) logs = logs.filter(l => isExceptionLog(l) || ipUnknown(l) || l.action === 'NEW_IP_DETECTED');
+            if (onlyExceptions) logs = logs.filter(l => isExceptionLog(l));
             const wb = new ExcelJS.Workbook();
             const sheet = wb.addWorksheet(onlyExceptions ? 'Exceptions' : 'Audit log');
             sheet.columns = [{ header: 'Timestamp', width: 22 }, { header: 'User', width: 16 }, { header: 'Action', width: 26 }, { header: 'Details', width: 110 }, { header: 'IP address', width: 18 }, { header: 'Place (name of the IP)', width: 28 }, { header: 'Device', width: 60 }];
             sheet.getRow(1).font = { bold: true };
-            logs.forEach(l => sheet.addRow([l.timestamp, l.username, l.action, l.details, l.ip || '', l.ip_label || (ipUnknown(l) ? 'UNKNOWN' : ''), l.device || '']));
+            logs.forEach(l => sheet.addRow([l.timestamp, l.username, l.action, l.details, l.ip || '', l.ip_label || '', l.device || '']));
             const buffer = await wb.xlsx.writeBuffer();
             const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
             const a = document.createElement('a');
@@ -7346,7 +7616,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!user || user.role !== 'admin' || user.is_super) return;
         try {
             const r = await window.BiomassAPI.getSuperAlerts();
-            const n = Number(r.unacknowledged) || 0, u = Number(r.unknown_ips) || 0;
+            const n = Number(r.unacknowledged) || 0, u = 0;      // unknown-IP alerts are not shown to the Admin (owner's decision)
             const badge = sx$('activity-tab-badge'), bar = sx$('super-alert-bar');
             if (badge) { badge.textContent = String(n + u); badge.style.display = (n + u) ? 'inline-block' : 'none'; }
             if (bar) {
@@ -7431,7 +7701,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const card = document.getElementById('bottom-label-card');
         document.getElementById('bottom-label-truck').textContent = truckReg || '';
         document.getElementById('bottom-label-date').textContent = dmy(res.entry_date);
-        document.getElementById('bottom-label-id').textContent = res.sample1_barcode_id;
+        document.getElementById('bottom-label-id').textContent = '';      // no serial number under the QR
         const enc = await encryptPayload(res.sample1_barcode_id);
         QRCode.toCanvas(document.getElementById('qr-canvas-bottom'), enc, { errorCorrectionLevel: 'M', width: 246, margin: 4 }, function(err) { if (err) console.error(err); });
         document.getElementById('btn-print-bottom').onclick = () => window.printSampleLabel(res.sample1_barcode_id, res.entry_date);
@@ -7489,63 +7759,120 @@ document.addEventListener('DOMContentLoaded', function() {
         show();
     }
 
-    // Admin > Barcode Inspector: everything linked to a mixing code
+    // Admin > Barcode Inspector > Mixing codes: every mixing code (composite) of a date range, each opening to its truck-wise details
     function initMixSearch() {
         const input = document.getElementById('inspector-mix-input'), btn = document.getElementById('btn-inspector-mix');
         if (!input || !btn || btn.dataset.wired) return;
         btn.dataset.wired = '1';
-        const go = async () => {
-            const code = input.value.trim().toUpperCase();
-            const card = document.getElementById('mixsearch-result-card'), body = document.getElementById('mixsearch-body'), sum = document.getElementById('mixsearch-summary');
-            if (!code) { alert('Type a mixing code first.'); return; }
-            btn.disabled = true;
-            try {
-                const res = await window.BiomassAPI.searchMixingCode(code);
-                const rows = res.rows || [];
-                card.style.display = 'block';
-                document.getElementById('mixsearch-title').textContent = `Trucks linked to mixing code ${code}`;
-                if (!rows.length) { sum.innerHTML = `<span style="color:#f59e0b;">No truck is linked to the mixing code <strong>${esc(code)}</strong>.</span>`; body.innerHTML = ''; document.getElementById('mixsearch-head').innerHTML = ''; return; }
-                const uniq = (f) => [...new Set(rows.map(f))];
-                const dates = uniq(r => r.entry_date), vendors = uniq(r => r.company_name), lots = uniq(r => r.lot), pos = uniq(r => r.po_number || '');
-                // Facts that are the same on every row are shown once at the top; only values that differ get a column.
-                const tiles = [['Mixing code', esc(code)]];
-                const varCols = [];
-                if (dates.length === 1) tiles.push(['Entry date', esc(dmy(dates[0]))]); else varCols.push(['Entry date', r => `${esc(dmy(r.entry_date))}<br><small style="color:#94a3b8;">${esc(r.entry_time || '')}</small>`]);
-                if (vendors.length === 1) tiles.push(['Vendor', esc(vendors[0])]); else varCols.push(['Vendor', r => esc(r.company_name)]);
-                if (lots.length === 1) tiles.push(['Lot', esc(lots[0])]); else varCols.push(['Lot', r => esc(r.lot)]);
-                if (pos.length === 1) tiles.push(['PO number', esc(pos[0] || 'not set')]); else varCols.push(['PO', r => esc(r.po_number || '-')]);
-                tiles.push(['Records', String(rows.length)]);
-                sum.innerHTML = tiles.map(t => `<div class="tile"><small>${t[0]}</small><strong>${t[1]}</strong></div>`).join('') +
-                    (dates.length > 1 ? '<div class="tile" style="grid-column: 1 / -1; color:#fbbf24;">This code was used on more than one day - see the date column.</div>' : '');
-                const f = (v, d) => (v === null || v === undefined || v === '') ? '<span style="color:#f59e0b;">Pending</span>' : Number(v).toFixed(d);
-                const wt = v => Number(v) > 0 ? Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '-';
-                const cols = varCols.concat([
-                    ['Vehicle / Truck ID', r => `<strong>${esc(r.truck_reg_number)}</strong><br><small style="color:#94a3b8;">${esc(r.truck_id)}</small>`],
-                    ['Sample QR', r => `<span style="font-family:monospace;">${esc(r.sample1_barcode_id)}</span>`],
-                    ['Sample type', r => {
-                        const lk = r.linked_group_code ? ` (code ${esc(r.linked_group_code)})` : '';
-                        return r.is_bottom_sample ? `<span class="badge badge-warning" style="background:#0ea5e9; color:#fff;">Bottom sample</span> of the truck's original sample${lk}`
-                            : (r.excluded_from_mix ? `Truck sample <span class="badge badge-danger" style="background:#ef4444; color:#fff;">replaced by bottom sample${lk}</span>` : 'Truck sample');
-                    }],
-                    ['Moisture %', r => f(r.moisture_pct, 2)],
-                    ['Fineness %', r => f(r.fineness_value, 2)],
-                    ['Result', r => r.acceptance_status === 'REJECTED' ? '<span style="color:#ef4444; font-weight:700;">REJECTED</span>' : (r.acceptance_status === 'ACCEPTED' ? '<span style="color:#10b981; font-weight:700;">ACCEPTED</span>' : '<span style="color:#f59e0b;">PENDING</span>')],
-                    ['In mixture?', r => r.mix_status === 'ACCEPTED' ? '<span style="color:#10b981; font-weight:700;">Included</span>' : (r.mix_status === 'REJECTED' ? '<span style="color:#ef4444; font-weight:700;">Left out</span>' : '<span style="color:#f59e0b;">Pending</span>')],
-                    ['Scanned', r => r.mixing_scanned ? '✅' : '-'],
-                    ['Composite', r => esc(r.composite_ref_id || '-')],
-                    ['TM %', r => r.composite_ref_id ? f(r.tm, 2) : '-'],
-                    ['ARB GCV', r => f(r.gcv, 0)],
-                    ['ARB Ash %', r => f(r.ash, 2)],
-                    ['ARB S / VM %', r => lots[0] === 'LOT4' || r.lot === 'LOT4' ? (r.composite_ref_id ? `${f(r.sulphur, 2)} / ${f(r.vm, 2)}` : '-') : '-'],
-                    ['Gross / Tare / Net (kg)', r => `${wt(r.gross_weight)} / ${wt(r.tare_weight)} / ${wt(r.net_weight)}`]
-                ]);
-                document.getElementById('mixsearch-head').innerHTML = '<tr>' + cols.map(c => `<th>${c[0]}</th>`).join('') + '</tr>';
-                body.innerHTML = rows.map(r => '<tr>' + cols.map(c => `<td>${c[1](r)}</td>`).join('') + '</tr>').join('');
-                card.scrollIntoView({ behavior: 'smooth' });
-            } catch (err) {
-                alert('Search failed: ' + err.message);
-            } finally { btn.disabled = false; }
+        const fromEl = document.getElementById('mixr-from'), toEl = document.getElementById('mixr-to'), lotEl = document.getElementById('mixr-lot');
+        const card = document.getElementById('mixsearch-result-card'), sum = document.getElementById('mixsearch-summary'), list = document.getElementById('mixr-list'), cnt = document.getElementById('mixr-count');
+        const chips = document.getElementById('mixr-chips');
+        const today = () => window.BiomassAPI.todayIST();
+        const shift = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+        const f = (v, d) => (v === null || v === undefined || v === '') ? '<span style="color:#f59e0b;">Pending</span>' : Number(v).toFixed(d);
+        const wt = v => Number(v) > 0 ? Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '-';
+        const mtTxt = (kg) => (Number(kg) / 1000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' MT';
+        const weekday = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long' });
+        if (!fromEl.value) fromEl.value = toEl.value = today();
+        fromEl.max = toEl.max = today();
+        let groups = [];
+
+        const truckTable = (g) => {
+            const rows = g.rows || [];
+            const lot4 = g.lot === 'LOT4';
+            return `<div class="table-responsive"><table class="mixsearch-table" style="min-width:0; font-size:0.8rem;"><thead><tr><th>Vehicle / Truck ID</th><th>Time</th><th>Sample QR</th><th>Sample type</th><th>Gross / Tare / Net (kg)</th><th>Moisture %</th><th>Fineness %</th><th>Result</th><th>In mixture?</th><th>Scanned</th></tr></thead><tbody>` +
+                rows.map(r => {
+                    const lk = r.linked_group_code ? ` (code ${esc(r.linked_group_code)})` : '';
+                    const type = r.is_bottom_sample ? `<span class="mixr-pill info">Bottom sample</span> of the truck's original sample${lk}`
+                        : (r.excluded_from_mix ? `Truck sample <span class="mixr-pill bad">replaced by bottom sample${lk}</span>` : 'Truck sample');
+                    const res = r.cancel_status === 'CANCELLED' || r.acceptance_status === 'CANCELLED' ? `<span style="color:#ef4444; font-weight:700;">QR CANCELLED</span><br><small style="color:#94a3b8;">${esc(r.cancel_reason || '')}</small>`
+                        : r.acceptance_status === 'REJECTED' ? '<span style="color:#ef4444; font-weight:700;">REJECTED</span>' : (r.acceptance_status === 'ACCEPTED' ? '<span style="color:#10b981; font-weight:700;">ACCEPTED</span>' : '<span style="color:#f59e0b;">PENDING</span>');
+                    const inMix = r.mix_status === 'ACCEPTED' ? '<span style="color:#10b981; font-weight:700;">Included</span>' : (r.mix_status === 'REJECTED' ? '<span style="color:#ef4444; font-weight:700;">Left out</span>' : '<span style="color:#f59e0b;">Pending</span>');
+                    return `<tr><td><strong>${esc(r.truck_reg_number)}</strong><br><small style="color:#94a3b8;">${esc(r.truck_id)}${r.driver_name ? ' &middot; ' + esc(r.driver_name) : ''}${r.invoice_no ? ' &middot; ' + esc(r.invoice_no) : ''}</small></td><td>${esc(r.entry_time || '')}</td>` +
+                        `<td><span style="font-family:monospace;">${esc(r.sample1_barcode_id)}</span></td><td>${type}</td><td>${wt(r.gross_weight)} / ${wt(r.tare_weight)} / ${wt(r.net_weight)}</td>` +
+                        `<td>${f(r.moisture_pct, 2)}</td><td>${f(r.fineness_value, 2)}</td><td>${res}</td><td>${inMix}</td><td>${r.mixing_scanned ? '✅' : '-'}</td></tr>`;
+                }).join('') + '</tbody></table></div>';
         };
+        const bodyHtml = (g) => {
+            const c = g.composite;
+            const facts = [['Date', dmy(g.date)], ['Vendor', g.company_name], ['Lot / PO', lotLabel(g.lot) + ' / ' + (g.po_number || 'not set')], ['Trucks', `${g.trucks}${g.bottom_samples ? ' + ' + g.bottom_samples + ' bottom sample' : ''}`]];
+            if (c) {
+                facts.push(['Composite', c.composite_ref_id], ['Test / Referee / Vendor lot', [c.test_lot, c.referee_lot, c.vendor_lot].filter(Boolean).join(' / ') || '-']);
+                if (c.tested) {
+                    facts.push(['TM %', f(g.tm, 2)], ['ARB GCV', f(g.gcv, 0)], ['ARB Ash %', f(g.ash, 2)]);
+                    if (g.lot === 'LOT4') facts.push(['ARB Sulphur / VM %', `${f(g.sulphur, 2)} / ${f(g.vm, 2)}`]);
+                } else facts.push(['Lab 2 result', 'not tested yet']);
+            } else facts.push(['Composite', 'not made yet']);
+            return `<div class="mixr-facts">${facts.map(x => `<div><small>${x[0]}</small>${esc(x[1])}</div>`).join('')}</div>` + truckTable(g);
+        };
+        const groupHtml = (g, i) => {
+            const c = g.composite;
+            const comp = !c ? '<span class="mixr-pill mute">Composite not made</span>' : (c.tested ? `<span class="mixr-pill info">Composite tested &middot; GCV ${esc(Number(g.gcv).toFixed(0))}</span>` : '<span class="mixr-pill wait">Composite made &middot; not tested</span>');
+            const pills = (g.accepted ? `<span class="mixr-pill ok">${g.accepted} accepted</span>` : '') + (g.rejected ? `<span class="mixr-pill bad">${g.rejected} rejected</span>` : '') + (g.pending ? `<span class="mixr-pill wait">${g.pending} pending</span>` : '') +
+                (g.bottom_samples && !g.trucks ? '<span class="mixr-pill info">bottom sample</span>' : '') + comp;
+            return `<div class="mixr-group" data-i="${i}"><button type="button" class="mixr-head" aria-expanded="false">` +
+                `<span class="mixr-code">${esc(g.group_code)}</span>` +
+                `<span class="mixr-vendor">${esc(g.company_name)}<small>PO ${esc(g.po_number || 'not set')}</small></span>` +
+                `<span><span class="lot-tag ${lotCls(g.lot)}">${esc(lotLabel(g.lot))}</span></span>` +
+                `<span class="mixr-net"><strong>${g.trucks || g.bottom_samples}</strong> ${g.trucks ? 'truck' + (g.trucks > 1 ? 's' : '') : 'bottom sample'}<small style="display:block; color:#94a3b8;">${g.accepted ? mtTxt(g.net_weight) + ' accepted' : 'no accepted weight'}</small></span>` +
+                `<span class="mixr-counts">${pills}</span><span class="mixr-chev">&#9656;</span></button><div class="mixr-body"></div></div>`;
+        };
+        const toggle = (el, force) => {
+            const open = force === undefined ? !el.classList.contains('open') : force;
+            el.classList.toggle('open', open);
+            el.querySelector('.mixr-head').setAttribute('aria-expanded', open ? 'true' : 'false');
+            const body = el.querySelector('.mixr-body');
+            if (open && !body.dataset.done) { body.innerHTML = bodyHtml(groups[Number(el.dataset.i)]); body.dataset.done = '1'; }
+        };
+        const render = (res, from, to, q) => {
+            groups = res.groups || [];
+            card.style.display = 'block';
+            if (!groups.length) {
+                sum.innerHTML = '<div class="tile" style="grid-column: 1 / -1; color:#f59e0b;">No mixing code found for this selection. Try a wider date range or clear the search box.</div>';
+                list.innerHTML = ''; cnt.textContent = ''; return;
+            }
+            const trucks = groups.reduce((a, g) => a + g.trucks, 0), vendors = new Set(groups.map(g => g.company_name)).size;
+            const made = groups.filter(g => g.composite).length, tested = groups.filter(g => g.composite && g.composite.tested).length;
+            const period = from ? (from === to ? dmy(from) : dmy(from) + ' to ' + dmy(to)) : 'all dates';
+            sum.innerHTML = [['Period', period], ['Mixing codes', groups.length], ['Trucks', trucks], ['Vendors', vendors], ['Composites made', `${made} of ${groups.length}`], ['Tested by Lab 2', `${tested} of ${made}`]].map(t => `<div class="tile"><small>${t[0]}</small><strong>${esc(String(t[1]))}</strong></div>`).join('') +
+                (res.truncated ? '<div class="tile" style="grid-column: 1 / -1; color:#fbbf24;">Only the first 400 mixing codes are shown. Narrow the dates or add a vendor / lot.</div>' : '');
+            cnt.textContent = `${groups.length} mixing code${groups.length > 1 ? 's' : ''} - click one to see its trucks`;
+            let html = '', day = null;
+            groups.forEach((g, i) => {
+                if (g.date !== day) { day = g.date; html += `<div class="mixr-day">${esc(dmy(day))} &middot; ${esc(weekday(day))}</div>`; }
+                html += groupHtml(g, i);
+            });
+            list.innerHTML = html;
+            if (groups.length === 1) toggle(list.querySelector('.mixr-group'), true);
+        };
+        const go = async () => {
+            let from = fromEl.value, to = toEl.value; const q = input.value.trim(), lot = lotEl.value;
+            if (from && !to) to = from; if (to && !from) from = to;
+            if (!from && !q) { alert('Choose a date range, or type a mixing code / vendor / truck number.'); return; }
+            if (from && to && from > to) { alert('The start date is after the end date.'); return; }
+            btn.disabled = true; btn.textContent = 'Loading...';
+            try {
+                const res = await window.BiomassAPI.mixingRange({ from, to, q, lot });
+                render(res, from, to, q);
+                card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } catch (err) { alert('Search failed: ' + err.message); }
+            finally { btn.disabled = false; btn.textContent = 'Show mixing codes'; }
+        };
+        chips.onclick = (e) => {
+            const b = e.target.closest('button[data-range]'); if (!b) return;
+            const t = today(), r = b.dataset.range;
+            if (r === 'any') { fromEl.value = toEl.value = ''; chips.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b)); input.focus(); return; }
+            if (r === 'today') { fromEl.value = toEl.value = t; }
+            else if (r === 'yesterday') { fromEl.value = toEl.value = shift(t, -1); }
+            else if (r === 'week') { fromEl.value = shift(t, -6); toEl.value = t; }
+            else { fromEl.value = t.slice(0, 8) + '01'; toEl.value = t; }
+            chips.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+            go();
+        };
+        [fromEl, toEl].forEach(el => { el.onchange = () => chips.querySelectorAll('button').forEach(x => x.classList.remove('active')); });
+        list.onclick = (e) => { const h = e.target.closest('.mixr-head'); if (h) toggle(h.parentElement); };
+        document.getElementById('mixr-expand').onclick = () => list.querySelectorAll('.mixr-group').forEach(el => toggle(el, true));
+        document.getElementById('mixr-collapse').onclick = () => list.querySelectorAll('.mixr-group').forEach(el => toggle(el, false));
         btn.onclick = go;
         input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
     }

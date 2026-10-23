@@ -338,7 +338,7 @@
         async getMixingScanSummary(date) { return rpc('bm_mixing_scan_summary', { date: date || null }); },
         async resetMixingScans(date, groupCode) { return rpc('bm_admin_reset_group_scans', { date, group_code: groupCode }); },
         /** Unloading / Admin day report: every truck of `date` (default today) with vendor, weights and results. Today's opens from 9 PM. */
-        async getDayReport(date) { return rpc('bm_unloading_day_report', { date: date || null }); },
+        async getDayReport(date, password) { return rpc('bm_unloading_day_report', { date: date || null, password: password || '' }); },
         // --- Bottom sampling (Unloading requests with a password; Entry generates the new QR) and the Admin mixing-code search ---
         async requestBottomSample(truckId, password, reason) { return rpc('bm_unloading_request_bottom', { truck_id: truckId, password: password, reason: reason || '' }); },
         async getBottomRequests() { return (await rpc('bm_entry_bottom_list', {})) || []; },
@@ -346,6 +346,7 @@
         async reprintBottomSample(truckId) { return rpc('bm_entry_bottom_reprint', { truck_id: truckId }); },
         async setBottomPassword(password) { return rpc('bm_admin_set_bottom_password', { password: password }); },
         async getBottomStatus() { return rpc('bm_admin_bottom_status', {}); },
+        async mixingRange(opts) { opts = opts || {}; return rpc('bm_admin_mixing_range', { from: opts.from || '', to: opts.to || '', q: String(opts.q || '').trim(), lot: opts.lot || '' }); },
         async searchMixingCode(code) { return rpc('bm_admin_mixing_search', { code: String(code || '').trim() }); },
         // --- Unloading: cancel the QR of a truck (password + reason) / Lab 2: open a composite by mixing code + date ---
         async cancelQr(truckId, reasonCode, note, password) { return rpc('bm_unloading_cancel_qr', { truck_id: truckId, reason_code: reasonCode, note: note || '', password: password }); },

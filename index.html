@@ -27,7 +27,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20261029_v39">
+    <link rel="stylesheet" href="style.css?v=20261030_v43">
     <!-- Chart.js for Executive Management Dashboard (version pinned; local copy used if the CDN is unreachable) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script>
@@ -419,8 +419,9 @@
                                 <div id="reg-lot-filter" class="lot-filter" role="group" aria-label="Filter suppliers by lot">
                                     <span>Show:</span>
                                     <button type="button" class="active" data-lot="">All</button>
-                                    <button type="button" data-lot="LOT2/3">LOT2/3</button>
-                                    <button type="button" data-lot="LOT4">LOT4</button>
+                                    <button type="button" data-lot="LOT2">Lot 2</button>
+                                    <button type="button" data-lot="LOT3">Lot 3</button>
+                                    <button type="button" data-lot="LOT4">Lot 4</button>
                                 </div>
                                 <div style="position: relative;">
                                     <input type="text" id="reg-company" placeholder="Start typing the vendor name or PO number..." autocomplete="off" style="width: 100%;" required>
@@ -431,7 +432,7 @@
                             </div>
                             <div class="form-group" id="reg-lot-group" style="display: none;">
                                 <label for="reg-lot">New supplier &mdash; which Lot?</label>
-                                <select id="reg-lot"><option value="">-- Select Lot --</option><option value="LOT2/3">LOT2/3</option><option value="LOT4">LOT4</option></select>
+                                <select id="reg-lot"><option value="">-- Select Lot --</option><option value="LOT2">Lot 2</option><option value="LOT3">Lot 3</option><option value="LOT4">Lot 4</option></select>
                             </div>
                             <div class="form-group">
                                 <label for="reg-driver">Driver Name</label>
@@ -986,26 +987,35 @@
                     </div>
                 </div>
                 <div class="card" data-ftgroup="insp-tabs" data-ftab="mix" style="margin-bottom: 0;">
-                            <!-- Find everything linked to a MIXING CODE -->
-                            <div style="margin: 0;">
-                                <h4 style="margin: 0 0 0.25rem; color: #f59e0b;">&#129514; Find by Mixing Code</h4>
-                                <p style="font-size: 0.82rem; margin-bottom: 0.6rem;">Type a mixing code to list every truck linked to it (any date): vendor, moisture, fineness, results and more.</p>
-                                <div style="display: flex; gap: 0.5rem;">
-                                    <input type="text" id="inspector-mix-input" placeholder="Mixing code, e.g. 7K3" maxlength="12" autocomplete="off" style="flex: 1; text-transform: uppercase; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; padding: 0.5rem; border-radius: 6px;">
-                                    <button type="button" class="btn btn-primary" id="btn-inspector-mix">Search</button>
-                                </div>
-                            </div>
-
-                </div>
-                <div class="card" id="mixsearch-result-card" data-ftgroup="insp-tabs" data-ftab="mix" style="display: none; margin-top: 1.5rem;">
-                    <h3 class="card-title" id="mixsearch-title">Trucks linked to this mixing code</h3>
-                    <div id="mixsearch-summary" class="mixsearch-info"></div>
-                    <div class="table-responsive">
-                        <table class="mixsearch-table" style="min-width: 0; font-size: 0.8rem;">
-                            <thead id="mixsearch-head"></thead>
-                            <tbody id="mixsearch-body"></tbody>
-                        </table>
+                    <h4 style="margin: 0 0 0.25rem; color: #f59e0b;">&#129514; Mixing codes &mdash; browse by date</h4>
+                    <p style="font-size: 0.82rem; margin-bottom: 0.8rem;">Choose a period: every mixing code (composite) of those days is listed. <b>Click a code to open its trucks</b> &mdash; vendor, weights, moisture, fineness, result and composite results.</p>
+                    <div class="mixr-bar">
+                        <label>From<input type="date" id="mixr-from"></label>
+                        <label>To<input type="date" id="mixr-to"></label>
+                        <div class="mixr-chips" id="mixr-chips">
+                            <button type="button" data-range="today">Today</button>
+                            <button type="button" data-range="yesterday">Yesterday</button>
+                            <button type="button" data-range="week">Last 7 days</button>
+                            <button type="button" data-range="month">This month</button>
+                            <button type="button" data-range="any">Any date (type a code)</button>
+                        </div>
                     </div>
+                    <div class="mixr-bar">
+                        <label style="flex: 1; min-width: 220px;">Narrow down (optional)
+                            <input type="text" id="inspector-mix-input" placeholder="Mixing code, vendor name, PO number or truck number" maxlength="60" autocomplete="off"></label>
+                        <label>Lot
+                            <select id="mixr-lot"><option value="">All lots</option><option value="LOT2">Lot 2</option><option value="LOT3">Lot 3</option><option value="LOT4">Lot 4</option></select></label>
+                        <button type="button" class="btn btn-primary" id="btn-inspector-mix">Show mixing codes</button>
+                    </div>
+                    <div style="font-size: 0.78rem; color: #94a3b8;">Leave the dates empty and type a code to search every date.</div>
+                </div>
+                <div id="mixsearch-result-card" data-ftgroup="insp-tabs" data-ftab="mix" style="display: none; margin-top: 1.5rem;">
+                    <div id="mixsearch-summary" class="mixsearch-info"></div>
+                    <div class="mixr-tools" id="mixr-tools">
+                        <span id="mixr-count"></span>
+                        <span><button type="button" class="btn btn-secondary btn-sm" id="mixr-expand">Open all</button> <button type="button" class="btn btn-secondary btn-sm" id="mixr-collapse">Close all</button></span>
+                    </div>
+                    <div id="mixr-list"></div>
                 </div>
             </div>
 
@@ -1100,7 +1110,8 @@
                     <div class="sx-chips" id="sx-lot-chips">
                         <span style="font-size: 0.78rem; color: #94a3b8; align-self: center;">Lot:</span>
                         <button type="button" class="sx-fchip active" data-lot="ALL">All lots</button>
-                        <button type="button" class="sx-fchip" data-lot="LOT2/3">Lot 2/3</button>
+                        <button type="button" class="sx-fchip" data-lot="LOT2">Lot 2</button>
+                        <button type="button" class="sx-fchip" data-lot="LOT3">Lot 3</button>
                         <button type="button" class="sx-fchip" data-lot="LOT4">Lot 4</button>
                     </div>
                     <div id="super-note" class="sx-note"></div>
@@ -1204,7 +1215,7 @@
                         <h3 class="card-title" style="color: #ef4444; display: flex; align-items: center; gap: 0.5rem;">
                             ⚠️ Exceptions & Security Violations View
                         </h3>
-                        <p style="font-size: 0.85rem; margin-bottom: 1.25rem;">Critical exceptions, security violations, cancelled QR codes, Super Admin changes &mdash; and <b style="color:#ef4444;">everything done from an UNKNOWN IP address</b> (shown in red). The Super Admin names the known places.</p>
+                        <p style="font-size: 0.85rem; margin-bottom: 1.25rem;">Critical exceptions, security violations, cancelled QR codes and Super Admin changes.</p>
                         <div class="table-responsive">
                             <table>
                                 <thead>
@@ -1223,6 +1234,44 @@
                         </div>
                     </div>
 
+                </div>
+            </div>
+
+            <!-- TAB: VENDORS (Lot 2, Lot 3 and Lot 4) -->
+            <div id="tab-admin-vendors" class="tab-content">
+                <div class="card">
+                    <h3 class="card-title">&#127981; Vendors &mdash; Lot 2, Lot 3 and Lot 4</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+                        Add a vendor, change its name or PO, <b>retire</b> it (it stays for old trucks and reports but can no longer be booked at the gate) or delete it (only possible while it has no trucks).
+                        A vendor that books under both lots has one entry per lot. You can also download everything as an Excel sheet, edit it there and upload it back.
+                    </p>
+                    <div class="vd-toolbar">
+                        <div class="sx-chips" id="vd-lot-chips" style="margin: 0;">
+                            <button type="button" class="sx-fchip active" data-v="ALL">All lots</button>
+                            <button type="button" class="sx-fchip" data-v="LOT2">Lot 2</button>
+                            <button type="button" class="sx-fchip" data-v="LOT3">Lot 3</button>
+                            <button type="button" class="sx-fchip" data-v="LOT4">Lot 4</button>
+                        </div>
+                        <div class="sx-chips" id="vd-status-chips" style="margin: 0;">
+                            <button type="button" class="sx-fchip active" data-v="active">Active</button>
+                            <button type="button" class="sx-fchip" data-v="retired">Retired</button>
+                            <button type="button" class="sx-fchip" data-v="all">Both</button>
+                        </div>
+                        <input type="search" id="vd-q" placeholder="Search vendor name or PO" autocomplete="off" style="flex: 1; min-width: 180px; padding: 0.5rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 8px;">
+                    </div>
+                    <div class="vd-toolbar" style="margin-top: 0.7rem;">
+                        <button type="button" class="btn btn-primary btn-sm" id="vd-add">&#10133; Add vendor</button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="vd-download">&#11015;&#65039; Download vendor sheet (Excel)</button>
+                        <label class="btn btn-secondary btn-sm" for="vd-file" style="cursor: pointer;">&#11014;&#65039; Upload edited sheet</label>
+                        <input type="file" id="vd-file" accept=".xlsx" style="display: none;">
+                        <span id="vd-count" style="font-size: 0.85rem; color: var(--text-muted);"></span>
+                    </div>
+                    <div class="table-responsive" style="margin-top: 0.8rem;">
+                        <table style="min-width: 0;">
+                            <thead><tr><th>Vendor</th><th>Lot</th><th>PO number</th><th>Trucks</th><th>Last used</th><th>Status</th><th>Actions</th></tr></thead>
+                            <tbody id="vd-body"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
@@ -1310,28 +1359,23 @@
 
         <!-- SCREEN: AFTER WEIGHMENT / UNLOADING AREA -->
         <section id="screen-unloading" class="screen">
-            <!-- Daily report (Excel) -->
+            <!-- Daily report: a password-protected PDF only (no table on screen, no Excel) -->
             <div class="card" id="dayreport-card" style="margin-bottom: 1.5rem;">
-                <h3 class="card-title" style="margin-bottom: 0.25rem;">&#128197; Daily Report &mdash; trucks, weights &amp; test results</h3>
+                <h3 class="card-title" style="margin-bottom: 0.25rem;">&#128197; Daily Report &mdash; password-protected PDF</h3>
                 <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.9rem;">
-                    Truck no., vendor, gross / tare / net weight, GCV, fineness and ash for every truck of a day. Today&rsquo;s report opens after <strong>9:00 PM</strong>;
-                    any earlier day can be opened at any time. Download it as an Excel file.
+                    The <strong>Summary report</strong> is the one for the seniors: vendor-wise unloaded quantity (highest first, with Lot 2, Lot 3 and Lot 4), trucks received / approved / unloaded / rejected, % share and lot-wise totals.
+                    <strong>Truck-wise details</strong> lists every truck with its weights and test results. Nothing is shown on this screen: each report is downloaded as a PDF that opens only with the
+                    <strong>action password</strong> (the same one used for bottom samples and Cancel QR), which is asked every time. Today&rsquo;s report opens after <strong>9:00 PM</strong>; any earlier day can be opened at any time.
                 </p>
                 <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end;">
                     <label style="display: flex; flex-direction: column; font-size: 0.75rem; color: #94a3b8; gap: 2px;">Report date
                         <input type="date" id="dayreport-date" style="padding: 0.45rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;"></label>
-                    <button type="button" class="btn btn-primary btn-sm" id="btn-dayreport-generate">&#128202; Generate report</button>
                     <button type="button" class="btn btn-secondary btn-sm" id="btn-dayreport-today">Today</button>
                     <button type="button" class="btn btn-secondary btn-sm" id="btn-dayreport-yesterday">Yesterday</button>
-                    <button type="button" class="btn btn-secondary btn-sm" id="btn-dayreport-excel" style="display: none;">&#11015;&#65039; Download Excel</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-dayreport-summary">&#128274; Summary report (PDF)</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-dayreport-details">&#128274; Truck-wise details (PDF)</button>
                 </div>
                 <div id="dayreport-note" style="font-size: 0.85rem; margin-top: 0.7rem;"></div>
-                <div id="dayreport-table-wrap" class="table-responsive" style="display: none; margin-top: 0.6rem;">
-                    <table style="min-width: 1350px; font-size: 0.85rem;">
-                        <thead><tr><th>#</th><th>Truck No.</th><th>Vendor</th><th>Lot / PO</th><th>Gross (kg)</th><th>Tare (kg)</th><th>Net (kg)</th><th>Moisture %</th><th>TM %</th><th>ARB GCV</th><th>Fineness %</th><th>ARB Ash %</th><th>ARB Sulphur %</th><th>ARB VM %</th><th>GCV / Ash from</th><th>Result</th></tr></thead>
-                        <tbody id="dayreport-body"></tbody>
-                    </table>
-                </div>
             </div>
 
             <div class="card" style="margin-bottom: 1.5rem;">
@@ -1876,6 +1920,35 @@
         </div>
     </div>
 
+    <!-- Entry: confirm what is about to be saved, before the sample QR is generated -->
+    <div id="regconfirm-modal" style="display: none; position: fixed; inset: 0; z-index: 99991; background: rgba(2,6,23,0.85); align-items: center; justify-content: center; padding: 1rem; overflow-y: auto;">
+        <div class="card" style="max-width: 520px; width: 100%; margin: auto; border: 2px solid #10b981;">
+            <h3 class="card-title" style="margin-bottom: 0.3rem;">&#9888;&#65039; Please check before saving</h3>
+            <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 0.8rem;">This is exactly what will be saved. After you confirm it <b>cannot be edited here</b> and the sample QR code is generated.</p>
+            <div id="regconfirm-rows" style="display: grid; grid-template-columns: max-content 1fr; gap: 0.45rem 1rem; font-size: 1rem; padding: 0.8rem; border-radius: 10px; background: rgba(0,0,0,0.25); margin-bottom: 0.8rem;"></div>
+            <div id="regconfirm-warn" style="display: none; font-size: 0.88rem; color: #fbbf24; margin-bottom: 0.8rem;"></div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end; flex-wrap: wrap;">
+                <button type="button" class="btn btn-secondary" id="btn-regconfirm-back">&#8592; Go back and correct</button>
+                <button type="button" class="btn btn-primary" id="btn-regconfirm-ok">&#10003; Details are correct &mdash; save &amp; generate QR</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Daily report PDF (Unloading): needs the action password, which is also the password of the PDF -->
+    <div id="dayreport-pw-modal" style="display: none; position: fixed; inset: 0; z-index: 99990; background: rgba(2,6,23,0.8); align-items: center; justify-content: center; padding: 1rem;">
+        <div class="card" style="max-width: 440px; width: 100%; margin: 0; border: 2px solid #6366f1;">
+            <h3 class="card-title" style="margin-bottom: 0.4rem;">Download password-protected PDF</h3>
+            <p style="font-size: 0.9rem; margin-bottom: 0.9rem;"><strong id="dayreport-pw-what"></strong>. Enter the action password. The PDF is locked with the same password and cannot be opened without it.</p>
+            <label style="display: block; font-size: 0.8rem; margin-bottom: 0.2rem;">Action password</label>
+            <input type="password" id="dayreport-pw" autocomplete="off" style="width: 100%; padding: 0.55rem; margin-bottom: 0.7rem;">
+            <div id="dayreport-pw-msg" style="font-size: 0.88rem; margin-bottom: 0.6rem; min-height: 1.2em;"></div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" id="btn-dayreport-pw-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btn-dayreport-pw-send" disabled>Download PDF</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Photo Lightbox Modal (For viewing truck photos) -->
     <div id="lightbox" class="photo-lightbox" onclick="this.style.display='none'">
         <button class="photo-lightbox-close" onclick="document.getElementById('lightbox').style.display='none'">&times;</button>
@@ -1892,6 +1965,7 @@
 
     <!-- PDF.js library for offline PDF barcode scanning in pilot tests -->
     <script src="lib/pdf.min.js" onerror="alert('CRITICAL: lib/pdf.min.js failed to load!')"></script>
+    <script src="lib/mini-pdf.js?v=20261030_v43" onerror="alert('CRITICAL: lib/mini-pdf.js failed to load!')"></script>
 
     <!-- ExcelJS for the professional formatted Executive Dashboard export -->
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
@@ -1911,14 +1985,14 @@
 
     <!-- Moisture-meter reader (trained offline OCR). Small loaders only; the ~8 MB engine in lib/ocr/ is fetched
          on first use. If these fail to load the app simply falls back to manual photo + typing. -->
-    <script src="lib/ocr/moisture-reader-core.js?v=20261029_v39"></script>
-    <script src="lib/ocr/led-weight-reader.js?v=20261029_v39"></script>
-    <script src="lib/ocr/led-templates.js?v=20261029_v39"></script>
-    <script src="moisture-ocr.js?v=20261029_v39"></script>
+    <script src="lib/ocr/moisture-reader-core.js?v=20261030_v43"></script>
+    <script src="lib/ocr/led-weight-reader.js?v=20261030_v43"></script>
+    <script src="lib/ocr/led-templates.js?v=20261030_v43"></script>
+    <script src="moisture-ocr.js?v=20261030_v43"></script>
 
     <!-- App JavaScript files -->
-    <script src="api.js?v=20261029_v39" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261029_v39" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="api.js?v=20261030_v43" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261030_v43" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

@@ -2165,6 +2165,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 loadRefereeChallengeTable();
             } else if (targetContentId === 'tab-admin-vendors') {
                 initVendorsTab();
+            } else if (targetContentId === 'tab-admin-training') {
+                initReaderTrainingTab();
             } else if (targetContentId === 'tab-super-inspector') {
                 initSuperConsole();
             } else if (targetContentId === 'tab-super-tools') {
@@ -2175,13 +2177,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 renderSuperIps();
             } else if (targetContentId === 'tab-super-logins') {
                 renderSuperLogins();
+            } else if (targetContentId === 'tab-super-passwords') {
+                renderSuperPasswords();
             } else if (targetContentId === 'tab-admin-activity') {
                 renderActivityLogTab();
                 refreshSuperAlert();
             } else if (targetContentId === 'tab-admin-settings') {
                 initStorageCard();
                 initMixResetCard();
-                initBottomPasswordCard();
             }
         }
 
@@ -2847,6 +2850,34 @@ document.addEventListener('DOMContentLoaded', function() {
             backBtn.focus();          // Enter must not confirm by accident
         });
     }
+
+    // Which version of the app is this page? (the ?v= of its own script) - shown small in the corner; a page left open for days checks for a newer one
+    const APP_VERSION = (() => { const s = document.querySelector('script[src*="app.js"]'); const m = s && /[?&]v=([^&]+)/.exec(s.getAttribute('src')); return m ? m[1] : 'unknown'; })();
+    (function showAppVersion() {
+        const tag = document.createElement('div');
+        tag.id = 'app-version-tag'; tag.textContent = 'version ' + APP_VERSION;
+        tag.style.cssText = 'position:fixed; right:8px; bottom:4px; font-size:0.65rem; color:#94a3b8; opacity:0.7; z-index:50; pointer-events:none;';
+        document.body.appendChild(tag);
+    })();
+    let versionWarned = false;
+    async function checkForNewVersion() {
+        if (versionWarned) return;
+        try {
+            const html = await (await fetch('index.html?nc=' + Date.now(), { cache: 'no-store' })).text();
+            const m = /app\.js\?v=([^"&]+)/.exec(html);
+            if (!m || m[1] === APP_VERSION) return;
+            versionWarned = true;
+            const bar = document.createElement('div');
+            bar.style.cssText = 'position:fixed; left:0; right:0; bottom:0; z-index:99999; background:#b45309; color:#fff; padding:0.7rem 1rem; display:flex; gap:1rem; align-items:center; justify-content:center; flex-wrap:wrap; font-weight:600;';
+            bar.innerHTML = 'A newer version of the app is available (' + m[1] + '; this page runs ' + APP_VERSION + '). ';
+            const b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-primary btn-sm'; b.textContent = 'Reload now';
+            b.onclick = () => location.reload(); bar.appendChild(b);
+            document.body.appendChild(bar);
+        } catch (e) { /* offline: try again later */ }
+    }
+    setTimeout(checkForNewVersion, 20000);
+    setInterval(checkForNewVersion, 10 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForNewVersion(); });
 
     // Coming back to a page that was left open: reload the vendor list so an outdated list is not shown at the gate
     let lastVendorRefresh = Date.now();
@@ -4094,22 +4125,83 @@ document.addEventListener('DOMContentLoaded', function() {
         btnPdfComm.onclick = () => printCommReport(btnPdfComm);
     }
 
+    // ---- Exceptions & Security Violations (Admin) / audit log (Super Admin): date range + acknowledged filter; the default is TODAY + NOT ACKNOWLEDGED
+    const actState = { wired: false, rows: [] };
+    const actEl = (id) => document.getElementById(id);
+    function actWire() {
+        if (actState.wired) return;
+        actState.wired = true;
+        const today = () => window.BiomassAPI.todayIST();
+        const shift = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+        actEl('act-from').value = actEl('act-to').value = today();
+        actEl('act-from').max = actEl('act-to').max = today();
+        actEl('act-status').value = 'open';
+        const reload = () => renderActivityLogTab();
+        actEl('act-chips').onclick = (e) => {
+            const b = e.target.closest('button[data-range]'); if (!b) return;
+            const t = today(), r = b.dataset.range;
+            if (r === 'today') { actEl('act-from').value = actEl('act-to').value = t; }
+            else if (r === 'yesterday') { actEl('act-from').value = actEl('act-to').value = shift(t, -1); }
+            else if (r === 'week') { actEl('act-from').value = shift(t, -6); actEl('act-to').value = t; }
+            else { actEl('act-from').value = '2020-01-01'; actEl('act-to').value = t; }
+            actEl('act-chips').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+            reload();
+        };
+        ['act-from', 'act-to'].forEach(id => { actEl(id).onchange = () => { actEl('act-chips').querySelectorAll('button').forEach(x => x.classList.remove('active')); reload(); }; });
+        actEl('act-status').onchange = reload;
+        actEl('btn-act-show').onclick = reload;
+        actEl('act-q').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); reload(); } };
+        actEl('btn-act-ackall').onclick = async () => {
+            const ids = actState.rows.filter(r => !r.acknowledged).map(r => r.id);
+            if (!ids.length) { alert('Nothing to acknowledge in this list.'); return; }
+            if (!confirm(`Mark the ${ids.length} line(s) shown as reviewed (acknowledged)?\n\nThey will no longer appear in the default view.`)) return;
+            try { await window.BiomassAPI.ackLogs(ids); } catch (e) { alert(e.message); return; }
+            reload(); refreshSuperAlert();
+        };
+        actEl('exceptions-log-body').onclick = async (e) => {
+            const b = e.target.closest('button[data-ack]'); if (!b) return;
+            b.disabled = true;
+            try { await window.BiomassAPI.ackLogs([Number(b.dataset.ack)]); } catch (err) { alert(err.message); b.disabled = false; return; }
+            renderActivityLogTab(); refreshSuperAlert();
+        };
+    }
+    async function actFetch() {
+        const res = await window.BiomassAPI.exceptionsRange({ from: actEl('act-from').value, to: actEl('act-to').value, status: actEl('act-status').value, q: actEl('act-q').value });
+        actState.rows = res.rows || [];
+        const dmyS = (d) => { const p = String(d).slice(0, 10).split('-'); return p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : String(d); };
+        const range = String(res.from).slice(0, 10) === String(res.to).slice(0, 10) ? dmyS(res.from) : dmyS(res.from) + ' to ' + dmyS(res.to);
+        const stTxt = { open: 'not acknowledged', acked: 'acknowledged', all: 'acknowledged and not acknowledged' }[res.status];
+        const other = (res.open_total || 0) - (res.open_in_range || 0);
+        actEl('act-summary').innerHTML = `<b>${actState.rows.length}</b> line(s) &middot; ${esc(range)} &middot; ${stTxt}. Not acknowledged in total (all dates): <b style="color:${res.open_total ? '#f87171' : '#34d399'};">${res.open_total || 0}</b>` +
+            (other > 0 ? ` &mdash; <b>${other}</b> of them on other days (change the dates or press &ldquo;All dates&rdquo; to see them)` : '') + (res.truncated ? '. <span style="color:#fbbf24;">Only the newest 1000 are shown: narrow the dates.</span>' : '');
+        const ackBtn = actEl('btn-act-ackall');
+        ackBtn.style.display = res.can_acknowledge && actState.rows.some(r => !r.acknowledged) ? '' : 'none';
+        return res;
+    }
+    const actReview = (l, canAck) => l.acknowledged ? '<span class="mixr-pill ok">&#10003; acknowledged</span>'
+        : (canAck ? `<button type="button" class="btn btn-secondary btn-sm" data-ack="${l.id}">Acknowledge</button>` : '<span class="mixr-pill wait">not yet</span>');
+
     // Super Admin: only its own changes + the submitted lab results with their values
     async function renderSuperAuditTab() {
+        actWire();
         const chg = document.getElementById('sx-audit-changes'), subs = document.getElementById('sx-audit-subs');
         document.querySelectorAll('#tab-admin-activity .admin-only-log').forEach(el => el.style.display = 'none');
         document.getElementById('sx-audit-panel').style.display = 'flex';
-        chg.innerHTML = subs.innerHTML = '<tr><td colspan="5" style="text-align:center;">Loading...</td></tr>';
+        chg.innerHTML = subs.innerHTML = '<tr><td colspan="6" style="text-align:center;">Loading...</td></tr>';
         try {
+            const res = await actFetch();
+            chg.innerHTML = actState.rows.map(l => `<tr><td style="font-family:monospace; font-size:0.82rem; color:#ef4444; white-space:nowrap;">${esc(l.timestamp)}</td><td>${esc(l.username)}</td><td><strong style="color:#ef4444;">${esc(l.action.replace('SUPERADMIN_', ''))}</strong></td>` +
+                `<td style="font-size:0.85rem;">${esc(l.details)}</td><td style="font-family:monospace; font-size:0.8rem;">${esc(l.ip || '-')}${l.device ? `<br><span style="font-family:inherit; color:#94a3b8; font-size:0.7rem;">${esc(String(l.device).slice(0, 90))}</span>` : ''}</td><td>${actReview(l, false)}</td></tr>`).join('')
+                || '<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No changes for this selection.</td></tr>';
+            // the lab results follow the same dates (and the search text)
             const r = await window.BiomassAPI.superLogs();
             superAuditData = r;
-            chg.innerHTML = (r.changes || []).map(l => `<tr><td style="font-family:monospace; font-size:0.82rem; color:#ef4444; white-space:nowrap;">${esc(l.timestamp)}</td><td>${esc(l.username)}</td><td><strong style="color:#ef4444;">${esc(l.action.replace('SUPERADMIN_', ''))}</strong></td>` +
-                `<td style="font-size:0.85rem;">${esc(l.details)}</td><td style="font-family:monospace; font-size:0.8rem;">${esc(l.ip || '-')}${l.device ? `<br><span style="font-family:inherit; color:#94a3b8; font-size:0.7rem;">${esc(String(l.device).slice(0, 90))}</span>` : ''}</td></tr>`).join('')
-                || '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No changes made yet.</td></tr>';
-            subs.innerHTML = (r.submissions || []).map(l => `<tr><td style="font-family:monospace; font-size:0.82rem; white-space:nowrap;">${esc(l.timestamp)}</td><td>${esc(l.username)}</td><td style="font-size:0.9rem;"><strong>${esc(l.summary)}</strong></td></tr>`).join('')
-                || '<tr><td colspan="3" style="text-align:center; color:var(--text-muted);">No results submitted yet.</td></tr>';
+            const f = String(res.from).slice(0, 10), t = String(res.to).slice(0, 10), q = actEl('act-q').value.trim().toLowerCase();
+            const subRows = (r.submissions || []).filter(l => String(l.timestamp).slice(0, 10) >= f && String(l.timestamp).slice(0, 10) <= t && (!q || (l.username + ' ' + l.summary).toLowerCase().includes(q)));
+            subs.innerHTML = subRows.map(l => `<tr><td style="font-family:monospace; font-size:0.82rem; white-space:nowrap;">${esc(l.timestamp)}</td><td>${esc(l.username)}</td><td style="font-size:0.9rem;"><strong>${esc(l.summary)}</strong></td></tr>`).join('')
+                || '<tr><td colspan="3" style="text-align:center; color:var(--text-muted);">No results submitted in this period.</td></tr>';
         } catch (e) {
-            chg.innerHTML = subs.innerHTML = `<tr><td colspan="5" style="color:var(--danger);">${esc(e.message)}</td></tr>`;
+            chg.innerHTML = subs.innerHTML = `<tr><td colspan="6" style="color:var(--danger);">${esc(e.message)}</td></tr>`;
         }
     }
     let superAuditData = null;
@@ -4122,23 +4214,255 @@ document.addEventListener('DOMContentLoaded', function() {
     };
     async function renderActivityLogTab() {
         const cu = window.BiomassAPI.getCurrentUser();
+        actWire();
         if (cu && cu.is_super) return renderSuperAuditTab();
         const exceptionsBody = document.getElementById('exceptions-log-body');
-        exceptionsBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Loading exception logs...</td></tr>';
+        exceptionsBody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Loading exception logs...</td></tr>';
         try {
-            const logs = await window.BiomassAPI.getActivityLogs();
-            // the full activity log is not shown here any more (it lives with the Super Admin, "IP addresses"); the Excel export still has everything
+            await actFetch();
             // The Admin gets NO unknown-IP / "new IP address detected" alerts (owner's decision): such lines are not listed and not marked.
-            const ex = logs.filter(l => isExceptionLog(l)).slice(0, 600);
-            exceptionsBody.innerHTML = ex.length ? ex.map(l => {
-                const unk = false, red = isExceptionLog(l);
-                return `<tr class="${unk ? 'ip-unknown' : ''}"><td style="font-family:monospace; font-size:0.85rem;${red ? ' color:#ef4444;' : ''}">${esc(l.timestamp)}</td>` +
+            exceptionsBody.innerHTML = actState.rows.length ? actState.rows.map(l => {
+                return `<tr${l.acknowledged ? ' style="opacity:0.65;"' : ''}><td style="font-family:monospace; font-size:0.85rem; color:#ef4444;">${esc(l.timestamp)}</td>` +
                     `<td><span class="user-role" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; padding: 0.1rem 0.4rem; border-radius: 4px;">${esc(l.username)}</span></td>` +
-                    `<td><strong style="${red ? 'color:#ef4444;' : ''}">${esc(l.action)}</strong></td><td style="font-size:0.85rem;">${esc(l.details)}</td><td>${ipCell(l, false, true)}</td></tr>`;
-            }).join('') : '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No critical exceptions flagged.</td></tr>';
+                    `<td><strong style="color:#ef4444;">${esc(l.action)}</strong></td><td style="font-size:0.85rem;">${esc(l.details)}</td><td>${ipCell(l, false, true)}</td><td>${actReview(l, true)}</td></tr>`;
+            }).join('') : '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No exceptions for this selection.</td></tr>';
         } catch (e) {
-            exceptionsBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--danger);">Failed to load exceptions: ${esc(e.message)}</td></tr>`;
+            exceptionsBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--danger);">Failed to load exceptions: ${esc(e.message)}</td></tr>`;
         }
+    }
+
+    // ================= READER TRAINING =================
+    // Lab-1 keeps a photo (and the value the operator confirmed) when the reader was less than 50 % sure. The Admin lets the fineness-weight
+    // reader learn from those photos (the moisture reader is a general text reader and cannot learn: its photos are only kept for checking).
+    // What is learned is published as a numbered version that every Lab-1 device loads by itself - no redeploy - and can be switched back.
+    const LED_CACHE_KEY = 'BIOMASS_LED_EXTRA';
+    function applyLearnedEntries(entries) {
+        if (!window.LED_TEMPLATES_BUILTIN) window.LED_TEMPLATES_BUILTIN = window.LED_TEMPLATES || [];
+        window.LED_TEMPLATES = window.LED_TEMPLATES_BUILTIN.concat((entries || []).map(e => ({ ch: e[0], g: e.slice(1) })));
+    }
+    // Loads the active learned set (from this device's copy first, then from the server when a newer version exists)
+    async function syncLearnedTemplates() {
+        let have = -1;
+        try {
+            const c = JSON.parse(localStorage.getItem(LED_CACHE_KEY) || 'null');
+            if (c && Array.isArray(c.examples)) { applyLearnedEntries(c.examples); have = c.version; }
+        } catch (e) { /* no copy yet */ }
+        try {
+            const r = await window.BiomassAPI.getReaderTemplates(have);
+            if (r && !r.unchanged) {
+                applyLearnedEntries(r.examples);
+                try { localStorage.setItem(LED_CACHE_KEY, JSON.stringify({ version: r.version, examples: r.examples })); } catch (e) { /* too big / blocked: works without the copy */ }
+            }
+            return r ? r.version : null;
+        } catch (e) { return null; }       // offline or not allowed: the examples already loaded stay
+    }
+
+    const rt = { wired: false, rows: [], used: [], list: null, photos: {}, learned: null, newEntries: null, activeExamples: [] };
+    const RT_KIND = { moisture: 'Moisture', fineness_initial: 'Initial weight', fineness_final: 'Final weight' };
+    const rtEl = (id) => document.getElementById(id);
+
+    function rtLoadImage(url) {
+        return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('photo could not be opened')); i.src = url; });
+    }
+    async function rtPhoto(row) {
+        if (rt.photos[row.id]) return rt.photos[row.id];
+        const u = await window.BiomassAPI.loadStoredPhoto(row.photo);
+        rt.photos[row.id] = u;
+        return u;
+    }
+
+    async function initReaderTrainingTab() {
+        if (!rt.wired) {
+            rt.wired = true;
+            rtEl('rt-refresh').onclick = rtLoad;
+            rtEl('rt-collect').onchange = async () => {
+                try { await window.BiomassAPI.trainingCollect(rtEl('rt-collect').checked); } catch (e) { alert(e.message); }
+                rtLoad();
+            };
+            rtEl('rt-view').onchange = rtLoad;
+            rtEl('rt-check').onclick = rtCheckReader;
+            rtEl('rt-filter').oninput = () => {
+                const q = rtEl('rt-filter').value.trim().toLowerCase();
+                document.querySelectorAll('#rt-body tr[data-id]').forEach(tr => { tr.style.display = !q || tr.dataset.find.includes(q) ? '' : 'none'; });
+            };
+            rtEl('rt-del-done').onclick = () => rtDeletePhotos('done');
+            rtEl('rt-del-all').onclick = () => rtDeletePhotos('all');
+            rtEl('rt-learn').onclick = rtLearn;
+            rtEl('rt-publish').onclick = rtPublish;
+            rtEl('rt-reject').onclick = async () => {
+                const ids = [...document.querySelectorAll('#rt-body input[data-pick]:checked')].map(x => Number(x.dataset.pick))
+                    .concat([...document.querySelectorAll('#rt-body input[data-pickm]:checked')].map(x => Number(x.dataset.pickm)));
+                if (!ids.length) { alert('Tick the samples to reject first.'); return; }
+                if (!confirm(`Reject ${ids.length} sample(s)? They will not be learned (a wrong confirmation by an operator should be rejected).`)) return;
+                try { await window.BiomassAPI.trainingMark(ids, 'REJECTED'); } catch (e) { alert(e.message); return; }
+                rtLoad();
+            };
+            rtEl('rt-versions').onclick = async (e) => {
+                const b = e.target.closest('button[data-ver]'); if (!b) return;
+                const v = Number(b.dataset.ver);
+                if (!confirm(v ? `Switch every Lab-1 device to learned version ${v}?` : 'Go back to the built-in examples only (no learned examples) on every Lab-1 device?')) return;
+                try { await window.BiomassAPI.activateTemplates(v); } catch (err) { alert(err.message); return; }
+                await syncLearnedTemplates();
+                rtLoad();
+            };
+        }
+        await syncLearnedTemplates();
+        rtLoad();
+    }
+
+    async function rtLoad() {
+        const body = rtEl('rt-body'), tiles = rtEl('rt-tiles');
+        body.innerHTML = '<tr><td colspan="7" style="text-align:center;">Loading...</td></tr>';
+        rtEl('rt-result').innerHTML = ''; rtEl('rt-publish-box').style.display = 'none'; rt.newEntries = null;
+        rtSpace();
+        try {
+            const l = await window.BiomassAPI.trainingList(rtEl('rt-view').value || 'PENDING');
+            rt.list = l; rt.rows = l.rows || [];
+            try { rt.used = ((await window.BiomassAPI.trainingList('USED')).rows || []).filter(r => r.kind !== 'moisture'); } catch (e) { rt.used = []; }
+            const c = l.counts || {};
+            tiles.innerHTML = [['Waiting to be learned', c.pending], ['Already learned', c.used], ['Rejected', c.rejected], ['Kept in the last 7 days', `${l.last7} <small style="color:#94a3b8;">(before: ${l.prev7})</small>`],
+                ['Kept in the last 30 days', `${l.last30} <small style="color:#94a3b8;">(before: ${l.prev30})</small>`], ['Active learned set', l.active_version ? 'version ' + l.active_version : 'none (built-in only)']]
+                .map(t => `<div class="tile"><small>${t[0]}</small><strong>${t[1]}</strong></div>`).join('');
+            rtEl('rt-collect').checked = !!l.collect;
+            rtEl('rt-verdict').innerHTML = l.last7 <= 2
+                ? `<span style="color:#34d399;">&#9989; Only ${l.last7} low-confidence photo(s) in the last 7 days: the reader is rarely unsure now. You can switch collecting off.</span>`
+                : `<span style="color:#fbbf24;">&#8505;&#65039; ${l.last7} low-confidence photos in the last 7 days. Keep learning until this stays at 2 or less per week (or 1&ndash;2 per month).</span>`;
+            rtEl('rt-versions').innerHTML = (l.versions || []).length ? '<table style="min-width:0; font-size:0.85rem;"><thead><tr><th>Version</th><th>Published</th><th>By</th><th>Examples</th><th>Note</th><th></th></tr></thead><tbody>' +
+                l.versions.map(v => `<tr><td><b>${v.version}</b>${v.active ? ' <span class="mixr-pill ok">active</span>' : ''}</td><td>${esc(String(v.created_at).slice(0, 16).replace('T', ' '))} UTC</td><td>${esc(v.created_by || '')}</td><td>${v.examples}</td><td>${esc(v.note || '')}</td>` +
+                    `<td>${v.active ? '' : `<button type="button" class="btn btn-secondary btn-sm" data-ver="${v.version}">Use this version</button>`}</td></tr>`).join('') +
+                `</tbody></table>${l.active_version ? '<div style="margin-top:0.5rem;"><button type="button" class="btn btn-secondary btn-sm" data-ver="0">&#8630; Go back to the built-in examples only</button></div>' : ''}`
+                : '<span style="color:#94a3b8;">Nothing has been published yet.</span>';
+            body.innerHTML = rt.rows.length ? rt.rows.map(r => {
+                const weight = r.kind !== 'moisture', gone = String(r.photo).startsWith('purged:');
+                const find = [r.truck_reg_number, r.company_name, r.operator].join(' ').toLowerCase();
+                return `<tr data-id="${r.id}" data-find="${esc(find)}"><td>${gone || r.status !== 'PENDING' ? (r.status === 'USED' ? '<small style="color:#34d399;">learned v' + esc(String(r.used_version || '')) + '</small>' : '') : (weight ? `<input type="checkbox" data-pick="${r.id}" checked>` : `<input type="checkbox" data-pickm="${r.id}" title="tick to reject">`)}</td>` +
+                    `<td>${gone ? '<span style="color:#94a3b8; font-size:0.8rem;">photo deleted</span>' : `<img data-photo="${r.id}" alt="" style="width:140px; height:80px; object-fit:contain; background:#000; border-radius:6px; cursor:zoom-in;">`}</td>` +
+                    `<td><b>${esc(r.truck_reg_number || '-')}</b><br><span style="font-size:0.85rem;">${esc(r.company_name || '-')}</span><br><small style="color:#94a3b8;">${esc(lotLabel(r.lot || ''))} &middot; operator ${esc(r.operator || '-')}</small></td>` +
+                    `<td>${RT_KIND[r.kind]}<br><small style="color:#94a3b8;">${esc(String(r.created_at).slice(0, 10))}</small></td><td style="font-size:1.1rem; font-weight:800;">${esc(String(Number(r.value)))}</td>` +
+                    `<td>${Math.round(r.conf)}%</td><td id="rt-now-${r.id}" style="font-size:0.85rem;">${weight ? '<span style="color:#94a3b8;">not checked</span>' : '<span style="color:#94a3b8;">kept for checking; the moisture reader cannot learn from photos</span>'}</td></tr>`;
+            }).join('') : '<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">Nothing in this list. Photos appear here when an operator confirms a reading the reader was less than 50 % sure about.</td></tr>';
+            rt.rows.filter(r => !String(r.photo).startsWith('purged:')).forEach(async (r) => {
+                try { const u = await rtPhoto(r); const img = body.querySelector(`img[data-photo="${r.id}"]`); if (img) { img.src = u; img.onclick = () => { const lb = document.getElementById('lightbox'); if (lb) { document.getElementById('lightbox-img').src = u; lb.style.display = 'flex'; } }; } }
+                catch (e) { const img = body.querySelector(`img[data-photo="${r.id}"]`); if (img) img.alt = 'photo not available'; }
+            });
+        } catch (e) {
+            body.innerHTML = `<tr><td colspan="7" style="color:#ef4444;">${esc(e.message)}</td></tr>`;
+        }
+    }
+
+    // Storage used by the training photos, and the "delete at once" buttons
+    async function rtSpace() {
+        const box = rtEl('rt-space');
+        try {
+            const [sp, st] = await Promise.all([window.BiomassAPI.trainingSpace(), window.BiomassAPI.getStorageStatus().catch(() => null)]);
+            const pct = st && st.limit ? sp.bytes / st.limit * 100 : null;
+            box.innerHTML = `<b>${fmtMB(sp.bytes)}</b> in <b>${sp.files}</b> photo file(s)` + (pct !== null ? ` &mdash; ${pct.toFixed(2)}% of the whole Storage limit (${fmtMB(st.limit)}; Storage is ${(st.bytes / st.limit * 100).toFixed(1)}% full in total)` : '') +
+                `<br><span style="color:#94a3b8;">waiting to be learned: ${fmtMB(sp.waiting_bytes)} (${sp.waiting_files}) &middot; learned or rejected: ${fmtMB(sp.done_bytes)} (${sp.done_files}) &middot; already deleted: ${sp.deleted_rows} sample(s)</span>`;
+            rtEl('rt-del-done').disabled = !sp.done_files && !sp.samples; rtEl('rt-del-done').title = sp.done_files ? '' : 'Nothing to delete here yet';
+        } catch (e) { box.textContent = 'Could not read the storage use: ' + e.message + ' (has the updated db/01_schema_v2.sql been run?)'; }
+    }
+    async function rtDeletePhotos(scope) {
+        const out = rtEl('rt-del-result'), b1 = rtEl('rt-del-done'), b2 = rtEl('rt-del-all');
+        const msg = scope === 'all'
+            ? 'Delete ALL training photos, including the ones still waiting to be learned?\n\nWaiting samples will be rejected (nothing left to learn from). What the reader has already learned is kept. The lab records\' own photos are not touched.\n\nThis cannot be undone.'
+            : 'Delete the photos of the samples that were learned or rejected?\n\nWhat the reader has learned is kept (it does not need the photos). The waiting samples and the lab records\' own photos are not touched.\n\nThis cannot be undone.';
+        if (!confirm(msg)) return;
+        b1.disabled = b2.disabled = true; out.textContent = 'Deleting...';
+        try {
+            const r = await window.BiomassAPI.deleteTrainingPhotos(scope, (i, n) => { out.textContent = `Deleting... ${Math.round(i / n * 100)}%`; });
+            try { await window.BiomassAPI.logActivity('TRAINING_PHOTOS_DELETED', `${r.done} training photo file(s) deleted (about ${(r.freed / 1048576).toFixed(1)} MB), ${r.detached} sample(s) detached; not removed: ${r.failed}.`); } catch (e) { /* courtesy line */ }
+            out.innerHTML = `${r.failed ? '&#9888;&#65039;' : '&#9989;'} Deleted ${r.done} photo file(s), freed about ${fmtMB(r.freed)}` + (r.failed ? `; ${r.failed} could not be removed (try again)` : '') + '.';
+        } catch (e) { out.textContent = 'Could not delete: ' + e.message; }
+        finally { b1.disabled = b2.disabled = false; rtLoad(); }
+    }
+
+    const rtFmt = (v) => Number(v).toFixed(3);
+    async function rtReadWeight(row, templates) {
+        const img = await rtLoadImage(await rtPhoto(row));
+        const r = window.LedWeightReader.read(img, 3, templates);
+        return r.found && r.value ? { value: r.value, conf: r.conf } : { value: null, conf: 0, fail: r.fail || 'no display found' };
+    }
+    // What does the reader (with the examples it has NOW) say about the waiting photos?
+    async function rtCheckReader() {
+        const btn = rtEl('rt-check'); btn.disabled = true;
+        try {
+            for (const r of rt.rows) {
+                const cell = rtEl('rt-now-' + r.id); if (!cell) continue;
+                cell.textContent = 'reading...';
+                try {
+                    if (r.kind === 'moisture') {
+                        if (!window.MoistureOCR) { cell.textContent = 'reader not loaded'; continue; }
+                        const blob = await (await fetch(await rtPhoto(r))).blob();
+                        const x = await window.MoistureOCR.read(blob, { kind: 'moisture' });
+                        const ok = x && Number(x.value) === Number(r.value);
+                        cell.innerHTML = x ? `${ok ? '&#9989;' : '&#10060;'} reads <b>${esc(String(x.value))}</b> (${Math.round(x.conf)}%)` : '&#10060; no reading';
+                    } else {
+                        const x = await rtReadWeight(r);
+                        const ok = x.value && rtFmt(x.value) === rtFmt(r.value);
+                        cell.innerHTML = x.value ? `${ok ? '&#9989;' : '&#10060;'} reads <b>${esc(x.value)}</b> (${Math.round(x.conf)}%)` : `&#10060; ${esc(x.fail)}`;
+                    }
+                } catch (e) { cell.textContent = e.message; }
+            }
+        } finally { btn.disabled = false; }
+    }
+
+    // Build the new examples from the ticked weight photos, then re-read them (and the earlier learned ones) to prove it works
+    async function rtLearn() {
+        const ids = new Set([...document.querySelectorAll('#rt-body input[data-pick]:checked')].map(x => Number(x.dataset.pick)));
+        const picked = rt.rows.filter(r => ids.has(r.id) && r.kind !== 'moisture' && !String(r.photo).startsWith('purged:'));
+        const out = rtEl('rt-result');
+        if (!picked.length) { out.innerHTML = '<span style="color:#f59e0b;">Tick at least one weight photo.</span>'; return; }
+        if (!window.LedWeightReader) { out.innerHTML = '<span style="color:#ef4444;">The weight reader is not loaded.</span>'; return; }
+        const btn = rtEl('rt-learn'); btn.disabled = true; out.innerHTML = 'Learning... (a few seconds per photo)';
+        try {
+            const active = await window.BiomassAPI.getReaderTemplates(-1);
+            rt.activeExamples = active && active.examples ? active.examples.slice() : [];
+            const seen = new Set(rt.activeExamples.map(e => e[0] + ':' + e.slice(1)));
+            const entries = rt.activeExamples.slice(); const learned = []; const lines = [];
+            for (const r of picked) {
+                const lab = rtFmt(r.value).replace('.', '');
+                let n = 0, why = '';
+                try {
+                    const img = await rtLoadImage(await rtPhoto(r));
+                    const ex = window.LedWeightReader.examples(img, [-2, -1, 0, 1, 2], [-5, 0, 5], lab.length);
+                    if (!ex.found) why = 'the display was not found in the photo';
+                    else ex.sets.forEach(s => { if (s.n !== lab.length) return; s.grids.forEach(gs => gs.forEach((g, i) => { const key = lab[i] + ':' + g; if (seen.has(key)) return; seen.add(key); entries.push(lab[i] + g); n++; })); });
+                    if (!n && !why) why = 'the digits could not be split into ' + lab.length + ' (or nothing new)';
+                } catch (e) { why = e.message; }
+                if (n) learned.push(r);
+                lines.push({ r, n, why });
+            }
+            // proof: read every learned photo again with the new set, plus the photos learned earlier (they must not get worse)
+            const all = (window.LED_TEMPLATES_BUILTIN || window.LED_TEMPLATES || []).concat(entries.map(e => ({ ch: e[0], g: e.slice(1) })));
+            let okNew = 0; const rows = [];
+            for (const l of lines) {
+                let res = '';
+                if (l.n) { try { const x = await rtReadWeight(l.r, all); const ok = x.value && rtFmt(x.value) === rtFmt(l.r.value); if (ok) okNew++; res = ok ? `&#9989; now reads ${esc(x.value)} (${Math.round(x.conf)}%)` : `&#10060; now reads ${esc(x.value || x.fail)}`; } catch (e) { res = esc(e.message); } }
+                rows.push(`<tr><td>${RT_KIND[l.r.kind]} ${esc(rtFmt(l.r.value))}</td><td>${l.n ? l.n + ' new examples' : '<span style="color:#f59e0b;">skipped: ' + esc(l.why) + '</span>'}</td><td>${res}</td></tr>`);
+            }
+            let okOld = 0, totOld = 0;
+            for (const r of rt.used.filter(x => !String(x.photo).startsWith('purged:'))) { totOld++; try { const x = await rtReadWeight(r, all); if (x.value && rtFmt(x.value) === rtFmt(r.value)) okOld++; } catch (e) { /* photo gone */ } }
+            rt.newEntries = entries; rt.learned = learned;
+            out.innerHTML = `<table style="min-width:0; font-size:0.85rem;"><thead><tr><th>Photo (confirmed value)</th><th>Learned</th><th>Reader with the new examples</th></tr></thead><tbody>${rows.join('')}</tbody></table>` +
+                `<p style="margin-top:0.6rem;"><b>${okNew} of ${learned.length}</b> learned photo(s) are read correctly with the new set` + (totOld ? `; <b>${okOld} of ${totOld}</b> photos learned earlier are still read correctly` : '') + `. The new set has ${entries.length} learned examples in total (+${entries.length - rt.activeExamples.length}).</p>` +
+                (totOld && okOld < totOld ? '<p style="color:#fbbf24;">&#9888;&#65039; Some earlier photos are no longer read correctly with this set. Publishing is not recommended.</p>' : '');
+            rtEl('rt-publish-box').style.display = learned.length ? '' : 'none';
+        } catch (e) { out.innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; }
+        finally { btn.disabled = false; }
+    }
+
+    async function rtPublish() {
+        if (!rt.newEntries || !rt.learned || !rt.learned.length) return;
+        const note = rtEl('rt-note').value.trim() || ('learned from ' + rt.learned.length + ' photo(s)');
+        if (!confirm(`Publish the new learned set (${rt.newEntries.length} examples, from ${rt.learned.length} new photo(s))?\n\nEvery Lab-1 device uses it from its next page load. You can go back to an earlier version at any time.`)) return;
+        const btn = rtEl('rt-publish'); btn.disabled = true;
+        try {
+            const r = await window.BiomassAPI.publishTemplates(rt.newEntries, rt.learned.map(x => x.id), note);
+            await syncLearnedTemplates();
+            alert('Published as version ' + r.version + '.');
+            rtLoad();
+        } catch (e) { alert(e.message); }
+        finally { btn.disabled = false; }
     }
 
     // ================= ADMIN: PHOTO STORAGE SPACE (Settings tab) =================
@@ -5003,6 +5327,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // value without that confirmation, and a reading it is not confident about (conf < MoistureOCR.MIN_CONFIDENCE) cannot
     // be accepted at all. Which kinds are switched on is set in moisture-ocr.js (window.MeterAutoRead).
     const AUTO_READ_MAX_ATTEMPTS = 3;
+    const LOW_CONF_TRAIN = 50;           // a confirmed reading below this score is kept for reader training
+    const lowConf = {};                  // key -> { conf, value } of the reading the operator confirmed although the reader was < 50 % sure
 
     function createAutoRead(cfg) {
         const key = cfg.key;
@@ -5114,13 +5440,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 conf.className = 'badge ' + (p.uncertain ? 'badge-warning' : 'badge-success');
                 review.classList.toggle('is-uncertain', p.uncertain);
                 part('review-q').textContent = p.uncertain
-                    ? '⚠️ The reader is not sure about this number, so it cannot be used. Please retake the photo.'
+                    ? '⚠️ The reader is only ' + Math.round(p.conf) + '% sure. Look at the ' + cfg.deviceName + ' and at the digits above: does the number match EXACTLY? If yes, confirm it; if there is any doubt, retake the photo.'
                     : 'Does this exactly match the number on the ' + cfg.deviceName + '?';
-                el('btn-' + key + '-accept').style.display = p.uncertain ? 'none' : '';
+                el('btn-' + key + '-accept').textContent = p.uncertain ? '✔ Yes, it matches the display - use this value' : '✔ Yes, use this value';
             }
         }
 
         function reset() {
+            lowConf[key] = null;
             st.session += 1;
             st.attempts = 0;
             st.busy = false;
@@ -5145,6 +5472,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         function clearAccepted() {
+            lowConf[key] = null;
             const input = el('lab1-' + key);
             if (input) input.value = '';
             cfg.clearState();
@@ -5203,7 +5531,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 st.pending = { value: result.value, conf: result.conf, crop: result.crop, dataUrl, uncertain };
                 autoMsg('');
             }
-            if (st.attempts >= AUTO_READ_MAX_ATTEMPTS && !(st.pending && !st.pending.uncertain)) {
+            if (st.attempts >= AUTO_READ_MAX_ATTEMPTS && !st.pending) {
                 goManual('All ' + AUTO_READ_MAX_ATTEMPTS + ' automatic attempts were used without an accepted reading.');
                 return;
             }
@@ -5212,7 +5540,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
         async function accept() {
             const p = st.pending;
-            if (!p || p.uncertain || st.busy) return;
+            if (!p || st.busy) return;
+            // a low-confidence reading can still be used, but only when the operator says in so many words that it matches the display
+            if (p.uncertain && !confirm('The reader was only ' + Math.round(p.conf) + '% sure.\n\nLook at the ' + cfg.deviceName + ' now. Is the display showing exactly  ' + p.value + ' ' + unit + ' ?\n\nPress OK only if it matches exactly.')) return;
             const session = st.session;
             st.busy = true;
             apply();
@@ -5224,13 +5554,14 @@ document.addEventListener('DOMContentLoaded', function() {
             if (session !== st.session) return;
             const input = el('lab1-' + key);
             if (input) input.value = p.value;
-            cfg.onAccept(Number(p.value));
+            cfg.onAccept(Number(p.value), p);
+            lowConf[key] = p.conf < LOW_CONF_TRAIN ? { conf: Math.round(p.conf), value: Number(p.value) } : null;
             st.mode = 'accepted';
             st.pending = null;
             autoMsg('');
             const status = part('photo-status');
-            if (status) { status.textContent = '📸 Auto-read ' + p.value + ' ' + unit + ' (confirmed)'; status.className = 'badge badge-success'; }
-            statusMsg('Value read from the display photo and confirmed by the operator. Photo attached for supervisor audit.', '#10b981');
+            if (status) { status.textContent = '📸 Auto-read ' + p.value + ' ' + unit + (p.uncertain ? ' (operator confirmed, low confidence)' : ' (confirmed)'); status.className = 'badge badge-success'; }
+            statusMsg('Value read from the display photo and confirmed by the operator' + (p.uncertain ? ' (the reader was only ' + Math.round(p.conf) + '% sure)' : '') + '. Photo attached for supervisor audit.', '#10b981');
             apply();
             if (cfg.afterChange) cfg.afterChange();
         }
@@ -5281,7 +5612,7 @@ document.addEventListener('DOMContentLoaded', function() {
             valid: (n) => n > 0 && n <= 60,
             hasPhoto: () => !!moistureState.photo,
             clearState: () => { moistureState.photo = null; moistureState.reading = null; moistureState.scaleType = null; },
-            onAccept: (n) => { moistureState.reading = n; moistureState.scaleType = 'Auto-read (operator confirmed)'; }
+            onAccept: (n, p) => { moistureState.reading = n; moistureState.scaleType = 'Auto-read (operator confirmed' + (p && p.uncertain ? ', low confidence ' + Math.round(p.conf) + '%' : '') + ')'; }
         }),
         'fineness-initial': createAutoRead({
             key: 'fineness-initial', kind: 'weight', target: 'fineness-initial', scanLabel: 'Initial Weight', deviceName: 'scale',
@@ -5698,6 +6029,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function initLab1Screen() {
+        syncLearnedTemplates();
         initFeatureTabs('lab1-tabs');
         document.getElementById('lab1-entry-card').style.display = 'none';
         applyLab1RoleView();
@@ -5956,6 +6288,15 @@ document.addEventListener('DOMContentLoaded', function() {
             extra.fineness_final_weight = finalWeight;
             extra.fineness_initial_photo = finenessState.initialPhoto;
             extra.fineness_final_photo = finenessState.finalPhoto;
+        }
+
+        // photos the reader was not sure about (< 50 %) and the operator confirmed: the server keeps them for reader training
+        {
+            const low = [];
+            const take = (k, kind, typed) => { const l = lowConf[k]; if (l && Number(typed) === l.value) low.push({ kind, conf: l.conf }); };
+            if (moistureEditable) take('moisture', 'moisture', moisture);
+            if (finenessEditable) { take('fineness-initial', 'fineness_initial', initialWeight); take('fineness-final', 'fineness_final', finalWeight); }
+            if (low.length) extra.low_conf = low;
         }
 
         // Read-back: the operator sees exactly what is about to be locked, next to the display, before it cannot be changed any more.
@@ -6784,6 +7125,8 @@ document.addEventListener('DOMContentLoaded', function() {
         sx$('sxd-body').onclick = sxDetailClick;
         sx$('btn-sx-health-run').onclick = renderSuperHealth;
         sx$('btn-sx-logins-refresh').onclick = renderSuperLogins;
+        sx$('btn-sx-pw-refresh').onclick = renderSuperPasswords;
+        sx$('btn-sx-pw-set').onclick = superSetActionPassword;
         sx$('btn-sx-ips-refresh').onclick = renderSuperIps;
         sx$('btn-sx-ipl-go').onclick = () => renderSuperIpLog();
         sx$('sx-ipl-ip').onchange = () => renderSuperIpLog();
@@ -7003,6 +7346,7 @@ document.addEventListener('DOMContentLoaded', function() {
             let inp;
             if (f.type === 'select') inp = `<select id="se-${f.id}" style="width:100%; padding:0.5rem;">${(f.options || []).map(o => `<option value="${esc(o.v)}"${String(o.v) === val ? ' selected' : ''}>${esc(o.l)}</option>`).join('')}</select>`;
             else if (f.type === 'textarea') inp = `<textarea id="se-${f.id}" rows="2" style="width:100%; padding:0.5rem;">${esc(val)}</textarea>`;
+            else if (f.type === 'password') inp = `<input type="password" id="se-${f.id}" autocomplete="new-password" maxlength="100" style="width:100%; padding:0.5rem;">`;
             else if (f.type === 'text' || f.type === 'date') inp = `<input type="${f.type}" id="se-${f.id}" value="${esc(val)}" style="width:100%; padding:0.5rem;">`;
             else inp = `<input type="number" step="${f.step || 'any'}" id="se-${f.id}" value="${esc(val)}" style="width:100%; padding:0.5rem;">`;
             return lab + inp;
@@ -7015,7 +7359,7 @@ document.addEventListener('DOMContentLoaded', function() {
         modal.style.display = 'flex';
         sx$('btn-super-edit-cancel').onclick = () => { modal.style.display = 'none'; };
         save.onclick = async () => {
-            const vals = {}; fields.forEach(f => { vals[f.id] = sx$('se-' + f.id).value.trim(); });
+            const vals = {}; fields.forEach(f => { vals[f.id] = f.type === 'password' ? sx$('se-' + f.id).value : sx$('se-' + f.id).value.trim(); });
             const why = reason.value.trim();
             if (why.length < 5) { msg.style.color = '#ef4444'; msg.textContent = 'Please type a reason (at least 5 characters).'; return; }
             save.disabled = true;
@@ -7505,6 +7849,27 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // ---------- Passwords (Super Admin): the unloading actions password ----------
+    async function renderSuperPasswords() {
+        const box = sx$('sx-pw-status');
+        try {
+            const st = await window.BiomassAPI.superActionPasswordStatus();
+            box.innerHTML = (st.password_set ? '\u2705 A password is set' + (st.changed_at ? ' (last changed ' + esc(String(st.changed_at).replace('T', ' ').slice(0, 16)) + ' UTC)' : '') + '.' : '\u26A0\uFE0F <strong>No password is set yet</strong> - the Unloading team cannot request bottom samples, cancel QRs or download the report.') +
+                ` Bottom-sample requests waiting: <strong>${st.pending_requests}</strong> &bull; generated so far: <strong>${st.generated}</strong>.`;
+        } catch (e) { box.innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; }
+    }
+    function superSetActionPassword() {
+        openSuperEdit('Set / change the unloading actions password',
+            'Used by the Unloading team for <b>bottom-sample requests</b>, <b>Cancel QR</b> and the <b>daily report PDF</b>. Tell it only to the people who may do these things. Minimum 6 characters.',
+            [{ id: 'pw1', label: 'New password', type: 'password' }, { id: 'pw2', label: 'Type it again', type: 'password' }],
+            async (v, why) => {
+                if (v.pw1.length < 6) throw new Error('Use at least 6 characters.');
+                if (v.pw1 !== v.pw2) throw new Error('The two passwords are not the same.');
+                await window.BiomassAPI.superSetActionPassword({ password: v.pw1, reason: why });
+                alert('The unloading actions password was saved.');
+            }, { saveLabel: 'Save password', danger: false, after: renderSuperPasswords });
+    }
+
     // ---------- IP addresses (Super Admin) ----------
     let sxIps = [];
     async function refreshSuperIpBadge() {
@@ -7732,31 +8097,6 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (err) {
             alert(err.message);
         } finally { btn.disabled = false; }
-    }
-
-    // Admin > Settings: the bottom-sampling password
-    async function initBottomPasswordCard() {
-        const status = document.getElementById('bottompw-status'), input = document.getElementById('bottompw-input'), btn = document.getElementById('btn-bottompw-save'), out = document.getElementById('bottompw-result');
-        if (!btn) return;
-        const show = async () => {
-            try {
-                const st = await window.BiomassAPI.getBottomStatus();
-                status.innerHTML = (st.password_set ? '✅ A password is set.' : '⚠️ <strong>No password is set yet</strong> - the unloading team cannot request bottom samples.') +
-                    ` Requests waiting: <strong>${st.pending_requests}</strong> &bull; generated so far: <strong>${st.generated}</strong>.`;
-            } catch (e) { status.textContent = ''; }
-        };
-        btn.onclick = async () => {
-            out.textContent = '';
-            if (input.value.length < 6) { out.textContent = 'Use at least 6 characters.'; return; }
-            btn.disabled = true;
-            try {
-                await window.BiomassAPI.setBottomPassword(input.value);
-                input.value = ''; out.textContent = '✅ Password saved. Tell it only to the people who may request bottom samples.';
-                show();
-            } catch (e) { out.textContent = '⚠️ ' + e.message; }
-            finally { btn.disabled = false; }
-        };
-        show();
     }
 
     // Admin > Barcode Inspector > Mixing codes: every mixing code (composite) of a date range, each opening to its truck-wise details

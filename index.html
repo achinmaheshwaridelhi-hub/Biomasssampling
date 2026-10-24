@@ -27,7 +27,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20261030_v43">
+    <link rel="stylesheet" href="style.css?v=20261030_v49">
     <!-- Chart.js for Executive Management Dashboard (version pinned; local copy used if the CDN is unreachable) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script>
@@ -146,6 +146,9 @@
                 <button class="tab-btn" data-tab="admin-vendors" id="tab-btn-vendors">
                     &#127981; Vendors
                 </button>
+                <button class="tab-btn" data-tab="admin-training" id="tab-btn-training">
+                    &#129504; Reader training
+                </button>
                 <button class="tab-btn" data-tab="admin-settings">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                     Settings
@@ -155,6 +158,7 @@
                 <button class="tab-btn sx-tab" data-tab="super-health" id="tab-btn-sx-health" style="display: none;">&#129658; Data health</button>
                 <button class="tab-btn sx-tab" data-tab="super-logins" id="tab-btn-sx-logins" style="display: none;">&#128101; Logins</button>
                 <button class="tab-btn sx-tab" data-tab="super-ips" id="tab-btn-sx-ips" style="display: none;">&#127760; IP addresses <span id="sx-ip-badge" class="bottom-badge" style="display: none;">0</span></button>
+                <button class="tab-btn sx-tab" data-tab="super-passwords" id="tab-btn-sx-passwords" style="display: none;">&#128273; Passwords</button>
             </div>
 
             <!-- TAB 0: EXECUTIVE DASHBOARD -->
@@ -1162,6 +1166,26 @@
                 <div class="card"><div class="table-responsive"><table style="min-width: 0;"><thead><tr><th>Login</th><th>Name</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody id="sx-logins-body"></tbody></table></div></div>
             </div>
 
+            <!-- PASSWORDS (Super Admin) -->
+            <div id="tab-super-passwords" class="tab-content">
+                <div class="sx-hero">
+                    <div>
+                        <div class="sx-hero-title">&#128273; Passwords</div>
+                        <div class="sx-hero-sub">Passwords that protect sensitive actions of the Unloading team. Only the Super Admin can set or change them (the Admin cannot). They are stored scrambled and never readable; every change is logged with a reason, your IP address and device.</div>
+                    </div>
+                    <div><button type="button" class="btn btn-secondary" id="btn-sx-pw-refresh">&#8635; Refresh</button></div>
+                </div>
+                <div class="card">
+                    <h3 class="card-title">&#129514; Unloading actions password</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+                        The Unloading team types this password <b>every time</b> for: <b>requesting a bottom sample</b>, <b>cancelling a QR</b> and <b>downloading the daily report PDF</b> (the PDF is locked with the same password).
+                        Five wrong attempts lock the Unloading login out for 10 minutes; setting a new password lifts that lock.
+                    </p>
+                    <div id="sx-pw-status" style="font-size: 0.9rem; margin-bottom: 0.9rem;">Loading...</div>
+                    <button type="button" class="btn btn-primary" id="btn-sx-pw-set">&#128273; Set / change the password&hellip;</button>
+                </div>
+            </div>
+
             <!-- IP ADDRESSES (Super Admin) -->
             <div id="tab-super-ips" class="tab-content">
                 <div class="sx-hero">
@@ -1197,14 +1221,34 @@
                     <div id="sx-audit-panel" style="display: none; flex-direction: column; gap: 1.5rem;">
                         <div class="card" style="margin-bottom: 0; border: 1.5px solid #ef4444;">
                             <h3 class="card-title" style="color: #ef4444;">&#128737;&#65039; Changes made by the Super Admin</h3>
-                            <p style="font-size: 0.85rem; margin-bottom: 1rem;">Only your own changes are listed here (they are also visible to the Admin, with the IP address and device).</p>
-                            <div class="table-responsive"><table><thead><tr><th>Time</th><th>User</th><th>What</th><th>Details</th><th>IP address / device</th></tr></thead><tbody id="sx-audit-changes"></tbody></table></div>
+                            <p style="font-size: 0.85rem; margin-bottom: 1rem;">Only your own changes are listed here (they are also visible to the Admin, who acknowledges them, with the IP address and device). The view opens on today and the changes the Admin has not acknowledged yet.</p>
+                            <div class="table-responsive"><table><thead><tr><th>Time</th><th>User</th><th>What</th><th>Details</th><th>IP address / device</th><th>Admin review</th></tr></thead><tbody id="sx-audit-changes"></tbody></table></div>
                         </div>
                         <div class="card" style="margin-bottom: 0;">
                             <h3 class="card-title">&#129514; Results submitted by the labs</h3>
                             <p style="font-size: 0.85rem; margin-bottom: 1rem;">Newest first, with the submitted values, e.g. &ldquo;Moisture 9.1 % submitted for sample S1-&hellip;&rdquo;.</p>
                             <div class="table-responsive"><table><thead><tr><th>Time</th><th>Login</th><th>Submitted</th></tr></thead><tbody id="sx-audit-subs"></tbody></table></div>
                         </div>
+                    </div>
+                    <!-- Search by date range + acknowledged filter (Admin: Exceptions view, Super Admin: its audit log). Default: today + not acknowledged -->
+                    <div class="card" id="act-filter" style="margin-bottom: 0;">
+                        <div class="mixr-bar">
+                            <label>From<input type="date" id="act-from"></label>
+                            <label>To<input type="date" id="act-to"></label>
+                            <div class="mixr-chips" id="act-chips">
+                                <button type="button" data-range="today" class="active">Today</button>
+                                <button type="button" data-range="yesterday">Yesterday</button>
+                                <button type="button" data-range="week">Last 7 days</button>
+                                <button type="button" data-range="all">All dates</button>
+                            </div>
+                        </div>
+                        <div class="mixr-bar">
+                            <label style="flex: 1; min-width: 200px;">Search<input type="text" id="act-q" placeholder="User, action, details or IP address" maxlength="60" autocomplete="off"></label>
+                            <label>Show<select id="act-status"><option value="open">Not acknowledged</option><option value="acked">Acknowledged</option><option value="all">Both</option></select></label>
+                            <button type="button" class="btn btn-primary" id="btn-act-show">&#128269; Show</button>
+                            <button type="button" class="btn btn-secondary" id="btn-act-ackall" style="display: none;">&#9989; Acknowledge all shown</button>
+                        </div>
+                        <div id="act-summary" style="font-size: 0.85rem; color: #94a3b8;"></div>
                     </div>
                     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                         <button type="button" class="btn btn-secondary btn-sm" id="btn-audit-export">&#11015;&#65039; Export audit log (Excel)</button>
@@ -1225,15 +1269,67 @@
                                         <th>Exception Type</th>
                                         <th>Details</th>
                                         <th>Place / IP address</th>
+                                        <th>Review</th>
                                     </tr>
                                 </thead>
                                 <tbody id="exceptions-log-body">
-                                    <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No critical exceptions flagged.</td></tr>
+                                    <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No critical exceptions flagged.</td></tr>
                                 </tbody>
                             </table>
                         </div>
                     </div>
 
+                </div>
+            </div>
+
+            <!-- TAB: READER TRAINING (Admin) -->
+            <div id="tab-admin-training" class="tab-content">
+                <div class="card">
+                    <h3 class="card-title">&#129504; Reader training &mdash; learn from the photos the reader was not sure about</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.9rem;">
+                        When the reader is <b>less than 50 % sure</b> about a meter / scale photo and the operator then <b>confirms the number</b>, the photo and that value are kept here (they are never deleted by the photo clean-up).
+                        Tick the photos whose confirmed value you trust, press <b>Learn</b>, check the proof, and <b>Publish</b>: every Lab-1 device then reads better, without a redeploy, and you can go back to an earlier version at any time.
+                        The <b>fineness-weight reader</b> learns from these photos. The <b>moisture reader</b> cannot learn from photos; its photos are only kept so you can see how it does.
+                    </p>
+                    <div id="rt-tiles" class="mixsearch-info"></div>
+                    <div id="rt-verdict" style="font-size: 0.9rem; margin-bottom: 0.7rem;"></div>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; cursor: pointer;">
+                        <input type="checkbox" id="rt-collect" style="width: 1.1rem; height: 1.1rem; margin: 0;"> Keep collecting new low-confidence photos
+                    </label>
+                </div>
+                <div class="card">
+                    <h3 class="card-title">Photos kept for training</h3>
+                    <label style="font-size:0.8rem; display:inline-flex; gap:0.5rem; align-items:center; margin-bottom:0.7rem;">Show <select id="rt-view" style="padding:0.4rem;"><option value="PENDING">Waiting to be learned</option><option value="USED">Already learned</option><option value="REJECTED">Rejected / photo deleted</option></select></label>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.8rem;">
+                        <button type="button" class="btn btn-secondary btn-sm" id="rt-refresh">&#8635; Refresh</button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="rt-check">&#128269; Check what the reader says now</button>
+                        <button type="button" class="btn btn-primary btn-sm" id="rt-learn">&#129504; Learn from the ticked weight photos</button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="rt-reject" style="border-color:#ef4444; color:#fca5a5;">&#10060; Reject the ticked</button>
+                        <input type="search" id="rt-filter" placeholder="Filter: truck no., vendor or operator" autocomplete="off" style="flex: 1; min-width: 200px; padding: 0.4rem 0.6rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+                    </div>
+                    <div class="table-responsive"><table style="min-width: 0;"><thead><tr><th></th><th>Photo</th><th>Truck / vendor / operator</th><th>What</th><th>Value the operator confirmed</th><th>Reader was</th><th>Reader now</th></tr></thead><tbody id="rt-body"></tbody></table></div>
+                    <div id="rt-result" style="margin-top: 1rem;"></div>
+                    <div id="rt-publish-box" style="display: none; margin-top: 0.8rem; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end;">
+                        <label style="flex: 1; min-width: 220px; font-size: 0.8rem;">Note for this version (optional)<input type="text" id="rt-note" maxlength="200" style="width: 100%; padding: 0.5rem;" placeholder="e.g. learned from the October blurry photos"></label>
+                        <button type="button" class="btn btn-primary" id="rt-publish">&#128640; Publish to all devices</button>
+                    </div>
+                </div>
+                <div class="card" id="rt-space-card">
+                    <h3 class="card-title">&#128190; Storage used by the training photos</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.8rem;">
+                        Each kept photo is a separate copy (the lab record keeps its own photo, which is not touched here). Once the reader has learned and only 1&ndash;2 unsure readings still appear in a week or a month, delete the training photos to free the space.
+                        What the reader has learned stays: it is stored as small digit samples, not as photos.
+                    </p>
+                    <div id="rt-space" style="font-size: 0.9rem; margin-bottom: 0.8rem;">Loading...</div>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <button type="button" class="btn btn-primary btn-sm" id="rt-del-done">&#128465;&#65039; Delete the photos of learned and rejected samples</button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="rt-del-all" style="border-color:#ef4444; color:#fca5a5;">&#128465;&#65039; Delete ALL training photos (also the waiting ones)</button>
+                    </div>
+                    <div id="rt-del-result" style="margin-top: 0.7rem; font-size: 0.88rem;"></div>
+                </div>
+                <div class="card">
+                    <h3 class="card-title">Published versions</h3>
+                    <div id="rt-versions"></div>
                 </div>
             </div>
 
@@ -1296,20 +1392,6 @@
                         <span>When I sign in as Admin and storage is <b>above 90%</b>, delete the oldest photos automatically (down to 75%) <small style="color: var(--text-muted);">(this device only)</small></span>
                     </label>
                     <div id="storage-result" style="margin-top: 0.75rem; font-size: 0.88rem;"></div>
-                </div>
-                <div class="card" id="bottompw-card">
-                    <h3 class="card-title">&#129514; Unloading actions password (bottom sample &amp; cancel QR)</h3>
-                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-                        The unloading team must type this password <b>every time</b> before a bottom-sample request is sent or a QR is cancelled. Only you can set or change it.
-                        It is stored scrambled (never readable) and every use is logged.
-                    </p>
-                    <div id="bottompw-status" style="font-size: 0.88rem; margin-bottom: 0.7rem;"></div>
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end;">
-                        <label style="display: flex; flex-direction: column; font-size: 0.75rem; gap: 2px;">New password (min. 6 characters)
-                            <input type="password" id="bottompw-input" autocomplete="new-password" maxlength="100" style="padding: 0.45rem;"></label>
-                        <button type="button" class="btn btn-secondary btn-sm" id="btn-bottompw-save">Save password</button>
-                    </div>
-                    <div id="bottompw-result" style="margin-top: 0.6rem; font-size: 0.88rem;"></div>
                 </div>
                 <div class="card" id="mixreset-card">
                     <h3 class="card-title">&#129514; Mixing scans &mdash; reset a mixing code</h3>
@@ -1965,7 +2047,7 @@
 
     <!-- PDF.js library for offline PDF barcode scanning in pilot tests -->
     <script src="lib/pdf.min.js" onerror="alert('CRITICAL: lib/pdf.min.js failed to load!')"></script>
-    <script src="lib/mini-pdf.js?v=20261030_v43" onerror="alert('CRITICAL: lib/mini-pdf.js failed to load!')"></script>
+    <script src="lib/mini-pdf.js?v=20261030_v49" onerror="alert('CRITICAL: lib/mini-pdf.js failed to load!')"></script>
 
     <!-- ExcelJS for the professional formatted Executive Dashboard export -->
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
@@ -1985,14 +2067,14 @@
 
     <!-- Moisture-meter reader (trained offline OCR). Small loaders only; the ~8 MB engine in lib/ocr/ is fetched
          on first use. If these fail to load the app simply falls back to manual photo + typing. -->
-    <script src="lib/ocr/moisture-reader-core.js?v=20261030_v43"></script>
-    <script src="lib/ocr/led-weight-reader.js?v=20261030_v43"></script>
-    <script src="lib/ocr/led-templates.js?v=20261030_v43"></script>
-    <script src="moisture-ocr.js?v=20261030_v43"></script>
+    <script src="lib/ocr/moisture-reader-core.js?v=20261030_v49"></script>
+    <script src="lib/ocr/led-weight-reader.js?v=20261030_v49"></script>
+    <script src="lib/ocr/led-templates.js?v=20261030_v49"></script>
+    <script src="moisture-ocr.js?v=20261030_v49"></script>
 
     <!-- App JavaScript files -->
-    <script src="api.js?v=20261030_v43" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261030_v43" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="api.js?v=20261030_v49" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261030_v49" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

@@ -155,7 +155,7 @@
     }
 
     /** Upload one photo (a data: URL) to Storage and return its 'ev/<name>' path; on any failure return the data URL unchanged. */
-    async function uploadEvidence(dataUrl) {
+    async function uploadEvidence(dataUrl, folder) {
         if (!STORE_PHOTOS_IN_STORAGE || typeof dataUrl !== 'string' || !/^data:image\//.test(dataUrl)) return dataUrl;
         try {
             const blob = await (await _nativeFetch(dataUrl)).blob();
@@ -163,7 +163,7 @@
             const d = new Date();
             const rnd = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
             const ext = /png/.test(blob.type) ? 'png' : (/webp/.test(blob.type) ? 'webp' : 'jpg');
-            const name = `${d.getUTCFullYear()}/${pad2(d.getUTCMonth() + 1)}/${rnd}.${ext}`;
+            const name = `${folder ? folder + '/' : ''}${d.getUTCFullYear()}/${pad2(d.getUTCMonth() + 1)}/${rnd}.${ext}`;
             const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${EVIDENCE_BUCKET}/${name}`, {
                 method: 'POST',
                 headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${token}`, 'Content-Type': blob.type || 'image/jpeg', 'x-upsert': 'false', 'cache-control': 'max-age=31536000' },
@@ -308,6 +308,12 @@
                 p.fineness_final_photo = extra.fineness_final_photo || '';
             }
             if (extra.override_reason) p.override_reason = extra.override_reason;    // admin only (server checks)
+            if (Array.isArray(extra.low_conf) && extra.low_conf.length) p.low_conf = extra.low_conf;    // photos the reader was <50% sure about and the operator confirmed (kept for reader training)
+            // reader training: a low-confidence photo gets its OWN copy (folder tr/), so the training photos can be deleted later without touching the lab record's photo
+            if (p.low_conf) {
+                const src = { moisture: p.moisture_photo, fineness_initial: p.fineness_initial_photo, fineness_final: p.fineness_final_photo };
+                for (const it of p.low_conf) { if (src[it.kind]) it.photo = await uploadEvidence(src[it.kind], 'tr'); }
+            }
             for (const k of ['moisture_photo', 'fineness_initial_photo', 'fineness_final_photo']) {
                 if (p[k]) p[k] = await uploadEvidence(p[k]);
             }
@@ -344,7 +350,8 @@
         async getBottomRequests() { return (await rpc('bm_entry_bottom_list', {})) || []; },
         async generateBottomSample(truckId) { return rpc('bm_entry_bottom_generate', { truck_id: truckId }); },
         async reprintBottomSample(truckId) { return rpc('bm_entry_bottom_reprint', { truck_id: truckId }); },
-        async setBottomPassword(password) { return rpc('bm_admin_set_bottom_password', { password: password }); },
+        async superSetActionPassword(v) { return rpc('bm_super_set_action_password', v); },
+        async superActionPasswordStatus() { return rpc('bm_super_action_password_status', {}); },
         async getBottomStatus() { return rpc('bm_admin_bottom_status', {}); },
         async mixingRange(opts) { opts = opts || {}; return rpc('bm_admin_mixing_range', { from: opts.from || '', to: opts.to || '', q: String(opts.q || '').trim(), lot: opts.lot || '' }); },
         async searchMixingCode(code) { return rpc('bm_admin_mixing_search', { code: String(code || '').trim() }); },
@@ -559,6 +566,44 @@
 
         async inspectBarcode(code) { return rpc('bm_admin_inspect', { code: String(code || '').trim() }); },
 
+        // --- READER TRAINING (Admin) / learned examples (every Lab-1 device) -------------------------------
+        async trainingList(status) { return rpc('bm_admin_training_list', { status: status || 'PENDING' }); },
+        async trainingMark(ids, status) { return rpc('bm_admin_training_mark', { ids: ids, status: status }); },
+        async trainingCollect(on) { return rpc('bm_admin_training_collect', { collect: !!on }); },
+        async publishTemplates(examples, sampleIds, note) { return rpc('bm_admin_templates_publish', { examples: examples, sample_ids: sampleIds || [], note: note || '' }); },
+        async activateTemplates(version) { return rpc('bm_admin_templates_activate', { version: version || 0 }); },
+        async getReaderTemplates(haveVersion) { return rpc('bm_get_reader_templates', { have_version: haveVersion == null ? -1 : haveVersion }); },
+        async trainingSpace() { return rpc('bm_admin_training_space', {}); },
+        /** Delete the training photos at once. scope: 'done' (learned + rejected samples) or 'all'. Files first, then the samples are marked (the database refuses to mark a file that still exists). */
+        async deleteTrainingPhotos(scope, onProgress) {
+            const plan = await rpc('bm_admin_training_delete_plan', { scope: scope });
+            const files = plan.files || [], ids = (plan.detach || []).concat(plan.missing || []);
+            let done = 0, failed = 0, freed = 0; const gone = [];
+            for (let i = 0; i < files.length; i++) {
+                const it = files[i];
+                try {
+                    const token = await getToken();
+                    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${EVIDENCE_BUCKET}/${String(it.path).slice(3)}`, { method: 'DELETE', headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${token}` } });
+                    if (!res.ok && res.status !== 404) throw new Error('Storage refused the delete (HTTP ' + res.status + ')');
+                    gone.push(it.id); done++; freed += Number(it.bytes) || 0;
+                } catch (e) { failed++; console.warn('Could not remove training photo', it.path, e); }
+                if (onProgress) onProgress(i + 1, files.length);
+            }
+            const mark = gone.concat(ids);
+            for (let i = 0; i < mark.length; i += 500) await rpc('bm_admin_training_mark_deleted', { ids: mark.slice(i, i + 500) });
+            return { done, failed, freed, detached: ids.length };
+        },
+
+        /** A stored photo as something an <img> can show: 'ev/..' paths come from the private Storage bucket (Admin only), old ones are data: URLs. */
+        async loadStoredPhoto(v) {
+            if (!v || String(v).startsWith('purged:')) throw new Error('The photo is no longer stored');
+            if (!String(v).startsWith('ev/')) return v;
+            const token = await getToken();
+            const res = await fetch(`${SUPABASE_URL}/storage/v1/object/authenticated/${EVIDENCE_BUCKET}/${String(v).slice(3)}`, { headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${token}` } });
+            if (!res.ok) throw new Error('The photo file could not be loaded from Storage (HTTP ' + res.status + ').');
+            return URL.createObjectURL(await res.blob());
+        },
+
         /** Evidence photos are NOT bulk-loaded. kind: truck | moisture | fineness_initial | fineness_final. Admin only. */
         async getEvidencePhoto(kind, id) {
             const r = await rpc('bm_admin_photo', { kind, id });
@@ -617,6 +662,8 @@
             if (!user) throw new Error('Not logged in');
             return rpc('bm_log_activity', { action: actionName, details: detailsText });
         },
+        async exceptionsRange(o) { o = o || {}; return rpc('bm_admin_exceptions', { from: o.from || '', to: o.to || '', status: o.status || 'open', q: String(o.q || '').trim() }); },
+        async ackLogs(ids) { return rpc('bm_admin_ack_logs', { ids: ids || [] }); },
         async getActivityLogs() { return (await rpc('bm_admin_logs', {})) || []; },
 
         // --- HEALTH -------------------------------------------------------------------------

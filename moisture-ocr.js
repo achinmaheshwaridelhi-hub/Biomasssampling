@@ -27,10 +27,11 @@
     var OCR_VERSION = '20261012_v1';
     var BASE = 'lib/ocr/';
     var CACHE_NAME = 'moisture-ocr-' + OCR_VERSION;
-    // Below this the reader's own confidence is too low to trust; app.js will not let it be accepted.
+    // Below this the reader is 'not sure': app.js then asks the operator to look at the display and confirm in so many words that the number
+    // matches exactly (or retake the photo) instead of forcing a retake.
     var MIN_CONFIDENCE = 60;
     // Weights get a stricter bar: on the first fully unseen test set the one wrong weight that slipped through scored 72, while the
-    // correct ones scored 77-96. A weight reading below this is shown as 'not sure' (retake) instead of being offered for acceptance.
+    // correct ones scored 77-96. A weight reading below this is shown as 'not sure' (the operator must confirm it matches the scale).
     var WEIGHT_MIN_CONFIDENCE = 75;
 
     var enginePromise = null;

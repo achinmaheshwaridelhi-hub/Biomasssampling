@@ -586,7 +586,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 fileReader.onload = async function() {
                     try {
                         const typedarray = new Uint8Array(this.result);
-                        const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+                        const pdf = await pdfjsLib.getDocument({ data: typedarray, isEvalSupported: false }).promise;
                         const page = await pdf.getPage(1);
                         
                         const canvas = document.createElement('canvas');
@@ -1271,6 +1271,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('btn-dayreport-yesterday').onclick = () => { dateEl.value = shift(window.BiomassAPI.todayIST(), -1); };
         document.getElementById('btn-dayreport-summary').onclick = () => openDayReportPdf('summary');
         document.getElementById('btn-dayreport-details').onclick = () => openDayReportPdf('details');
+        document.getElementById('btn-dayreport-excel').onclick = () => openDayReportPdf('excel');
     }
 
     function openDayReportPdf(kind) {
@@ -1278,7 +1279,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const note = document.getElementById('dayreport-note');
         const modal = document.getElementById('dayreport-pw-modal');
         const pw = document.getElementById('dayreport-pw'), msg = document.getElementById('dayreport-pw-msg'), send = document.getElementById('btn-dayreport-pw-send');
-        document.getElementById('dayreport-pw-what').textContent = (kind === 'summary' ? 'Summary report' : 'Truck-wise details') + ' for ' + dmy(date);
+        const KIND_TXT = { summary: 'Summary report (PDF)', details: 'Truck-wise details (PDF)', excel: 'Summary + truck-wise details (one Excel file)' };
+        document.getElementById('dayreport-pw-what').textContent = KIND_TXT[kind] + ' for ' + dmy(date);
         pw.value = ''; msg.textContent = ''; send.disabled = true;
         modal.style.display = 'flex';
         pw.focus();
@@ -1292,16 +1294,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 const res = await window.BiomassAPI.getDayReport(date, password);
                 if (!res || res.success === false) { msg.style.color = '#ef4444'; msg.textContent = (res && res.message) || 'The report was not opened.'; pw.value = ''; pw.focus(); return; }
                 if (!(res.rows || []).length) { msg.style.color = '#f59e0b'; msg.textContent = `No trucks were registered on ${dmy(res.date)}.`; send.disabled = false; return; }
-                msg.textContent = 'Creating the PDF...';
-                const bytes = kind === 'summary' ? await buildDaySummaryPdf(res, password) : await buildDayDetailsPdf(res, password);
-                const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+                msg.textContent = 'Creating the file...';
+                const bytes = kind === 'summary' ? await buildDaySummaryPdf(res, password) : (kind === 'excel' ? await buildDayExcel(res, password) : await buildDayDetailsPdf(res, password));
+                const url = URL.createObjectURL(new Blob([bytes], { type: kind === 'excel' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf' }));
                 const link = document.createElement('a');
-                link.href = url; link.download = `${kind === 'summary' ? 'Unloading_Summary' : 'Truck_Details'}_${compactDate(res.date)}.pdf`;
+                link.href = url; link.download = kind === 'excel' ? `Unloading_Report_${compactDate(res.date)}.xlsx` : `${kind === 'summary' ? 'Unloading_Summary' : 'Truck_Details'}_${compactDate(res.date)}.pdf`;
                 document.body.appendChild(link); link.click(); document.body.removeChild(link);
                 setTimeout(() => URL.revokeObjectURL(url), 4000);
                 pw.value = ''; modal.style.display = 'none';
                 note.style.color = '#10b981';
-                note.textContent = `${kind === 'summary' ? 'Summary report' : 'Truck-wise details'} for ${dmy(res.date)} downloaded as a PDF (${res.rows.length} truck(s)). Open it with the same action password.`;
+                note.textContent = `${KIND_TXT[kind]} for ${dmy(res.date)} downloaded (${res.rows.length} truck(s)). Open it with the same action password.`;
             } catch (err) {
                 msg.style.color = '#f59e0b'; msg.textContent = '⏰ ' + (err.message || String(err)); send.disabled = pw.value.length === 0;
             }
@@ -1570,6 +1572,173 @@ document.addEventListener('DOMContentLoaded', function() {
         return await d.pdf.build(password);
     }
 
+    // ================= UNLOADING: ONE EXCEL FILE (Summary + Truck-wise details), locked with the action password =================
+    // Two sheets in one workbook. The file is encrypted like Excel's own "Encrypt with Password" (lib/xlsx-crypt.js): Excel asks for the same
+    // action password when it is opened. Nothing is shown on the screen.
+    async function buildDayExcel(res, password) {
+        if (typeof ExcelJS === 'undefined') throw new Error('The Excel library could not be loaded. Check the internet connection and try again.');
+        if (!window.XlsxCrypt) throw new Error('The file-protection library (lib/xlsx-crypt.js) is not loaded.');
+        const rows = res.rows, S = daySummaryData(rows), T = S.total;
+        const mt = (kg) => Number(((Number(kg) || 0) / 1000).toFixed(3));
+        const NAVY = 'FF1F2A5A', MID = 'FF3B4A85', LIGHT = 'FFEEF1FA', GREY = 'FFF3F4F6', GREEN = 'FF2E7D32', RED = 'FFC62828', PURPLE = 'FF6A1B9A', BLUE = 'FF1565C0';
+        const fill = (argb) => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
+        const bd = (st, argb) => { const b = { style: st, color: { argb: argb || 'FFB6BCC8' } }; return { top: b, left: b, bottom: b, right: b }; };
+        const wb = new ExcelJS.Workbook();
+        wb.creator = 'Biomass Unloading Department'; wb.created = new Date();
+
+        // ---------------- sheet 1: summary
+        const sh = wb.addWorksheet('Summary', { views: [{ showGridLines: false }] });
+        const lots = S.shownLots, LC = lots.length;
+        const W = [6, 38, 10, 10, 10, 10].concat(lots.map(() => 13), [14, 10]);          // rank, vendor, received, approved, unloaded, rejected, lots..., total, share
+        W.forEach((w, i) => { sh.getColumn(i + 1).width = w; });
+        const COLS = W.length;
+        const put = (r, c1, c2, value, o) => {
+            o = o || {};
+            if (c2 > c1) sh.mergeCells(r, c1, r, c2);
+            const cell = sh.getCell(r, c1);
+            cell.value = value;
+            cell.font = { name: 'Calibri', size: o.size || 11, bold: !!o.bold, italic: !!o.italic, color: { argb: o.color || 'FF111827' } };
+            cell.alignment = { vertical: 'middle', horizontal: o.h || 'center', wrapText: o.wrap !== false };
+            for (let c = c1; c <= c2; c++) { if (o.fill) sh.getCell(r, c).fill = fill(o.fill); if (o.border) sh.getCell(r, c).border = bd(o.border); }
+            if (o.fmt) cell.numFmt = o.fmt;
+        };
+        let r = 1;
+        sh.getRow(r).height = 34;
+        put(r, 1, COLS - 3, 'BIOMASS RECEIPT & UNLOADING REPORT', { size: 20, bold: true, color: 'FFFFFFFF', fill: NAVY, h: 'left' });
+        put(r, COLS - 2, COLS, 'DATE: ' + dmy(res.date), { size: 13, bold: true, color: 'FFFFFFFF', fill: NAVY, h: 'right' });
+        r++; sh.getRow(r).height = 22;
+        put(r, 1, COLS - 3, 'PLANT SUMMARY  —  Unloading Department', { size: 12, bold: true, color: 'FFFFFFFF', fill: MID, h: 'left' });
+        put(r, COLS - 2, COLS, 'Generated: ' + (res.generated_at || '') + ' IST', { size: 9, color: 'FFFFFFFF', fill: MID, h: 'right' });
+        r += 2;
+        const avg = T.unloaded ? T.kg / T.unloaded : 0;
+        const tiles = [['TRUCKS RECEIVED', T.received, NAVY, '0'], ['APPROVED', T.approved, GREEN, '0'], ['UNLOADED', T.unloaded, GREEN, '0'], ['REJECTED', T.rejected, RED, '0'], ['NET UNLOADED (MT)', mt(T.kg), PURPLE, '#,##0.00'], ['AVG WT / TRUCK (MT)', mt(avg), BLUE, '#,##0.00']];
+        const per = Math.max(1, Math.floor(COLS / 6)); sh.getRow(r).height = 20; sh.getRow(r + 1).height = 36;
+        tiles.forEach((t, i) => {
+            const a = 1 + i * per, b = i === 5 ? COLS : a + per - 1;
+            put(r, a, b, t[0], { size: 9, bold: true, color: 'FF374151', fill: GREY, border: 'thin' });
+            put(r + 1, a, b, t[1], { size: 22, bold: true, color: t[2], border: 'thin', fmt: t[3] });
+        });
+        r += 3;
+        const bar = (text, color) => { sh.getRow(r).height = 22; put(r, 1, COLS, text, { size: 12, bold: true, color: 'FFFFFFFF', fill: color || NAVY, h: 'left' }); r++; };
+        bar('VENDOR-WISE SUMMARY — in descending order of net quantity unloaded');
+        sh.getRow(r).height = 30;
+        ['Rank', 'Vendor name', 'Received', 'Approved', 'Unloaded', 'Rejected'].concat(lots.map(l => lotLabel(l) + ' MT'), ['Total unloaded MT', '% share']).forEach((h, i) => put(r, i + 1, i + 1, h, { size: 10, bold: true, color: 'FFFFFFFF', fill: MID, border: 'thin' }));
+        r++;
+        S.vendors.forEach((v, i) => {
+            sh.getRow(r).height = Math.max(18, 16 * Math.ceil(v.name.length / 38));
+            const vals = [i + 1, v.name, v.received, v.approved, v.unloaded, v.rejected].concat(lots.map(l => v.lots[l].kg ? mt(v.lots[l].kg) : 0), [mt(v.kg), T.kg ? Number((v.kg / T.kg * 100).toFixed(2)) : 0]);
+            vals.forEach((val, k) => {
+                const cell = sh.getCell(r, k + 1); cell.value = val; cell.border = bd('thin'); cell.fill = fill(i % 2 ? 'FFF9FAFB' : 'FFFFFFFF');
+                cell.font = { name: 'Calibri', size: 11, bold: k === 6 + LC, color: { argb: k === 5 && v.rejected ? RED : 'FF111827' } };
+                cell.alignment = { vertical: 'middle', horizontal: k === 1 ? 'left' : 'center', wrapText: true };
+                if (k >= 6 && k < 7 + LC) cell.numFmt = '#,##0.00;-#,##0.00;"-"';
+                if (k === 7 + LC) cell.numFmt = '0.00"%"';
+            });
+            r++;
+        });
+        sh.getRow(r).height = 22;
+        ['', 'TOTAL', T.received, T.approved, T.unloaded, T.rejected].concat(lots.map(l => mt(T.lots[l].kg)), [mt(T.kg), T.kg ? 100 : 0]).forEach((val, k) => {
+            const cell = sh.getCell(r, k + 1); cell.value = val; cell.fill = fill(NAVY); cell.border = bd('thin', NAVY);
+            cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } }; cell.alignment = { vertical: 'middle', horizontal: k === 1 ? 'left' : 'center' };
+            if (k >= 6 && k < 7 + LC) cell.numFmt = '#,##0.00'; if (k === 7 + LC) cell.numFmt = '0.00"%"';
+        });
+        r += 2;
+        // charts (pictures)
+        bar('CONTRIBUTION OF EACH VENDOR AND EACH LOT TO THE UNLOADED BIOMASS');
+        const items = S.vendors.filter(v => v.kg > 0).map(v => ({ label: v.name, value: v.kg }));
+        let vItems = items;
+        if (items.length > 9) { const rest = items.slice(9); vItems = items.slice(0, 9).concat([{ label: 'Others (' + rest.length + ' vendors)', value: rest.reduce((a, i) => a + i.value, 0), color: '#9CA3AF' }]); }
+        const lotColor = { 'LOT2': '#0288D1', 'LOT3': '#1565C0', 'LOT4': '#6A1B9A', 'LOT2/3': '#00897B' };
+        const lotItems = lots.map(l => ({ label: lotLabel(l), value: T.lots[l].kg, color: lotColor[l] })).filter(i => i.value > 0);
+        const png = (cv) => cv.toDataURL('image/png').split(',')[1];
+        const img1 = wb.addImage({ base64: png(drawPieImage(vItems, 'Unloaded biomass by vendor (MT share)', 700, 300, false)), extension: 'png' });
+        const img2 = wb.addImage({ base64: png(drawPieImage(lotItems, 'Unloaded biomass by lot', 420, 300, true)), extension: 'png' });
+        for (let k = 0; k < 16; k++) sh.getRow(r + k).height = 20;
+        sh.addImage(img1, { tl: { col: 0.1, row: r - 1 + 0.2 }, ext: { width: 640, height: 275 } });
+        sh.addImage(img2, { tl: { col: Math.min(COLS - 4, 7.5), row: r - 1 + 0.2 }, ext: { width: 380, height: 275 } });
+        r += 16;
+        // rejected trucks
+        bar('REJECTED TRUCKS — weights are as weighed; they are NOT part of the unloaded quantity', RED);
+        sh.getRow(r).height = 22;
+        [['Sl.', 1, 1], ['Vendor name', 2, 2], ['Truck no.', 3, 4], ['Lot', 5, 5], ['Weighed MT', 6, 7], ['Remark', 8, COLS]].forEach(([h, a, b]) => put(r, a, Math.min(b, COLS), h, { size: 10, bold: true, color: 'FFFFFFFF', fill: RED, border: 'thin' }));
+        r++;
+        if (!S.rejected.length) { put(r, 1, COLS, 'No truck was rejected on this date.', { italic: true, color: 'FF6B7280', border: 'thin' }); r++; }
+        S.rejected.forEach((x, i) => {
+            sh.getRow(r).height = Math.max(18, 16 * Math.ceil(String(x.company_name).length / 38));
+            const band = i % 2 ? 'FFFEF2F2' : 'FFFFFFFF';
+            put(r, 1, 1, i + 1, { fill: band, border: 'thin' }); put(r, 2, 2, x.company_name, { fill: band, border: 'thin', h: 'left' }); put(r, 3, 4, x.truck_reg_number, { fill: band, border: 'thin' });
+            put(r, 5, 5, lotLabel(S.lotOf(x)), { fill: band, border: 'thin' }); put(r, 6, 7, S.kg(x) > 0 ? mt(S.kg(x)) : '-', { fill: band, border: 'thin', fmt: '#,##0.00' });
+            put(r, 8, COLS, S.isCancelled(x) ? 'QR cancelled' + (x.cancel_reason ? ': ' + x.cancel_reason : '') : 'Rejected', { fill: band, border: 'thin', size: 10, h: 'left' });
+            r++;
+        });
+        r++;
+        bar('LOT-WISE BREAKDOWN OF UNLOADED BIOMASS');
+        sh.getRow(r).height = 28;
+        [['Lot', 1, 2], ['Received', 3, 3], ['Approved', 4, 4], ['Unloaded', 5, 5], ['Rejected', 6, 6], ['Net MT', 7, 8], ['% share', 9, 9], ['Vendors', 10, 10]].forEach(([h, a, b]) => { if (a <= COLS) put(r, a, Math.min(b, COLS), h, { size: 10, bold: true, color: 'FFFFFFFF', fill: MID, border: 'thin' }); });
+        r++;
+        lots.forEach((l, i) => {
+            const L = S.lots[l], f = i % 2 ? 'FFF9FAFB' : 'FFFFFFFF';
+            [[lotLabel(l), 1, 2, 'left'], [L.received, 3, 3], [L.approved, 4, 4], [L.unloaded, 5, 5], [L.rejected, 6, 6], [mt(L.kg), 7, 8], [T.kg ? Number((L.kg / T.kg * 100).toFixed(2)) : 0, 9, 9], [S.lotVendors[l].size, 10, 10]].forEach(([v, a, b, h]) => {
+                if (a <= COLS) put(r, a, Math.min(b, COLS), v, { fill: f, border: 'thin', h: h || 'center', bold: a === 1 || a === 7, fmt: a === 7 ? '#,##0.00' : (a === 9 ? '0.00"%"' : undefined) });
+            });
+            r++;
+        });
+        r += 1;
+        sh.getRow(r).height = 40;
+        put(r, 1, COLS, 'Notes: Net quantity = final weighbridge net weight (gross − tare) of trucks that were approved and unloaded. Rejected trucks are listed with the weight recorded for them and are not part of the unloaded quantity. ' +
+            'A vendor that supplied under more than one lot is shown once, with the lot-wise split. Prepared from the unloading department records; laboratory results are not part of the summary sheet.', { size: 9, italic: true, color: 'FF6B7280', h: 'left' });
+        sh.pageSetup = { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, horizontalCentered: true, margins: { left: 0.35, right: 0.35, top: 0.45, bottom: 0.5, header: 0.2, footer: 0.25 } };
+        sh.headerFooter = { oddFooter: '&LBiomass Receipt && Unloading Report ' + dmy(res.date) + ' - Confidential&RPage &P of &N' };
+
+        // ---------------- sheet 2: truck-wise details
+        const sd = wb.addWorksheet('Truck-wise details', { views: [{ state: 'frozen', ySplit: 4 }] });
+        const cols = [['S.No.', 7], ['Truck No.', 15], ['Vendor', 34], ['Lot', 10], ['PO No.', 14], ['Gross Wt (kg)', 14], ['Tare Wt (kg)', 14], ['Net Wt (kg)', 14], ['Net Wt (MT)', 12],
+                      ['Moisture %', 11], ['TM %', 10], ['ARB GCV (kcal/kg)', 14], ['Fineness %', 11], ['ARB Ash %', 10], ['ARB Sulphur % (Lot-4)', 13], ['ARB VM % (Lot-4)', 12], ['GCV / Ash from', 16], ['Result', 22]];
+        sd.mergeCells(1, 1, 1, cols.length);
+        Object.assign(sd.getCell(1, 1), { value: `Biomass Procurement — Truck-wise details for ${dmy(res.date)}` });
+        sd.getCell(1, 1).font = { bold: true, size: 16, color: { argb: 'FFFFFFFF' } }; sd.getCell(1, 1).alignment = { vertical: 'middle', horizontal: 'center' };
+        sd.getRow(1).height = 28; for (let c = 1; c <= cols.length; c++) sd.getCell(1, c).fill = fill('FF059669');
+        sd.mergeCells(2, 1, 2, cols.length);
+        sd.getCell(2, 1).value = `Trucks: ${rows.length}    |    Generated: ${res.generated_at} IST`;
+        sd.getCell(2, 1).font = { italic: true, size: 10, color: { argb: 'FF374151' } }; sd.getCell(2, 1).alignment = { vertical: 'middle', horizontal: 'center' };
+        for (let c = 1; c <= cols.length; c++) sd.getCell(2, c).fill = fill('FFE5E7EB');
+        sd.getRow(3).height = 6;
+        cols.forEach(([h, w], i) => {
+            const c = sd.getCell(4, i + 1); c.value = h; c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; c.fill = fill('FF111827');
+            c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }; c.border = bd('thin'); sd.getColumn(i + 1).width = w;
+        });
+        sd.getRow(4).height = 26;
+        const numv = v => (v === null || v === undefined || v === '') ? null : Number(v);
+        let rr = 5;
+        rows.forEach((x, i) => {
+            const rej = x.acceptance_status === 'REJECTED' || x.acceptance_status === 'CANCELLED';
+            const na = rej ? ('N/A (' + x.acceptance_status + ')') : 'Pending';
+            const w = v => Number(v) > 0 ? Number(v) : '-';
+            const l4 = x.lot === 'LOT4';
+            const vals = [i + 1, x.truck_reg_number, x.company_name, lotLabel(x.lot) || '-', x.po_number || '-', w(x.gross_weight), w(x.tare_weight), w(x.net_weight), Number(x.net_weight) > 0 ? Number((Number(x.net_weight) / 1000).toFixed(3)) : '-',
+                          numv(x.moisture_pct) ?? na, numv(x.tm) ?? na, numv(x.gcv) ?? na, numv(x.fineness_value) ?? na, numv(x.ash) ?? na, l4 ? (numv(x.sulphur) ?? na) : '-', l4 ? (numv(x.vm) ?? na) : '-', x.gcv_source || '-',
+                          x.acceptance_status === 'CANCELLED' ? ('QR CANCELLED: ' + (x.cancel_reason || '')) : x.acceptance_status];
+            vals.forEach((v, k) => {
+                const c = sd.getCell(rr, k + 1); c.value = v; c.border = bd('hair', 'FFD1D5DB');
+                c.alignment = { vertical: 'middle', horizontal: (k === 1 || k === 2) ? 'left' : 'center', wrapText: k === 17 };
+                if (typeof v === 'number' && k >= 5 && k <= 7) c.numFmt = '#,##0.###';
+                if (rej) c.fill = fill('FFFEE2E2'); else if (rr % 2 === 0) c.fill = fill('FFF9FAFB');
+            });
+            rr++;
+        });
+        sd.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: cols.length } };
+        rr += 1;
+        const acc = rows.filter(x => x.acceptance_status === 'ACCEPTED'), rej2 = rows.filter(x => x.acceptance_status === 'REJECTED' || x.acceptance_status === 'CANCELLED');
+        const sumKg = a => a.reduce((s, x) => s + (Number(x.net_weight) || 0), 0);
+        [['Total trucks', rows.length], ['Accepted / Rejected', `${acc.length} / ${rej2.length}`], ['Total net weight (MT)', mt(sumKg(rows))], ['Accepted net weight (MT)', mt(sumKg(acc))], ['Rejected net weight (MT)', mt(sumKg(rej2))]].forEach(([label, val]) => {
+            sd.getCell(rr, 2).value = label; sd.getCell(rr, 2).font = { bold: true }; sd.getCell(rr, 3).value = val; sd.getCell(rr, 3).alignment = { horizontal: 'left' }; rr++;
+        });
+        sd.pageSetup = { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
+
+        const plain = new Uint8Array(await wb.xlsx.writeBuffer());
+        return await window.XlsxCrypt.encrypt(plain, password);
+    }
+
     // ================= UNLOADING: TRUCK-WISE DETAILS (every truck, weights and test results) =================
     async function buildDayDetailsPdf(res, password) {
         const rows = res.rows;
@@ -1768,6 +1937,9 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        if (user.is_super && user.device && user.device.lock && !user.device.verified) { appHeader.style.display = 'none'; showDeviceBlock(user.device); return; }
+        const dbm = document.getElementById('device-block-modal'); if (dbm) dbm.style.display = 'none';
+
         // Setup Header
         appHeader.style.display = 'flex';
         displayUserName.textContent = user.name;
@@ -1867,14 +2039,21 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const username = document.getElementById('login-username').value.trim();
         const password = document.getElementById('login-password').value;
+        const mfaGroup = document.getElementById('login-mfa-group');
+        const inMfaStep = mfaGroup.style.display !== 'none';
 
         showGlobalLoader('Authenticating credentials & loading dashboard...');
 
         try {
             // The password goes to Supabase Auth over HTTPS (never hashed client-side, never put in a URL).
-            const res = await window.BiomassAPI.login(username, password);
+            const res = inMfaStep ? await window.BiomassAPI.loginMfa(document.getElementById('login-code').value) : await window.BiomassAPI.login(username, password);
             if (res.success) {
+                mfaGroup.style.display = 'none'; document.getElementById('login-code').value = '';
                 routeSession();
+            } else if (res.mfa_required) {              // the password was right: now the 6-digit code
+                mfaGroup.style.display = ''; document.getElementById('login-code').value = '';
+                document.getElementById('btn-login-submit').textContent = 'Verify code and sign in';
+                document.getElementById('login-code').focus();
             } else {
                 loginAlert.textContent = res.message;
                 loginAlert.style.display = 'flex';
@@ -1886,6 +2065,14 @@ document.addEventListener('DOMContentLoaded', function() {
             hideGlobalLoader();
         }
     });
+
+    document.getElementById('login-mfa-cancel').onclick = (e) => {
+        e.preventDefault();
+        window.BiomassAPI.cancelMfa();
+        document.getElementById('login-mfa-group').style.display = 'none'; document.getElementById('login-code').value = '';
+        document.getElementById('login-password').value = ''; document.getElementById('btn-login-submit').textContent = 'Sign In Securely';
+        loginAlert.style.display = 'none';
+    };
 
     // Helper: Stop camera streams and QR readers
     async function stopAllCameras() {
@@ -2179,12 +2366,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 renderSuperLogins();
             } else if (targetContentId === 'tab-super-passwords') {
                 renderSuperPasswords();
+            } else if (targetContentId === 'tab-super-security') {
+                renderSuperSecurity();
             } else if (targetContentId === 'tab-admin-activity') {
                 renderActivityLogTab();
                 refreshSuperAlert();
             } else if (targetContentId === 'tab-admin-settings') {
                 initStorageCard();
                 initMixResetCard();
+                renderMfaBox(document.getElementById('mfa-admin-box'), false);
             }
         }
 
@@ -4339,7 +4529,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     `<td>${gone ? '<span style="color:#94a3b8; font-size:0.8rem;">photo deleted</span>' : `<img data-photo="${r.id}" alt="" style="width:140px; height:80px; object-fit:contain; background:#000; border-radius:6px; cursor:zoom-in;">`}</td>` +
                     `<td><b>${esc(r.truck_reg_number || '-')}</b><br><span style="font-size:0.85rem;">${esc(r.company_name || '-')}</span><br><small style="color:#94a3b8;">${esc(lotLabel(r.lot || ''))} &middot; operator ${esc(r.operator || '-')}</small></td>` +
                     `<td>${RT_KIND[r.kind]}<br><small style="color:#94a3b8;">${esc(String(r.created_at).slice(0, 10))}</small></td><td style="font-size:1.1rem; font-weight:800;">${esc(String(Number(r.value)))}</td>` +
-                    `<td>${Math.round(r.conf)}%</td><td id="rt-now-${r.id}" style="font-size:0.85rem;">${weight ? '<span style="color:#94a3b8;">not checked</span>' : '<span style="color:#94a3b8;">kept for checking; the moisture reader cannot learn from photos</span>'}</td></tr>`;
+                    `<td>${Math.round(r.conf)}%${r.examples_n ? '<br><small style="color:#34d399;">digits captured (' + r.examples_n + ')</small>' : ''}</td><td id="rt-now-${r.id}" style="font-size:0.85rem;">${weight ? '<span style="color:#94a3b8;">not checked</span>' : '<span style="color:#94a3b8;">kept for checking; the moisture reader cannot learn from photos</span>'}</td></tr>`;
             }).join('') : '<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">Nothing in this list. Photos appear here when an operator confirms a reading the reader was less than 50 % sure about.</td></tr>';
             rt.rows.filter(r => !String(r.photo).startsWith('purged:')).forEach(async (r) => {
                 try { const u = await rtPhoto(r); const img = body.querySelector(`img[data-photo="${r.id}"]`); if (img) { img.src = u; img.onclick = () => { const lb = document.getElementById('lightbox'); if (lb) { document.getElementById('lightbox-img').src = u; lb.style.display = 'flex'; } }; } }
@@ -4419,32 +4609,46 @@ document.addEventListener('DOMContentLoaded', function() {
             rt.activeExamples = active && active.examples ? active.examples.slice() : [];
             const seen = new Set(rt.activeExamples.map(e => e[0] + ':' + e.slice(1)));
             const entries = rt.activeExamples.slice(); const learned = []; const lines = [];
+            const carried = {};
+            try { (await window.BiomassAPI.trainingExamples(picked.filter(r => r.examples_n > 0).map(r => r.id))).forEach(x => { carried[x.id] = x.examples; }); } catch (e) { /* fall back to the photos */ }
             for (const r of picked) {
                 const lab = rtFmt(r.value).replace('.', '');
-                let n = 0, why = '';
+                let n = 0, why = '', src = '';
                 try {
-                    const img = await rtLoadImage(await rtPhoto(r));
-                    const ex = window.LedWeightReader.examples(img, [-2, -1, 0, 1, 2], [-5, 0, 5], lab.length);
-                    if (!ex.found) why = 'the display was not found in the photo';
-                    else ex.sets.forEach(s => { if (s.n !== lab.length) return; s.grids.forEach(gs => gs.forEach((g, i) => { const key = lab[i] + ':' + g; if (seen.has(key)) return; seen.add(key); entries.push(lab[i] + g); n++; })); });
-                    if (!n && !why) why = 'the digits could not be split into ' + lab.length + ' (or nothing new)';
+                    if (carried[r.id]) {                  // the digits were cut out of the original photo at the moment the operator confirmed
+                        src = 'cut from the original photo';
+                        carried[r.id].forEach(e => { const key = e[0] + ':' + e.slice(1); if (seen.has(key)) return; seen.add(key); entries.push(e); n++; });
+                        if (!n) why = 'all of its examples are already in the learned set';
+                    } else {
+                        src = 'cut from the stored photo';
+                        const img = await rtLoadImage(await rtPhoto(r));
+                        const ex = window.LedWeightReader.examples(img, [-2, -1, 0, 1, 2], [-5, 0, 5], lab.length);
+                        if (!ex.found) why = 'the display was not found in the stored photo (it is a smaller copy than the one the reader saw)';
+                        else {
+                            ex.sets.forEach(s => { if (s.n !== lab.length) return; s.grids.forEach(gs => gs.forEach((g, i) => { const key = lab[i] + ':' + g; if (seen.has(key)) return; seen.add(key); entries.push(lab[i] + g); n++; })); });
+                            if (!n) {
+                                const counts = [...new Set(ex.sets.map(s => s.n))];
+                                why = counts.length ? ('the display shows ' + counts.join(' / ') + ' digit(s) in this photo, ' + lab.length + ' are expected' + (counts.length && counts.every(c => c === lab.length) ? ' (all of its examples are already known)' : '')) : ('no digits could be cut out: ' + [...new Set(ex.fails || [])].join(', '));
+                            }
+                        }
+                    }
                 } catch (e) { why = e.message; }
                 if (n) learned.push(r);
-                lines.push({ r, n, why });
+                lines.push({ r, n, why, src });
             }
             // proof: read every learned photo again with the new set, plus the photos learned earlier (they must not get worse)
             const all = (window.LED_TEMPLATES_BUILTIN || window.LED_TEMPLATES || []).concat(entries.map(e => ({ ch: e[0], g: e.slice(1) })));
-            let okNew = 0; const rows = [];
+            let okNew = 0, notChecked = 0; const rows = [];
             for (const l of lines) {
                 let res = '';
-                if (l.n) { try { const x = await rtReadWeight(l.r, all); const ok = x.value && rtFmt(x.value) === rtFmt(l.r.value); if (ok) okNew++; res = ok ? `&#9989; now reads ${esc(x.value)} (${Math.round(x.conf)}%)` : `&#10060; now reads ${esc(x.value || x.fail)}`; } catch (e) { res = esc(e.message); } }
-                rows.push(`<tr><td>${RT_KIND[l.r.kind]} ${esc(rtFmt(l.r.value))}</td><td>${l.n ? l.n + ' new examples' : '<span style="color:#f59e0b;">skipped: ' + esc(l.why) + '</span>'}</td><td>${res}</td></tr>`);
+                if (l.n) { try { const x = await rtReadWeight(l.r, all); const ok = x.value && rtFmt(x.value) === rtFmt(l.r.value); if (ok) okNew++; res = ok ? `&#9989; now reads ${esc(x.value)} (${Math.round(x.conf)}%)` : (l.src.indexOf('original') >= 0 ? `<span style="color:#94a3b8;">not re-checked: the stored photo is a smaller copy than the original (${esc(x.value || x.fail || 'unreadable')})</span>` : `&#10060; now reads ${esc(x.value || x.fail)}`); if (!ok && l.src.indexOf('original') >= 0) notChecked++; } catch (e) { res = esc(e.message); } }
+                rows.push(`<tr><td>${RT_KIND[l.r.kind]} ${esc(rtFmt(l.r.value))}</td><td>${l.n ? l.n + ' new examples <small style="color:#94a3b8;">(' + esc(l.src) + ')</small>' : '<span style="color:#f59e0b;">skipped: ' + esc(l.why) + '</span>'}</td><td>${res}</td></tr>`);
             }
             let okOld = 0, totOld = 0;
             for (const r of rt.used.filter(x => !String(x.photo).startsWith('purged:'))) { totOld++; try { const x = await rtReadWeight(r, all); if (x.value && rtFmt(x.value) === rtFmt(r.value)) okOld++; } catch (e) { /* photo gone */ } }
             rt.newEntries = entries; rt.learned = learned;
             out.innerHTML = `<table style="min-width:0; font-size:0.85rem;"><thead><tr><th>Photo (confirmed value)</th><th>Learned</th><th>Reader with the new examples</th></tr></thead><tbody>${rows.join('')}</tbody></table>` +
-                `<p style="margin-top:0.6rem;"><b>${okNew} of ${learned.length}</b> learned photo(s) are read correctly with the new set` + (totOld ? `; <b>${okOld} of ${totOld}</b> photos learned earlier are still read correctly` : '') + `. The new set has ${entries.length} learned examples in total (+${entries.length - rt.activeExamples.length}).</p>` +
+                `<p style="margin-top:0.6rem;"><b>${okNew} of ${learned.length}</b> learned photo(s) are read correctly with the new set` + (notChecked ? ` (${notChecked} could not be re-checked because the stored photo is a smaller copy than the original; their digits come from the original)` : '') + (totOld ? `; <b>${okOld} of ${totOld}</b> photos learned earlier are still read correctly` : '') + `. The new set has ${entries.length} learned examples in total (+${entries.length - rt.activeExamples.length}).</p>` +
                 (totOld && okOld < totOld ? '<p style="color:#fbbf24;">&#9888;&#65039; Some earlier photos are no longer read correctly with this set. Publishing is not recommended.</p>' : '');
             rtEl('rt-publish-box').style.display = learned.length ? '' : 'none';
         } catch (e) { out.innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; }
@@ -5330,6 +5534,21 @@ document.addEventListener('DOMContentLoaded', function() {
     const LOW_CONF_TRAIN = 50;           // a confirmed reading below this score is kept for reader training
     const lowConf = {};                  // key -> { conf, value } of the reading the operator confirmed although the reader was < 50 % sure
 
+    // For a reading the reader was < 50 % sure about: (1) a training photo cut down from the ORIGINAL (the stored audit photo is smaller and less sharp than what the
+    // reader actually saw) and (2) for a weight, the digit examples the reader cuts out of that original, labelled with the value the operator confirmed.
+    async function captureTrainingMaterial(slot, kind, p) {
+        const big = await compressScaleImage(p.dataUrl, 2400, 0.9);
+        slot.photo = big.length * 0.75 > 2800000 ? await compressScaleImage(p.dataUrl, 1800, 0.8) : big;
+        if (kind !== 'weight' || !window.LedWeightReader) return;
+        const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = p.dataUrl; });
+        const lab = Number(p.value).toFixed(3).replace('.', '');
+        const ex = window.LedWeightReader.examples(img, [-2, -1, 0, 1, 2], [-5, 0, 5], lab.length);
+        if (!ex.found) return;
+        const seen = new Set(), entries = [];
+        ex.sets.forEach(s => { if (s.n !== lab.length) return; s.grids.forEach(gs => gs.forEach((g, i) => { const k = lab[i] + g; if (!seen.has(k)) { seen.add(k); entries.push(k); } })); });
+        if (entries.length) slot.examples = entries.slice(0, 400);
+    }
+
     function createAutoRead(cfg) {
         const key = cfg.key;
         const unit = cfg.kind === 'weight' ? 'kg' : '%M';
@@ -5556,6 +5775,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (input) input.value = p.value;
             cfg.onAccept(Number(p.value), p);
             lowConf[key] = p.conf < LOW_CONF_TRAIN ? { conf: Math.round(p.conf), value: Number(p.value) } : null;
+            if (lowConf[key]) captureTrainingMaterial(lowConf[key], cfg.kind, p).catch(() => { /* the sample is still kept without the extras */ });
             st.mode = 'accepted';
             st.pending = null;
             autoMsg('');
@@ -6293,7 +6513,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // photos the reader was not sure about (< 50 %) and the operator confirmed: the server keeps them for reader training
         {
             const low = [];
-            const take = (k, kind, typed) => { const l = lowConf[k]; if (l && Number(typed) === l.value) low.push({ kind, conf: l.conf }); };
+            const take = (k, kind, typed) => { const l = lowConf[k]; if (l && Number(typed) === l.value) low.push({ kind, conf: l.conf, photo_src: l.photo || undefined, examples: l.examples || undefined }); };
             if (moistureEditable) take('moisture', 'moisture', moisture);
             if (finenessEditable) { take('fineness-initial', 'fineness_initial', initialWeight); take('fineness-final', 'fineness_final', finalWeight); }
             if (low.length) extra.low_conf = low;
@@ -7127,7 +7347,19 @@ document.addEventListener('DOMContentLoaded', function() {
         sx$('btn-sx-logins-refresh').onclick = renderSuperLogins;
         sx$('btn-sx-pw-refresh').onclick = renderSuperPasswords;
         sx$('btn-sx-pw-set').onclick = superSetActionPassword;
+        sx$('btn-sx-sec-refresh').onclick = renderSuperSecurity;
+        sx$('btn-sx-mfa-required').onclick = superMfaSwitch;
+        sx$('btn-sx-dev-trust').onclick = superDeviceTrust;
+        sx$('btn-sx-dev-lock').onclick = superLockSwitch;
         sx$('btn-sx-ips-refresh').onclick = renderSuperIps;
+        sx$('btn-sx-range').onclick = async () => {
+            const r = sx$('sx-range').value.trim(), n = sx$('sx-range-name').value.trim();
+            if (!r || !n) { alert('Type the range and a name for it.'); return; }
+            const b = sx$('btn-sx-range'); b.disabled = true;
+            try { const x = await window.BiomassAPI.superIpRangeLabel(r, n); alert('Range ' + x.range + ' is named "' + n + '" (' + x.addresses_named + ' listed address(es) inside it took the name).'); sx$('sx-range').value = ''; sx$('sx-range-name').value = ''; await renderSuperIps(); }
+            catch (err) { alert(err.message); }
+            finally { b.disabled = false; }
+        };
         sx$('btn-sx-ipl-go').onclick = () => renderSuperIpLog();
         sx$('sx-ipl-ip').onchange = () => renderSuperIpLog();
         sx$('sx-ipl-q').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); renderSuperIpLog(); } };
@@ -7868,6 +8100,135 @@ document.addEventListener('DOMContentLoaded', function() {
                 await window.BiomassAPI.superSetActionPassword({ password: v.pw1, reason: why });
                 alert('The unloading actions password was saved.');
             }, { saveLabel: 'Save password', danger: false, after: renderSuperPasswords });
+    }
+
+    // ---------- Security: second step (authenticator app) and trusted computers ----------
+    const sxSec = { mfaRequired: false, lock: false, thisStatus: null, aal: 'aal1' };
+
+    // The person's own authenticator-app card (Admin: Settings tab, Super Admin: Security tab)
+    async function renderMfaBox(box) {
+        if (!box) return;
+        box.textContent = 'Loading...';
+        try {
+            const [factors, sec] = await Promise.all([window.BiomassAPI.mfaFactors(), window.BiomassAPI.mySecurity()]);
+            const ok = factors.filter(f => f.status === 'verified');
+            if (ok.length) {
+                box.innerHTML = `<div>✅ <b>Set up</b> on this login (${esc(ok[0].friendly_name || 'authenticator app')}). ${sec.mfa_required ? 'The second step is <b>required</b> for the Admin logins.' : 'You are asked for the code every time you sign in.'}</div>` +
+                    `<div style="margin-top:0.6rem;"><button type="button" class="btn btn-secondary btn-sm" id="mfa-remove-btn" style="border-color:#ef4444; color:#fca5a5;">Remove the authenticator app</button> <span id="mfa-msg" style="font-size:0.85rem;"></span></div>`;
+                box.querySelector('#mfa-remove-btn').onclick = async () => {
+                    const msg = box.querySelector('#mfa-msg');
+                    if (sec.mfa_required) { msg.style.color = '#f59e0b'; msg.textContent = 'The second step is required, so it cannot be removed. The Super Admin must switch it off first.'; return; }
+                    if (!confirm('Remove the authenticator app from this login? You will sign in with the password only.')) return;
+                    try { await window.BiomassAPI.mfaRemove(ok[0].id); } catch (e) { msg.style.color = '#ef4444'; msg.textContent = e.message; return; }
+                    renderMfaBox(box);
+                };
+                return;
+            }
+            box.innerHTML = '<div>⚠️ Not set up yet. Your log-in uses the password only.</div><div style="margin-top:0.6rem;"><button type="button" class="btn btn-primary" id="mfa-start-btn">Set up Google Authenticator</button></div><div id="mfa-setup" style="margin-top:0.9rem;"></div>';
+            box.querySelector('#mfa-start-btn').onclick = async () => {
+                const btn = box.querySelector('#mfa-start-btn'), setup = box.querySelector('#mfa-setup');
+                btn.disabled = true; setup.textContent = 'Preparing...';
+                try {
+                    for (const f of factors.filter(x => x.status !== 'verified')) { try { await window.BiomassAPI.mfaRemove(f.id); } catch (e) { /* an old unfinished set-up */ } }
+                    const en = await window.BiomassAPI.mfaEnroll('Authenticator ' + new Date().toISOString().slice(0, 16).replace('T', ' '));
+                    setup.innerHTML = '<ol style="padding-left:1.2rem; font-size:0.9rem; line-height:1.6;"><li>Install <b>Google Authenticator</b> on your phone (Play Store / App Store).</li><li>In the app press <b>+</b> and <b>Scan a QR code</b>, and scan this picture (or choose &ldquo;Enter a setup key&rdquo; and type the key below):' +
+                        '<div style="margin:0.6rem 0;"><canvas id="mfa-qr" style="background:#fff; padding:6px; border-radius:6px;"></canvas></div><div style="font-family:monospace; word-break:break-all;">' + esc(en.totp.secret) + '</div></li>' +
+                        '<li>Type the 6-digit code the app now shows:<div style="margin-top:0.4rem; display:flex; gap:0.5rem; flex-wrap:wrap;"><input type="text" id="mfa-code" inputmode="numeric" maxlength="8" autocomplete="one-time-code" placeholder="123456" style="padding:0.5rem; width:9rem; letter-spacing:0.2em; text-align:center;"><button type="button" class="btn btn-primary" id="mfa-confirm">Confirm</button></div><div id="mfa-setup-msg" style="margin-top:0.5rem; font-size:0.88rem;"></div></li></ol>';
+                    QRCode.toCanvas(setup.querySelector('#mfa-qr'), en.totp.uri, { width: 200, margin: 1 }, () => { });
+                    setup.querySelector('#mfa-confirm').onclick = async () => {
+                        const m = setup.querySelector('#mfa-setup-msg'), code = setup.querySelector('#mfa-code').value;
+                        if (!code.trim()) { m.style.color = '#ef4444'; m.textContent = 'Type the 6-digit code.'; return; }
+                        try { await window.BiomassAPI.mfaConfirm(en.id, code); } catch (e) { m.style.color = '#ef4444'; m.textContent = 'That code is not correct or has expired. Wait for the next code and try again.'; return; }
+                        alert('Done. From now on, sign in with your password and then the 6-digit code.');
+                        renderMfaBox(box);
+                        if (document.getElementById('tab-super-security') && document.getElementById('tab-super-security').classList.contains('active')) renderSuperSecurity();
+                    };
+                } catch (e) { setup.innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; btn.disabled = false; }
+            };
+        } catch (e) { box.innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; }
+    }
+
+    async function renderSuperSecurity() {
+        renderMfaBox(sx$('sx-mfa-mine'));
+        try {
+            const o = await window.BiomassAPI.superMfaOverview();
+            sxSec.mfaRequired = !!o.required; sxSec.aal = o.aal;
+            sx$('sx-mfa-people').innerHTML = '<table style="min-width:0; font-size:0.88rem;"><thead><tr><th>Login</th><th>Name</th><th>Role</th><th>Authenticator app</th><th></th></tr></thead><tbody>' +
+                o.people.map(x => `<tr><td><b>${esc(x.username)}</b></td><td>${esc(x.name)}</td><td>${esc(x.role)}</td><td>${x.exempt ? '<span class="mixr-pill info">machine login &ndash; password only</span>' : (x.enrolled ? '<span class="mixr-pill ok">set up</span>' : '<span class="mixr-pill wait">not yet</span>')}</td>` +
+                    `<td>${x.role === 'admin' ? `<button type="button" class="btn btn-secondary btn-sm" data-mx="${esc(x.username)}" data-on="${x.exempt ? 0 : 1}">${x.exempt ? 'Needs the code again' : 'Machine login (no code)'}</button>` : ''}</td></tr>`).join('') + '</tbody></table>';
+            sx$('sx-mfa-people').onclick = (e) => {
+                const b = e.target.closest('button[data-mx]'); if (!b) return;
+                const who = b.dataset.mx, on = b.dataset.on === '1';
+                openSuperEdit(on ? 'Machine login: ' + who : who + ' needs the code again',
+                    on ? '<b>Only for a login that no person types into</b> &ndash; for example the daily-backup tool. This login will work with its password alone even when the second step is required, so give it a long random password and keep it only on the backup computer. Never do this for a login a person uses.' : 'This login will need the 6-digit code like the others (the backup tool would stop working until it is exempted again or enrols an authenticator).',
+                    [], async (v, why) => { await window.BiomassAPI.superMfaExempt(who, on, why); }, { saveLabel: on ? 'Make it a machine login' : 'Require the code', danger: !on, after: renderSuperSecurity });
+            };
+            sx$('sx-mfa-required').innerHTML = o.required ? '✅ The second step is <b>REQUIRED</b>: the Admin and Super Admin can do nothing without the code.' : 'The second step is <b>not required yet</b> (everyone who has set the app up is still asked for the code at sign-in).';
+            sx$('btn-sx-mfa-required').textContent = o.required ? 'Switch the second step OFF…' : 'Switch the second step ON for the Admin and Super Admin logins…';
+        } catch (e) { sx$('sx-mfa-people').innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; }
+        try {
+            const d = await window.BiomassAPI.deviceList();
+            sxSec.lock = !!d.lock;
+            const me = d.devices.find(x => x.this_device);
+            sxSec.thisStatus = me ? me.status : null;
+            sx$('sx-dev-state').innerHTML = `Lock: <b style="color:${d.lock ? '#34d399' : '#fbbf24'};">${d.lock ? 'ON' : 'OFF'}</b> &middot; this computer: <b>${me ? esc(me.status) + ' (' + esc(me.name) + ')' : 'not trusted yet'}</b> &middot; this session: <b>${d.session_verified ? 'verified' : 'not verified'}</b>`;
+            sx$('btn-sx-dev-lock').textContent = d.lock ? 'Switch the lock OFF…' : 'Switch the lock ON…';
+            sx$('btn-sx-dev-trust').style.display = me && me.status === 'TRUSTED' ? 'none' : '';
+            sx$('sx-dev-body').innerHTML = d.devices.map(x => `<tr><td><b>${esc(x.name)}</b>${x.this_device ? ' <span class="mixr-pill info">this computer</span>' : ''}</td><td>${x.status === 'TRUSTED' ? '<span class="mixr-pill ok">TRUSTED</span>' : (x.status === 'PENDING' ? '<span class="mixr-pill wait">WAITING FOR APPROVAL</span>' : '<span class="mixr-pill bad">REVOKED</span>')}</td>` +
+                `<td>${esc(x.requested_at)}${x.approved_by ? '<br><small style="color:#94a3b8;">by ' + esc(x.approved_by) + '</small>' : ''}</td><td>${esc(x.last_seen || '-')}</td>` +
+                `<td>${x.status !== 'TRUSTED' ? `<button type="button" class="btn btn-primary btn-sm" data-dev="${x.id}" data-act="approve">Approve</button> ` : ''}${x.status !== 'REVOKED' && !x.this_device ? `<button type="button" class="btn btn-secondary btn-sm" data-dev="${x.id}" data-act="revoke" style="border-color:#ef4444; color:#fca5a5;">Revoke</button>` : ''}</td></tr>`).join('') ||
+                '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No computer has been trusted yet.</td></tr>';
+            sx$('sx-dev-body').onclick = (e) => {
+                const b = e.target.closest('button[data-dev]'); if (!b) return;
+                const act = b.dataset.act, id = Number(b.dataset.dev), dv = d.devices.find(x => x.id === id);
+                openSuperEdit((act === 'approve' ? 'Approve ' : 'Revoke ') + dv.name, act === 'approve' ? 'This computer will be able to sign in as the Super Admin when the lock is ON.' : 'This computer can no longer sign in as the Super Admin (its open session stops at once).',
+                    [], async (v, why) => { await window.BiomassAPI.deviceDecide(id, act, why); }, { saveLabel: act === 'approve' ? 'Approve' : 'Revoke', danger: act !== 'approve', after: renderSuperSecurity });
+            };
+        } catch (e) { sx$('sx-dev-state').innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; }
+    }
+
+    function superMfaSwitch() {
+        const turnOn = !sxSec.mfaRequired;
+        openSuperEdit(turnOn ? 'Require the second step' : 'Stop requiring the second step',
+            turnOn ? 'From now on the Admin and the Super Admin can do nothing without the 6-digit code. This is refused unless <b>every</b> Admin / Super Admin login has set the app up (the backup tool\'s machine login can be marked exempt in the table above) and you signed in with the code yourself.' : 'The Admin and Super Admin work with the password only again (anyone who set the app up is still asked for the code at sign-in).',
+            [], async (v, why) => { await window.BiomassAPI.superMfaSet(turnOn, why); }, { saveLabel: turnOn ? 'Switch ON' : 'Switch OFF', danger: !turnOn, after: renderSuperSecurity });
+    }
+    function superDeviceTrust() {
+        openSuperEdit('Trust this computer', 'This browser gets a secret code; the server keeps only its fingerprint. Do this on the computer you want to trust (your laptop). Name it so you recognise it.',
+            [{ id: 'name', label: 'Name of this computer', type: 'text', value: 'My laptop' }],
+            async (v, why) => { if (v.name.length < 2) throw new Error('Give the computer a name.'); await window.BiomassAPI.deviceTrust(v.name, why); }, { saveLabel: 'Trust this computer', danger: false, after: renderSuperSecurity });
+    }
+    function superLockSwitch() {
+        const on = !sxSec.lock;
+        openSuperEdit(on ? 'Switch the lock ON' : 'Switch the lock OFF',
+            on ? 'The Super Admin login will then work only on trusted computers. This session must already be verified by a trusted computer (trust this computer first).' : 'The Super Admin login will work from any computer again (password' + (sxSec.mfaRequired ? ' and code' : '') + ' only).',
+            [], async (v, why) => { await window.BiomassAPI.lockSet(on, why); }, { saveLabel: on ? 'Switch ON' : 'Switch OFF', danger: !on, after: renderSuperSecurity });
+    }
+
+    // The Super Admin signed in from a computer that is not trusted (lock ON): nothing else is shown until a trusted computer approves it
+    function showDeviceBlock(dev) {
+        const m = document.getElementById('device-block-modal'), txt = document.getElementById('device-block-text'), ask = document.getElementById('device-block-ask'), msg = document.getElementById('device-block-msg');
+        const ask_btn = document.getElementById('btn-device-ask');
+        const st = dev && dev.status;
+        msg.textContent = '';
+        txt.innerHTML = st === 'PENDING' ? 'Your request is <b>waiting for approval</b>. Sign in from a trusted computer, open <b>Security</b> and press <b>Approve</b>; then press <b>Check again</b> here.'
+            : (st === 'REVOKED' ? 'This computer was <b>removed</b> from the trusted list. Use a trusted computer.' :
+               (st === 'ERROR' ? 'The computer could not be checked (connection problem?). Press <b>Check again</b>.' :
+                'The Super Admin lock is <b>ON</b> and this computer has not been approved. Give it a name and ask for approval, then approve it from your trusted computer (Security tab) and press <b>Check again</b>.'));
+        ask.style.display = ask_btn.style.display = (st === 'UNKNOWN' || st === 'NONE') ? '' : 'none';
+        m.style.display = 'flex';
+        document.getElementById('btn-device-signout').onclick = () => { window.BiomassAPI.logout(); m.style.display = 'none'; routeSession(); };
+        document.getElementById('btn-device-check').onclick = async () => {
+            msg.style.color = ''; msg.textContent = 'Checking...';
+            const r = await window.BiomassAPI.deviceCheck();
+            if (r.verified || !r.lock) { m.style.display = 'none'; routeSession(); } else showDeviceBlock(r);
+        };
+        ask_btn.onclick = async () => {
+            const name = document.getElementById('device-block-name').value.trim();
+            if (name.length < 2) { msg.style.color = '#ef4444'; msg.textContent = 'Give this computer a name.'; return; }
+            try { await window.BiomassAPI.deviceRequest(name); } catch (e) { msg.style.color = '#ef4444'; msg.textContent = e.message; return; }
+            showDeviceBlock({ status: 'PENDING', lock: true });
+        };
     }
 
     // ---------- IP addresses (Super Admin) ----------

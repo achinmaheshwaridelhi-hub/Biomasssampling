@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <!-- Content-Security-Policy: scripts, connections, frames and plug-ins only from where the app itself needs them (see Security_Assessment S1) -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://jarfhyraxjvtimradvbp.supabase.co blob: data:; worker-src 'self' blob:; media-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#090d16">
     <link rel="manifest" href="manifest.webmanifest">
@@ -27,14 +29,9 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20261030_v49">
-    <!-- Chart.js for Executive Management Dashboard (version pinned; local copy used if the CDN is unreachable) -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-    <script>
-        if (typeof Chart === 'undefined') {
-            document.write('<script src="lib/chart.umd.min.js"><\/script>');
-        }
-    </script>
+    <link rel="stylesheet" href="style.css?v=20261030_v54">
+    <!-- Chart.js 4.4.4 for the Executive Management Dashboard: the app's own copy (no outside server is trusted) -->
+    <script src="lib/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -92,7 +89,12 @@
                         <label for="login-password">Password</label>
                         <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password">
                     </div>
-                    <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;">
+                    <div class="form-group" id="login-mfa-group" style="display: none;">
+                        <label for="login-code">6-digit code from your authenticator app</label>
+                        <input type="text" id="login-code" inputmode="numeric" maxlength="8" autocomplete="one-time-code" placeholder="123456" style="letter-spacing: 0.3em; font-size: 1.2rem; text-align: center;">
+                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.4rem;">Open Google Authenticator (or any authenticator app) and type the code shown for this login. <a href="#" id="login-mfa-cancel" style="color: #60a5fa;">Use a different account</a></div>
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="btn-login-submit" style="width: 100%; margin-top: 1rem;">
                         Sign In Securely
                     </button>
                 </form>
@@ -159,6 +161,7 @@
                 <button class="tab-btn sx-tab" data-tab="super-logins" id="tab-btn-sx-logins" style="display: none;">&#128101; Logins</button>
                 <button class="tab-btn sx-tab" data-tab="super-ips" id="tab-btn-sx-ips" style="display: none;">&#127760; IP addresses <span id="sx-ip-badge" class="bottom-badge" style="display: none;">0</span></button>
                 <button class="tab-btn sx-tab" data-tab="super-passwords" id="tab-btn-sx-passwords" style="display: none;">&#128273; Passwords</button>
+                <button class="tab-btn sx-tab" data-tab="super-security" id="tab-btn-sx-security" style="display: none;">&#128737;&#65039; Security</button>
             </div>
 
             <!-- TAB 0: EXECUTIVE DASHBOARD -->
@@ -1186,6 +1189,37 @@
                 </div>
             </div>
 
+            <!-- SECURITY (Super Admin): second step + trusted devices -->
+            <div id="tab-super-security" class="tab-content">
+                <div class="sx-hero">
+                    <div>
+                        <div class="sx-hero-title">&#128737;&#65039; Security</div>
+                        <div class="sx-hero-sub">Two protections for the Admin and Super Admin logins. A password alone is then not enough: a <b>6-digit code from your phone</b> (Google Authenticator) and, for the Super Admin, a <b>trusted computer</b>.</div>
+                    </div>
+                    <div><button type="button" class="btn btn-secondary" id="btn-sx-sec-refresh">&#8635; Refresh</button></div>
+                </div>
+                <div class="card">
+                    <h3 class="card-title">&#128241; Second step: authenticator app</h3>
+                    <div id="sx-mfa-mine" style="margin-bottom: 1rem;"></div>
+                    <h4 style="margin: 0 0 0.4rem;">Who has set it up</h4>
+                    <div id="sx-mfa-people" style="margin-bottom: 0.8rem;"></div>
+                    <div id="sx-mfa-required" style="font-size: 0.9rem; margin-bottom: 0.6rem;"></div>
+                    <button type="button" class="btn btn-primary" id="btn-sx-mfa-required">Switch the second step ON for the Admin and Super Admin logins&hellip;</button>
+                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.7rem;">Switch it on only after both logins have set the app up and you have signed in once with the code. Emergency switch-off (Supabase SQL editor): <code>update bm.settings set value = 'off' where key = 'mfa_required';</code></p>
+                </div>
+                <div class="card">
+                    <h3 class="card-title">&#128187; Trusted computers (Super Admin)</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.8rem;">With the lock <b>ON</b>, the Super Admin login works only on a trusted computer, on any Wi-Fi or mobile data. A trusted computer keeps a secret code in its browser (the server stores only a fingerprint of it). Clearing this browser&rsquo;s data removes the trust: sign in again and ask for approval from another trusted computer, or switch the lock off in the database.</p>
+                    <div id="sx-dev-state" style="margin-bottom: 0.8rem;"></div>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.9rem;">
+                        <button type="button" class="btn btn-primary" id="btn-sx-dev-trust">&#128274; Trust this computer&hellip;</button>
+                        <button type="button" class="btn btn-secondary" id="btn-sx-dev-lock">Switch the lock ON&hellip;</button>
+                    </div>
+                    <div class="table-responsive"><table style="min-width: 0; font-size: 0.88rem;"><thead><tr><th>Computer</th><th>Status</th><th>Asked / approved</th><th>Last seen</th><th></th></tr></thead><tbody id="sx-dev-body"></tbody></table></div>
+                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.7rem;">Emergency switch-off (Supabase SQL editor): <code>update bm.settings set value = 'off' where key = 'super_lock';</code></p>
+                </div>
+            </div>
+
             <!-- IP ADDRESSES (Super Admin) -->
             <div id="tab-super-ips" class="tab-content">
                 <div class="sx-hero">
@@ -1198,6 +1232,16 @@
                 </div>
                 <div class="card">
                     <h3 class="card-title">Addresses</h3>
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.9rem;">
+                        <b>Why does the same place keep appearing as a new address?</b> Phones change the second half of their IPv6 address by themselves every day (a privacy feature); mobile networks hand out a different IPv4 address from a large shared block each time; and a broadband line without a fixed IP changes its address when the router restarts.
+                        An IPv6 address is therefore saved as its network (<span style="font-family:monospace;">&hellip;::/64</span>), which stays the same. For the rest, <b>name a whole range</b> once (below): every address inside it, now or later, has that name and is never reported as new.
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 1rem; padding: 0.7rem; border: 1px dashed var(--border-color); border-radius: 8px;">
+                        <label style="display: flex; flex-direction: column; font-size: 0.75rem; gap: 2px;">Range (CIDR)<input type="text" id="sx-range" placeholder="e.g. 152.58.0.0/16" maxlength="50" style="padding: 0.45rem; width: 220px;"></label>
+                        <label style="display: flex; flex-direction: column; font-size: 0.75rem; gap: 2px; flex: 1; min-width: 200px;">Name<input type="text" id="sx-range-name" placeholder="e.g. Mobile data (Jio) - plant staff" maxlength="60" style="padding: 0.45rem;"></label>
+                        <button type="button" class="btn btn-primary btn-sm" id="btn-sx-range">Name this range</button>
+                        <span style="font-size: 0.72rem; color: #94a3b8; width: 100%;">IPv4 ranges must be /16 or narrower (65,536 addresses at most), IPv6 /48 or narrower. Tip: open an unknown address, look up its owner (the first two numbers of the address are usually the carrier / ISP block), and name that block.</span>
+                    </div>
                     <div class="table-responsive"><table style="min-width: 0; font-size: 0.85rem;"><thead><tr><th>IP address</th><th>Name</th><th>First seen</th><th>Last seen</th><th>Times</th><th>Last login / action</th><th>Device</th></tr></thead><tbody id="sx-ips-body"></tbody></table></div>
                 </div>
                 <div class="card">
@@ -1393,6 +1437,11 @@
                     </label>
                     <div id="storage-result" style="margin-top: 0.75rem; font-size: 0.88rem;"></div>
                 </div>
+                <div class="card" id="mfa-admin-card">
+                    <h3 class="card-title">&#128241; Second step: authenticator app</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.8rem;">Add the 6-digit code of Google Authenticator to your log-in, so that a stolen password alone cannot open the Admin account. Set it up once on your phone.</p>
+                    <div id="mfa-admin-box">Loading...</div>
+                </div>
                 <div class="card" id="mixreset-card">
                     <h3 class="card-title">&#129514; Mixing scans &mdash; reset a mixing code</h3>
                     <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
@@ -1443,10 +1492,10 @@
         <section id="screen-unloading" class="screen">
             <!-- Daily report: a password-protected PDF only (no table on screen, no Excel) -->
             <div class="card" id="dayreport-card" style="margin-bottom: 1.5rem;">
-                <h3 class="card-title" style="margin-bottom: 0.25rem;">&#128197; Daily Report &mdash; password-protected PDF</h3>
+                <h3 class="card-title" style="margin-bottom: 0.25rem;">&#128197; Daily Report &mdash; password-protected files</h3>
                 <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.9rem;">
                     The <strong>Summary report</strong> is the one for the seniors: vendor-wise unloaded quantity (highest first, with Lot 2, Lot 3 and Lot 4), trucks received / approved / unloaded / rejected, % share and lot-wise totals.
-                    <strong>Truck-wise details</strong> lists every truck with its weights and test results. Nothing is shown on this screen: each report is downloaded as a PDF that opens only with the
+                    <strong>Truck-wise details</strong> lists every truck with its weights and test results. Nothing is shown on this screen: each report is downloaded as a PDF (or one Excel file with both reports as two sheets) that opens only with the
                     <strong>action password</strong> (the same one used for bottom samples and Cancel QR), which is asked every time. Today&rsquo;s report opens after <strong>9:00 PM</strong>; any earlier day can be opened at any time.
                 </p>
                 <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end;">
@@ -1456,6 +1505,7 @@
                     <button type="button" class="btn btn-secondary btn-sm" id="btn-dayreport-yesterday">Yesterday</button>
                     <button type="button" class="btn btn-primary btn-sm" id="btn-dayreport-summary">&#128274; Summary report (PDF)</button>
                     <button type="button" class="btn btn-secondary btn-sm" id="btn-dayreport-details">&#128274; Truck-wise details (PDF)</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-dayreport-excel">&#128274; Summary + details (one Excel file)</button>
                 </div>
                 <div id="dayreport-note" style="font-size: 0.85rem; margin-top: 0.7rem;"></div>
             </div>
@@ -2019,14 +2069,32 @@
     <!-- Daily report PDF (Unloading): needs the action password, which is also the password of the PDF -->
     <div id="dayreport-pw-modal" style="display: none; position: fixed; inset: 0; z-index: 99990; background: rgba(2,6,23,0.8); align-items: center; justify-content: center; padding: 1rem;">
         <div class="card" style="max-width: 440px; width: 100%; margin: 0; border: 2px solid #6366f1;">
-            <h3 class="card-title" style="margin-bottom: 0.4rem;">Download password-protected PDF</h3>
-            <p style="font-size: 0.9rem; margin-bottom: 0.9rem;"><strong id="dayreport-pw-what"></strong>. Enter the action password. The PDF is locked with the same password and cannot be opened without it.</p>
+            <h3 class="card-title" style="margin-bottom: 0.4rem;">Download password-protected report</h3>
+            <p style="font-size: 0.9rem; margin-bottom: 0.9rem;"><strong id="dayreport-pw-what"></strong>. Enter the action password. The file is locked with the same password: PDF viewers and Excel ask for it, and the content cannot be read without it.</p>
             <label style="display: block; font-size: 0.8rem; margin-bottom: 0.2rem;">Action password</label>
             <input type="password" id="dayreport-pw" autocomplete="off" style="width: 100%; padding: 0.55rem; margin-bottom: 0.7rem;">
             <div id="dayreport-pw-msg" style="font-size: 0.88rem; margin-bottom: 0.6rem; min-height: 1.2em;"></div>
             <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
                 <button type="button" class="btn btn-secondary" id="btn-dayreport-pw-cancel">Cancel</button>
-                <button type="button" class="btn btn-primary" id="btn-dayreport-pw-send" disabled>Download PDF</button>
+                <button type="button" class="btn btn-primary" id="btn-dayreport-pw-send" disabled>Download</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Super Admin log-in from a computer that is not trusted (the lock is ON) -->
+    <div id="device-block-modal" style="display: none; position: fixed; inset: 0; z-index: 99996; background: rgba(2,6,23,0.96); align-items: center; justify-content: center; padding: 1rem;">
+        <div class="card" style="max-width: 480px; width: 100%; margin: 0; border: 2px solid #f59e0b;">
+            <h3 class="card-title" style="margin-bottom: 0.4rem;">&#128274; This computer is not trusted</h3>
+            <p id="device-block-text" style="font-size: 0.92rem; margin-bottom: 0.8rem;"></p>
+            <div id="device-block-ask">
+                <label style="display: block; font-size: 0.8rem; margin-bottom: 0.2rem;">Name of this computer</label>
+                <input type="text" id="device-block-name" maxlength="60" placeholder="e.g. Office PC" style="width: 100%; padding: 0.55rem; margin-bottom: 0.7rem;">
+            </div>
+            <div id="device-block-msg" style="font-size: 0.88rem; margin-bottom: 0.6rem; min-height: 1.2em;"></div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end; flex-wrap: wrap;">
+                <button type="button" class="btn btn-secondary" id="btn-device-signout">Sign out</button>
+                <button type="button" class="btn btn-secondary" id="btn-device-check">Check again</button>
+                <button type="button" class="btn btn-primary" id="btn-device-ask">Ask for approval</button>
             </div>
         </div>
     </div>
@@ -2047,34 +2115,25 @@
 
     <!-- PDF.js library for offline PDF barcode scanning in pilot tests -->
     <script src="lib/pdf.min.js" onerror="alert('CRITICAL: lib/pdf.min.js failed to load!')"></script>
-    <script src="lib/mini-pdf.js?v=20261030_v49" onerror="alert('CRITICAL: lib/mini-pdf.js failed to load!')"></script>
+    <script src="lib/mini-pdf.js?v=20261030_v54" onerror="alert('CRITICAL: lib/mini-pdf.js failed to load!')"></script>
+    <script src="lib/xlsx-crypt.js?v=20261030_v54" onerror="alert('CRITICAL: lib/xlsx-crypt.js failed to load!')"></script>
 
-    <!-- ExcelJS for the professional formatted Executive Dashboard export -->
-    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
-    <script>
-        if (typeof ExcelJS === 'undefined') {
-            document.write('<script src="lib/exceljs.min.js"><\/script>');
-        }
-    </script>
+    <!-- ExcelJS 4.4.0 for the Excel exports: the app's own copy -->
+    <script src="lib/exceljs.min.js"></script>
 
-    <!-- Tesseract.js for Digital Scale & Moisture Analyzer OCR Reading (CDN with local fallback) -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
-    <script>
-        if (typeof Tesseract === 'undefined') {
-            document.write('<script src="lib/tesseract.min.js"><\/script>');
-        }
-    </script>
+    <!-- Tesseract.js 5.1.1 for the meter / scale reading: the app's own copy -->
+    <script src="lib/tesseract.min.js"></script>
 
     <!-- Moisture-meter reader (trained offline OCR). Small loaders only; the ~8 MB engine in lib/ocr/ is fetched
          on first use. If these fail to load the app simply falls back to manual photo + typing. -->
-    <script src="lib/ocr/moisture-reader-core.js?v=20261030_v49"></script>
-    <script src="lib/ocr/led-weight-reader.js?v=20261030_v49"></script>
-    <script src="lib/ocr/led-templates.js?v=20261030_v49"></script>
-    <script src="moisture-ocr.js?v=20261030_v49"></script>
+    <script src="lib/ocr/moisture-reader-core.js?v=20261030_v54"></script>
+    <script src="lib/ocr/led-weight-reader.js?v=20261030_v54"></script>
+    <script src="lib/ocr/led-templates.js?v=20261030_v54"></script>
+    <script src="moisture-ocr.js?v=20261030_v54"></script>
 
     <!-- App JavaScript files -->
-    <script src="api.js?v=20261030_v49" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261030_v49" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="api.js?v=20261030_v54" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261030_v54" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

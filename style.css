@@ -340,7 +340,8 @@ p {
 /* Tab controls */
 .tabs {
     display: flex;
-    gap: 0.5rem;
+    flex-wrap: wrap;            /* the Admin has 12 tabs: a second row instead of cutting off the last ones (Settings) */
+    gap: 0.35rem 0.5rem;
     margin-bottom: 2rem;
     border-bottom: 1px solid var(--border-color);
     padding-bottom: 0.5rem;

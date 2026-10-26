@@ -110,6 +110,48 @@
         return data;
     }
 
+    // GET / DELETE / POST to the Auth service (second-step factors)
+    async function authCall(method, path, token, body) {
+        const headers = { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${token}` };
+        if (body) headers['Content-Type'] = 'application/json';
+        const res = await fetch(`${SUPABASE_URL}/auth/v1/${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { const err = new Error(data.msg || data.message || data.error_description || res.statusText || 'Request failed'); err.status = res.status; err.code = data.error_code || data.error; throw err; }
+        return data;
+    }
+    // The secret kept in THIS browser. Only its SHA-256 is stored on the server (Super Admin trusted devices).
+    function deviceToken() {
+        try {
+            let t = localStorage.getItem('BIOMASS_DEVICE');
+            if (!t || t.length < 40) {
+                t = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('');
+                localStorage.setItem('BIOMASS_DEVICE', t);
+            }
+            return t;
+        } catch (e) { return ''; }
+    }
+    async function checkDevice() {
+        try { const r = await rpc('bm_device_verify', { token: deviceToken() }); return { verified: !!r.verified, status: r.status, lock: !!r.lock, name: r.name || null }; }
+        catch (e) { return { verified: false, status: 'ERROR', lock: false }; }
+    }
+    let _pendingMfa = null;
+    // after the password (and, if the person has one, the 6-digit code): keep the session, find out who this is
+    async function finishLogin(d) {
+        saveSession({
+            access_token: d.access_token, refresh_token: d.refresh_token,
+            expires_at: Date.now() + (Number(d.expires_in) || 3600) * 1000, user: null
+        });
+        let who;
+        try { who = await rpc('bm_whoami', {}); }
+        catch (e) { clearSession(); return { success: false, message: e.message || 'This account is not provisioned.' }; }
+        // The Super Admin has every Admin right: the app treats it as 'admin' and shows the extra Super Admin tab (is_super).
+        const sessionUser = { username: who.username, role: who.role === 'superadmin' ? 'admin' : who.role, name: who.name, is_super: who.role === 'superadmin' };
+        if (sessionUser.is_super) sessionUser.device = await checkDevice();
+        const s = loadSession(); s.user = sessionUser; saveSession(s);
+        _failCount = 0;
+        return { success: true, user: sessionUser };
+    }
+
     let _refreshing = null;
     async function refreshSession() {
         const s = loadSession();
@@ -235,18 +277,12 @@
             }
             try {
                 const d = await authRequest('token?grant_type=password', { email: `${uname}@${LOGIN_EMAIL_DOMAIN}`, password: String(password) });
-                saveSession({
-                    access_token: d.access_token, refresh_token: d.refresh_token,
-                    expires_at: Date.now() + (Number(d.expires_in) || 3600) * 1000, user: null
-                });
-                let who;
-                try { who = await rpc('bm_whoami', {}); }
-                catch (e) { clearSession(); return { success: false, message: e.message || 'This account is not provisioned.' }; }
-                // The Super Admin has every Admin right: the app treats it as 'admin' and shows the extra Super Admin tab (is_super).
-                const sessionUser = { username: who.username, role: who.role === 'superadmin' ? 'admin' : who.role, name: who.name, is_super: who.role === 'superadmin' };
-                const s = loadSession(); s.user = sessionUser; saveSession(s);
-                _failCount = 0;
-                return { success: true, user: sessionUser };
+                const factor = ((d.user && d.user.factors) || []).find(f => f.factor_type === 'totp' && f.status === 'verified');
+                if (factor) {          // the password was right; the 6-digit code of the authenticator app is the second step
+                    _pendingMfa = { d, factorId: factor.id };
+                    return { success: false, mfa_required: true, message: 'Type the 6-digit code from your authenticator app.' };
+                }
+                return await finishLogin(d);
             } catch (e) {
                 if (e.status === 400 || e.status === 401 || e.status === 422) {
                     _failCount++;
@@ -258,6 +294,23 @@
                 return { success: false, message: 'Connection error: ' + e.message };
             }
         },
+
+        /** The second step: the 6-digit code of the authenticator app (Google Authenticator, Microsoft Authenticator ...). */
+        async loginMfa(code) {
+            if (!_pendingMfa) return { success: false, message: 'Please sign in again with your password.' };
+            const { d, factorId } = _pendingMfa;
+            try {
+                const ch = await authRequest(`factors/${factorId}/challenge`, {}, d.access_token);
+                const v = await authRequest(`factors/${factorId}/verify`, { challenge_id: ch.id, code: String(code || '').replace(/\s/g, '') }, d.access_token);
+                _pendingMfa = null;
+                return await finishLogin(v);
+            } catch (e) {
+                if (e.status === 400 || e.status === 422) return { success: false, message: 'That code is not correct or has expired. Wait for the next code and try again.' };
+                if (e.status === 429) return { success: false, message: 'Too many attempts. Please wait a few minutes and try again.' };
+                return { success: false, message: 'Connection error: ' + e.message };
+            }
+        },
+        cancelMfa() { _pendingMfa = null; },
 
         logout() {
             const s = loadSession();
@@ -312,7 +365,11 @@
             // reader training: a low-confidence photo gets its OWN copy (folder tr/), so the training photos can be deleted later without touching the lab record's photo
             if (p.low_conf) {
                 const src = { moisture: p.moisture_photo, fineness_initial: p.fineness_initial_photo, fineness_final: p.fineness_final_photo };
-                for (const it of p.low_conf) { if (src[it.kind]) it.photo = await uploadEvidence(src[it.kind], 'tr'); }
+                for (const it of p.low_conf) {
+                    const from = it.photo_src || src[it.kind];          // photo_src = the training copy made from the ORIGINAL (larger) photo
+                    delete it.photo_src;
+                    if (from) it.photo = await uploadEvidence(from, 'tr');
+                }
             }
             for (const k of ['moisture_photo', 'fineness_initial_photo', 'fineness_final_photo']) {
                 if (p[k]) p[k] = await uploadEvidence(p[k]);
@@ -381,6 +438,31 @@
         /** every vendor entry incl. retired ones (Admin / Super Admin) */
         async getCompaniesAll() { return (await rpc('bm_list_companies', { include_retired: 'true' })) || []; },
         async superSetLogin(v) { return rpc('bm_super_set_login', v); },
+        // --- SECOND STEP (authenticator app) --------------------------------------------------------------------------
+        async mySecurity() { return rpc('bm_my_security', {}); },
+        async mfaFactors() { const u = await authCall('GET', 'user', await getToken()); return (u.factors || []).filter(f => f.factor_type === 'totp'); },
+        async mfaEnroll(name) { return authCall('POST', 'factors', await getToken(), { factor_type: 'totp', friendly_name: name || ('Authenticator ' + new Date().toISOString().slice(0, 10)), issuer: 'Biomass' }); },
+        /** Confirm the app with the first code. The session becomes aal2 (tokens are replaced). */
+        async mfaConfirm(factorId, code) {
+            const token = await getToken();
+            const ch = await authCall('POST', `factors/${factorId}/challenge`, token, {});
+            const v = await authCall('POST', `factors/${factorId}/verify`, token, { challenge_id: ch.id, code: String(code || '').replace(/\s/g, '') });
+            const s = loadSession();
+            if (s) { s.access_token = v.access_token; s.refresh_token = v.refresh_token || s.refresh_token; s.expires_at = Date.now() + (Number(v.expires_in) || 3600) * 1000; saveSession(s); }
+            return true;
+        },
+        async mfaRemove(factorId) { return authCall('DELETE', `factors/${factorId}`, await getToken()); },
+        async superMfaOverview() { return rpc('bm_super_mfa_overview', {}); },
+        async superMfaSet(on, reason) { return rpc('bm_super_mfa_set', { on: !!on, reason: reason }); },
+        async superMfaExempt(username, exempt, reason) { return rpc('bm_super_mfa_exempt', { username: username, exempt: !!exempt, reason: reason }); },
+        // --- TRUSTED DEVICES (Super Admin) -----------------------------------------------------------------------------
+        async deviceCheck() { const r = await checkDevice(); const s = loadSession(); if (s && s.user) { s.user.device = r; saveSession(s); } return r; },
+        async deviceRequest(name) { return rpc('bm_device_request', { token: deviceToken(), name: name }); },
+        async deviceList() { return rpc('bm_super_device_list', { token: deviceToken() }); },
+        async deviceTrust(name, reason) { const r = await rpc('bm_super_device_trust', { token: deviceToken(), name: name, reason: reason }); await this.deviceCheck(); return r; },
+        async deviceDecide(id, action, reason) { return rpc('bm_super_device_decide', { id: id, action: action, reason: reason, token: deviceToken() }); },
+        async lockSet(on, reason) { return rpc('bm_super_lock_set', { on: !!on, reason: reason }); },
+        async superIpRangeLabel(range, label) { return rpc('bm_super_ip_range_label', { range: range, label: label }); },
         async superHealth() { return rpc('bm_super_health', {}); },
         async superHealthFix(v) { return rpc('bm_super_health_fix', v); },
         async mixingSearch(code) { return rpc('bm_admin_mixing_search', { code: String(code || '').trim() }); },
@@ -574,6 +656,7 @@
         async activateTemplates(version) { return rpc('bm_admin_templates_activate', { version: version || 0 }); },
         async getReaderTemplates(haveVersion) { return rpc('bm_get_reader_templates', { have_version: haveVersion == null ? -1 : haveVersion }); },
         async trainingSpace() { return rpc('bm_admin_training_space', {}); },
+        async trainingExamples(ids) { return (await rpc('bm_admin_training_examples', { ids: ids })) || []; },
         /** Delete the training photos at once. scope: 'done' (learned + rejected samples) or 'all'. Files first, then the samples are marked (the database refuses to mark a file that still exists). */
         async deleteTrainingPhotos(scope, onProgress) {
             const plan = await rpc('bm_admin_training_delete_plan', { scope: scope });

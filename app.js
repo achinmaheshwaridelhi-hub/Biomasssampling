@@ -1937,7 +1937,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        if (user.is_super && user.device && user.device.lock && !user.device.verified) { appHeader.style.display = 'none'; showDeviceBlock(user.device); return; }
+        if (user.device && user.device.lock && !user.device.verified) { appHeader.style.display = 'none'; showDeviceBlock(user.device); return; }
         const dbm = document.getElementById('device-block-modal'); if (dbm) dbm.style.display = 'none';
 
         // Setup Header
@@ -2004,6 +2004,14 @@ document.addEventListener('DOMContentLoaded', function() {
     window.addEventListener('biomass-session-expired', function() {
         if (window.BiomassAPI.getCurrentUser() === null && screens.login.classList.contains('active')) return;
         hardSignOut('Your session has expired. Please sign in again.');
+    });
+
+    // Fired by api.js when the server refuses an action because this computer is not approved for the login (the lock was switched on, or the computer was revoked, while the person was working).
+    let _devBlockBusy = false;
+    window.addEventListener('biomass-device-blocked', async function() {
+        if (_devBlockBusy) return;
+        _devBlockBusy = true;
+        try { const r = await window.BiomassAPI.deviceCheck(); if (r.lock && !r.verified) routeSession(); } finally { _devBlockBusy = false; }
     });
 
     // Handle Login Submit
@@ -4381,7 +4389,7 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             const res = await actFetch();
             chg.innerHTML = actState.rows.map(l => `<tr><td style="font-family:monospace; font-size:0.82rem; color:#ef4444; white-space:nowrap;">${esc(l.timestamp)}</td><td>${esc(l.username)}</td><td><strong style="color:#ef4444;">${esc(l.action.replace('SUPERADMIN_', ''))}</strong></td>` +
-                `<td style="font-size:0.85rem;">${esc(l.details)}</td><td style="font-family:monospace; font-size:0.8rem;">${esc(l.ip || '-')}${l.device ? `<br><span style="font-family:inherit; color:#94a3b8; font-size:0.7rem;">${esc(String(l.device).slice(0, 90))}</span>` : ''}</td><td>${actReview(l, false)}</td></tr>`).join('')
+                `<td style="font-size:0.85rem;">${esc(l.details)}</td><td style="font-family:monospace; font-size:0.8rem;">${esc(l.ip || '-')}${devTag(l)}${l.device ? `<br><span style="font-family:inherit; color:#94a3b8; font-size:0.7rem;">${esc(String(l.device).slice(0, 90))}</span>` : ''}</td><td>${actReview(l, false)}</td></tr>`).join('')
                 || '<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No changes for this selection.</td></tr>';
             // the lab results follow the same dates (and the search text)
             const r = await window.BiomassAPI.superLogs();
@@ -4397,10 +4405,11 @@ document.addEventListener('DOMContentLoaded', function() {
     let superAuditData = null;
 
     const ipUnknown = (log) => !!log.ip && log.ip !== 'unknown' && !log.ip_label;
+    const devTag = (log) => log.device_name ? `<br><span class="ip-tag known" style="margin-top:2px;" title="The registered computer this was done from">&#128421; ${esc(log.device_name)}</span>` : '';
     const ipCell = (log, red, noUnknownTag) => {
         const tag = (ipUnknown(log) && !noUnknownTag) ? '<span class="ip-tag unknown">⚠ UNKNOWN IP</span>' : (log.ip_label ? `<span class="ip-tag known">${esc(log.ip_label)}</span>` : '');
         return `${tag}<br><span style="font-family:monospace; font-size:0.78rem;${red ? ' color:#ef4444;' : ''}">${esc(log.ip || '-')}</span>` +
-               (log.device ? `<br><span style="color:#94a3b8; font-size:0.7rem;">${esc(String(log.device).slice(0, 80))}</span>` : '');
+               devTag(log) + (log.device ? `<br><span style="color:#94a3b8; font-size:0.7rem;">${esc(String(log.device).slice(0, 80))}</span>` : '');
     };
     async function renderActivityLogTab() {
         const cu = window.BiomassAPI.getCurrentUser();
@@ -7294,6 +7303,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    let sxTwoDays = null;
     function initSuperConsole() {
         if (sxWired) return;
         sxWired = true;
@@ -7301,7 +7311,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const q = sx$('super-q');
         const go = () => superSearch();
         sx$('btn-super-find').onclick = go;
-        sx$('btn-super-clear').onclick = () => { q.value = ''; sx$('super-from').value = ''; sx$('super-to').value = ''; sx$('sx-group-panel').style.display = 'none'; superSearch(); };
+        // by default only TODAY and YESTERDAY are listed; the date filter (or Clear -> change the dates) shows older days
+        const twoDays = () => { const t = window.BiomassAPI.todayIST(); return [window.BiomassAPI.addDaysYMD(t, -1), t]; };
+        sxTwoDays = twoDays;
+        { const [f0, t0] = twoDays(); if (!sx$('super-from').value) sx$('super-from').value = f0; if (!sx$('super-to').value) sx$('super-to').value = t0; sx$('super-to').max = t0; }
+        sx$('btn-super-clear').onclick = () => { const [f1, t1] = twoDays(); q.value = ''; sx$('super-from').value = f1; sx$('super-to').value = t1; sx$('sx-group-panel').style.display = 'none'; superSearch(); };
         q.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
         const setFilter = (e) => {
             const b = e.target.closest('button[data-f]'); if (!b) return;
@@ -7349,8 +7363,10 @@ document.addEventListener('DOMContentLoaded', function() {
         sx$('btn-sx-pw-set').onclick = superSetActionPassword;
         sx$('btn-sx-sec-refresh').onclick = renderSuperSecurity;
         sx$('btn-sx-mfa-required').onclick = superMfaSwitch;
-        sx$('btn-sx-dev-trust').onclick = superDeviceTrust;
-        sx$('btn-sx-dev-lock').onclick = superLockSwitch;
+        sx$('sx-sec-nav').onclick = (e) => { const b = e.target.closest('button[data-sec]'); if (b) secShowPane(b.dataset.sec); };
+        sx$('sx-sec-overview').onclick = (e) => { const g = e.target.closest('[data-go]'); if (g) secGo(g.dataset.go); };
+        sx$('sx-dev-sub').onclick = (e) => { const b = e.target.closest('button[data-sub]'); if (b) { sxSec.sub = b.dataset.sub; secRenderDevices(); } };
+        sx$('sx-dev-main').onclick = secDevClick;
         sx$('btn-sx-ips-refresh').onclick = renderSuperIps;
         sx$('btn-sx-range').onclick = async () => {
             const r = sx$('sx-range').value.trim(), n = sx$('sx-range-name').value.trim();
@@ -7396,7 +7412,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const q = sx$('super-q').value.trim();
             const res = await window.BiomassAPI.superFind(q, sx$('super-from').value, sx$('super-to').value);
             superState.samples = res.samples || []; superState.comps = res.composites || []; superState.q = q;
-            note.textContent = `${superState.samples.length} sample(s) and ${superState.comps.length} composite lot(s) found` + (superState.samples.length >= 200 ? ' (showing the newest 200 - narrow the search)' : '') + '.';
+            const dd = sxTwoDays ? sxTwoDays() : null, isDefault = !!dd && sx$('super-from').value === dd[0] && sx$('super-to').value === dd[1];
+            note.textContent = `${superState.samples.length} sample(s) and ${superState.comps.length} composite lot(s) found` + (superState.samples.length >= 200 ? ' (showing the newest 200 - narrow the search)' : '') + '.' +
+                (isDefault ? ' Showing today and yesterday only - change the From / To dates to see older days.' : '');
             sxRender();
             // a mixing code typed exactly: open the whole group at the top
             const U = q.toUpperCase();
@@ -7950,12 +7968,22 @@ document.addEventListener('DOMContentLoaded', function() {
             else if (t.kind === 'logins') act = `<button class="btn btn-primary btn-sm" data-tool="goto" data-tab="super-logins">👥 Open Logins</button>`;
             else if (t.kind === 'health') act = `<button class="btn btn-primary btn-sm" data-tool="goto" data-tab="super-health">🩺 Open Data health</button>`;
             else act = `<button class="btn btn-secondary btn-sm" data-tool="goto" data-tab="admin-activity">📜 Open the Audit log</button><button class="btn btn-secondary btn-sm" data-tool="export">⬇ Export audit log (Excel)</button>`;
-            return `<div class="sx-tool"><span class="sx-tool-n">${t.n}</span><h4>${t.icon} ${t.title}</h4>
+            return `<div class="sx-tool" data-n="${t.n}"><span class="sx-tool-n">${t.n}</span><h4>${t.icon} ${t.title}</h4>
                 <div class="lbl">Useful when</div><p>${t.use}</p>
                 <div class="lbl">How to use</div><ol>${t.how.map(h => `<li>${h}</li>`).join('')}</ol>
                 <p style="font-size:0.76rem; color:#94a3b8;">${t.note}</p>
                 <div class="sx-tool-act">${act}</div></div>`;
         }).join('');
+        // the vertical menu: one tool at a time (typed values are kept while you switch)
+        const groups = [['Fix a truck', [2, 3, 4, 6, 7]], ['Mixing & composites', [1, 5, 12, 11]], ['The console itself', [8, 9, 10]]];
+        const nav = sx$('sx-tools-nav'), cards = [...box.querySelectorAll('.sx-tool')];
+        const showTool = (n) => {
+            cards.forEach(c => c.classList.toggle('active', c.dataset.n === String(n)));
+            nav.querySelectorAll('button[data-tool-n]').forEach(b => b.classList.toggle('active', b.dataset.toolN === String(n)));
+        };
+        nav.innerHTML = groups.map(([g, ns]) => `<div class="sec-navhead">${esc(g)}</div>` + ns.map(n => { const t = SX_TOOLS.find(x => x.n === n); return `<button type="button" data-tool-n="${n}"><span><span class="sec-n">${n}</span>${t.icon} ${esc(t.title)}</span></button>`; }).join('')).join('');
+        nav.onclick = (e) => { const b = e.target.closest('button[data-tool-n]'); if (b) showTool(b.dataset.toolN); };
+        showTool(1);
         sxLoadCompanies().then(cs => { const dl = sx$('sxt-conv-list'); if (dl) dl.innerHTML = [...new Set(cs.filter(c => c.lot === 'LOT4').map(c => c.name))].map(n => `<option value="${esc(n)}">`).join(''); }).catch(() => { });
         box.onclick = async (e) => {
             const b = e.target.closest('button[data-tool]'); if (!b) return;
@@ -8028,23 +8056,16 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ---------- Data health ----------
+    // The vertical menu lists the findings of the last check (Overview first); one finding is shown at a time.
+    const sxHealth = { res: null, sel: 'overview' };
     async function renderSuperHealth() {
-        const box = sx$('sx-health-body');
-        box.innerHTML = '<div class="sx-loading">Checking...</div>';
+        const box = sx$('sx-health-body'), nav = sx$('sx-health-nav');
+        box.innerHTML = '<div class="sx-loading">Checking...</div>'; nav.innerHTML = '';
         try {
-            const res = await window.BiomassAPI.superHealth();
-            const issues = res.issues || [];
-            if (!issues.length) { box.innerHTML = `<div class="sx-ok-banner">✅ Nothing to worry about. Checked ${esc(res.checked_at || '')}.</div>`; return; }
-            box.innerHTML = `<div class="sx-note" style="margin-bottom:0.6rem;">${issues.length} finding(s) &middot; checked ${esc(res.checked_at || '')}</div>` + issues.map((is, k) => `
-                <div class="sx-issue ${is.severity === 'INFO' ? 'info' : ''}">
-                    <div style="display:flex; justify-content:space-between; gap:0.6rem; flex-wrap:wrap;"><h4>${is.severity === 'INFO' ? 'ℹ️' : '⚠️'} ${esc(is.title)} <span class="sx-pill sx-pen">${(is.items || []).length}</span></h4>
-                        ${is.fix ? `<button class="btn btn-primary btn-sm" data-fix="${esc(is.fix)}" data-k="${k}">🛠 Fix</button>` : ''}</div>
-                    <div class="sx-note" style="margin:0 0 0.4rem;">${esc(is.help || '')}</div>
-                    ${(is.items || []).slice(0, 40).map(it => `<div class="sx-item"><span>${it.date ? esc(dmy(it.date)) + ' &middot; ' : ''}${it.code ? `<span class="sx-code">${esc(it.code)}</span> ` : ''}${esc(it.detail)}</span>
-                        <button class="btn btn-secondary btn-sm" data-open="${esc(it.code || String(it.detail).split(' ')[0])}" data-date="${esc(it.date || '')}">🔍 Open</button></div>`).join('')}
-                    ${(is.items || []).length > 40 ? `<div class="sx-note">… and ${(is.items || []).length - 40} more</div>` : ''}
-                </div>`).join('');
+            sxHealth.res = await window.BiomassAPI.superHealth();
+            nav.onclick = (e) => { const b = e.target.closest('button[data-hk]'); if (b) { sxHealth.sel = b.dataset.hk; sxHealthShow(); } };
             box.onclick = (e) => {
+                const g = e.target.closest('[data-hk-go]'); if (g) { sxHealth.sel = g.dataset.hkGo; sxHealthShow(); return; }
                 const o = e.target.closest('button[data-open]');
                 if (o) { sxGoTab('super-inspector'); sx$('super-q').value = o.dataset.open; sx$('super-from').value = o.dataset.date; sx$('super-to').value = o.dataset.date; superSearch(); return; }
                 const f = e.target.closest('button[data-fix]');
@@ -8053,9 +8074,32 @@ document.addEventListener('DOMContentLoaded', function() {
                     alert(`${r.fixed} record(s) fixed.`);
                 }, { saveLabel: 'Fix it', after: renderSuperHealth });
             };
+            sxHealthShow();
         } catch (e) {
             box.innerHTML = `<div style="color:#ef4444;">${esc(e.message)}</div>`;
         }
+    }
+    function sxHealthShow() {
+        const res = sxHealth.res, box = sx$('sx-health-body'), nav = sx$('sx-health-nav'), issues = res.issues || [];
+        if (sxHealth.sel !== 'overview' && !issues[Number(sxHealth.sel)]) sxHealth.sel = 'overview';
+        const sel = sxHealth.sel;
+        nav.innerHTML = `<button type="button" data-hk="overview" class="${sel === 'overview' ? 'active' : ''}"><span>&#128202; Overview</span><small>${issues.length ? issues.length + ' finding(s)' : 'all clear'}</small></button>` +
+            issues.map((is, k) => `<button type="button" data-hk="${k}" class="${String(k) === sel ? 'active' : ''}"><span>${is.severity === 'INFO' ? '&#8505;&#65039;' : '&#9888;&#65039;'} ${esc(is.title)}</span><small>${(is.items || []).length} item(s)</small></button>`).join('');
+        if (sel === 'overview') {
+            box.innerHTML = !issues.length ? `<div class="sx-ok-banner">✅ Nothing to worry about. Checked ${esc(res.checked_at || '')}.</div>` :
+                `<div class="sx-note" style="margin-bottom:0.6rem;">${issues.length} finding(s) &middot; checked ${esc(res.checked_at || '')} &middot; pick one on the left, or click it here</div>` +
+                issues.map((is, k) => `<div class="sx-issue ${is.severity === 'INFO' ? 'info' : ''}" data-hk-go="${k}" style="cursor:pointer;"><h4>${is.severity === 'INFO' ? 'ℹ️' : '⚠️'} ${esc(is.title)} <span class="sx-pill sx-pen">${(is.items || []).length}</span></h4><div class="sx-note" style="margin:0;">${esc(is.help || '')}</div></div>`).join('');
+            return;
+        }
+        const is = issues[Number(sel)], k = Number(sel);
+        box.innerHTML = `<div class="sx-note" style="margin-bottom:0.6rem;">checked ${esc(res.checked_at || '')}</div><div class="sx-issue ${is.severity === 'INFO' ? 'info' : ''}">
+            <div style="display:flex; justify-content:space-between; gap:0.6rem; flex-wrap:wrap;"><h4>${is.severity === 'INFO' ? 'ℹ️' : '⚠️'} ${esc(is.title)} <span class="sx-pill sx-pen">${(is.items || []).length}</span></h4>
+                ${is.fix ? `<button class="btn btn-primary btn-sm" data-fix="${esc(is.fix)}" data-k="${k}">🛠 Fix</button>` : ''}</div>
+            <div class="sx-note" style="margin:0 0 0.4rem;">${esc(is.help || '')}</div>
+            ${(is.items || []).slice(0, 40).map(it => `<div class="sx-item"><span>${it.date ? esc(dmy(it.date)) + ' &middot; ' : ''}${it.code ? `<span class="sx-code">${esc(it.code)}</span> ` : ''}${esc(it.detail)}</span>
+                <button class="btn btn-secondary btn-sm" data-open="${esc(it.code || String(it.detail).split(' ')[0])}" data-date="${esc(it.date || '')}">🔍 Open</button></div>`).join('')}
+            ${(is.items || []).length > 40 ? `<div class="sx-note">… and ${(is.items || []).length - 40} more</div>` : ''}
+        </div>`;
     }
 
     // ---------- Logins ----------
@@ -8103,7 +8147,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ---------- Security: second step (authenticator app) and trusted computers ----------
-    const sxSec = { mfaRequired: false, lock: false, thisStatus: null, aal: 'aal1' };
+    const sxSec = { mfaRequired: false, lock: false, thisStatus: null, aal: 'aal1', pane: 'overview', sub: 'overview', mfa: null, dev: null };
 
     // The person's own authenticator-app card (Admin: Settings tab, Super Admin: Security tab)
     async function renderMfaBox(box) {
@@ -8145,46 +8189,188 @@ document.addEventListener('DOMContentLoaded', function() {
                     };
                 } catch (e) { setup.innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; btn.disabled = false; }
             };
-        } catch (e) { box.innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; }
+        } catch (e) {
+            if (e.code === 'session_not_found' || /session_id/i.test(e.message || '')) {
+                // Supabase has ended this sign-in in the background (signed in elsewhere, signed out, or the session timed out); the app's own checks still pass until the access token runs out
+                box.innerHTML = '<div style="color:#f59e0b;">This sign-in has been ended by the server (usually because the same login was used on another device, or it timed out).</div><div style="margin-top:0.6rem;"><button type="button" class="btn btn-primary btn-sm" id="mfa-resign">Sign out and sign in again</button></div>';
+                box.querySelector('#mfa-resign').onclick = () => { window.BiomassAPI.logout(); routeSession(); };
+                return;
+            }
+            box.innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`;
+        }
     }
 
     async function renderSuperSecurity() {
         renderMfaBox(sx$('sx-mfa-mine'));
         try {
-            const o = await window.BiomassAPI.superMfaOverview();
-            sxSec.mfaRequired = !!o.required; sxSec.aal = o.aal;
-            sx$('sx-mfa-people').innerHTML = '<table style="min-width:0; font-size:0.88rem;"><thead><tr><th>Login</th><th>Name</th><th>Role</th><th>Authenticator app</th><th></th></tr></thead><tbody>' +
-                o.people.map(x => `<tr><td><b>${esc(x.username)}</b></td><td>${esc(x.name)}</td><td>${esc(x.role)}</td><td>${x.exempt ? '<span class="mixr-pill info">machine login &ndash; password only</span>' : (x.enrolled ? '<span class="mixr-pill ok">set up</span>' : '<span class="mixr-pill wait">not yet</span>')}</td>` +
-                    `<td>${x.role === 'admin' ? `<button type="button" class="btn btn-secondary btn-sm" data-mx="${esc(x.username)}" data-on="${x.exempt ? 0 : 1}">${x.exempt ? 'Needs the code again' : 'Machine login (no code)'}</button>` : ''}</td></tr>`).join('') + '</tbody></table>';
-            sx$('sx-mfa-people').onclick = (e) => {
-                const b = e.target.closest('button[data-mx]'); if (!b) return;
-                const who = b.dataset.mx, on = b.dataset.on === '1';
-                openSuperEdit(on ? 'Machine login: ' + who : who + ' needs the code again',
-                    on ? '<b>Only for a login that no person types into</b> &ndash; for example the daily-backup tool. This login will work with its password alone even when the second step is required, so give it a long random password and keep it only on the backup computer. Never do this for a login a person uses.' : 'This login will need the 6-digit code like the others (the backup tool would stop working until it is exempted again or enrols an authenticator).',
-                    [], async (v, why) => { await window.BiomassAPI.superMfaExempt(who, on, why); }, { saveLabel: on ? 'Make it a machine login' : 'Require the code', danger: !on, after: renderSuperSecurity });
-            };
-            sx$('sx-mfa-required').innerHTML = o.required ? '✅ The second step is <b>REQUIRED</b>: the Admin and Super Admin can do nothing without the code.' : 'The second step is <b>not required yet</b> (everyone who has set the app up is still asked for the code at sign-in).';
-            sx$('btn-sx-mfa-required').textContent = o.required ? 'Switch the second step OFF…' : 'Switch the second step ON for the Admin and Super Admin logins…';
-        } catch (e) { sx$('sx-mfa-people').innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; }
+            sxSec.mfa = await window.BiomassAPI.superMfaOverview();
+            sxSec.mfaRequired = !!sxSec.mfa.required; sxSec.aal = sxSec.mfa.aal;
+            secRenderMfaPeople();
+        } catch (e) { sxSec.mfa = null; sx$('sx-mfa-people').innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; }
         try {
-            const d = await window.BiomassAPI.deviceList();
-            sxSec.lock = !!d.lock;
-            const me = d.devices.find(x => x.this_device);
+            sxSec.dev = await window.BiomassAPI.deviceList();
+            sxSec.lock = !!sxSec.dev.lock;
+            const me = sxSec.dev.devices.find(x => x.this_device);
             sxSec.thisStatus = me ? me.status : null;
-            sx$('sx-dev-state').innerHTML = `Lock: <b style="color:${d.lock ? '#34d399' : '#fbbf24'};">${d.lock ? 'ON' : 'OFF'}</b> &middot; this computer: <b>${me ? esc(me.status) + ' (' + esc(me.name) + ')' : 'not trusted yet'}</b> &middot; this session: <b>${d.session_verified ? 'verified' : 'not verified'}</b>`;
-            sx$('btn-sx-dev-lock').textContent = d.lock ? 'Switch the lock OFF…' : 'Switch the lock ON…';
-            sx$('btn-sx-dev-trust').style.display = me && me.status === 'TRUSTED' ? 'none' : '';
-            sx$('sx-dev-body').innerHTML = d.devices.map(x => `<tr><td><b>${esc(x.name)}</b>${x.this_device ? ' <span class="mixr-pill info">this computer</span>' : ''}</td><td>${x.status === 'TRUSTED' ? '<span class="mixr-pill ok">TRUSTED</span>' : (x.status === 'PENDING' ? '<span class="mixr-pill wait">WAITING FOR APPROVAL</span>' : '<span class="mixr-pill bad">REVOKED</span>')}</td>` +
-                `<td>${esc(x.requested_at)}${x.approved_by ? '<br><small style="color:#94a3b8;">by ' + esc(x.approved_by) + '</small>' : ''}</td><td>${esc(x.last_seen || '-')}</td>` +
-                `<td>${x.status !== 'TRUSTED' ? `<button type="button" class="btn btn-primary btn-sm" data-dev="${x.id}" data-act="approve">Approve</button> ` : ''}${x.status !== 'REVOKED' && !x.this_device ? `<button type="button" class="btn btn-secondary btn-sm" data-dev="${x.id}" data-act="revoke" style="border-color:#ef4444; color:#fca5a5;">Revoke</button>` : ''}</td></tr>`).join('') ||
-                '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No computer has been trusted yet.</td></tr>';
-            sx$('sx-dev-body').onclick = (e) => {
-                const b = e.target.closest('button[data-dev]'); if (!b) return;
-                const act = b.dataset.act, id = Number(b.dataset.dev), dv = d.devices.find(x => x.id === id);
-                openSuperEdit((act === 'approve' ? 'Approve ' : 'Revoke ') + dv.name, act === 'approve' ? 'This computer will be able to sign in as the Super Admin when the lock is ON.' : 'This computer can no longer sign in as the Super Admin (its open session stops at once).',
-                    [], async (v, why) => { await window.BiomassAPI.deviceDecide(id, act, why); }, { saveLabel: act === 'approve' ? 'Approve' : 'Revoke', danger: act !== 'approve', after: renderSuperSecurity });
-            };
-        } catch (e) { sx$('sx-dev-state').innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; }
+            secRenderDevices();
+        } catch (e) { sxSec.dev = null; sx$('sx-dev-main').innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; }
+        secRenderOverview();
+        secShowPane(sxSec.pane);
+    }
+
+    // ---- the vertical feature tabs ----
+    function secShowPane(p) {
+        sxSec.pane = p;
+        sx$('sx-sec-nav').querySelectorAll('button[data-sec]').forEach(b => b.classList.toggle('active', b.dataset.sec === p));
+        document.querySelectorAll('#tab-super-security .sec-pane').forEach(x => x.classList.toggle('active', x.id === 'sec-pane-' + p));
+    }
+    // 'mfa' | 'devices' | 'devices:<login>' | 'help'
+    function secGo(target) {
+        const [pane, sub] = String(target).split(':');
+        if (pane === 'devices') { sxSec.sub = sub || 'overview'; secRenderDevices(); }
+        secShowPane(pane);
+    }
+
+    function secRenderOverview() {
+        const m = sxSec.mfa, d = sxSec.dev, box = sx$('sx-sec-overview');
+        if (!m || !d) { box.innerHTML = '<p style="color:var(--text-muted);">Loading... (or press Refresh)</p>'; return; }
+        const people = m.people || [], setUp = people.filter(x => x.enrolled || x.exempt).length;
+        const staff = d.logins.filter(x => x.role !== 'superadmin' && !x.exempt), lockedN = staff.filter(x => x.lock).length;
+        const waiting = d.devices.filter(x => x.status === 'PENDING').length;
+        const meOk = d.devices.some(x => x.mine && x.status === 'TRUSTED');
+        const tile = (label, val, ok, go) => `<button type="button" class="sec-tile ${ok ? 'ok' : 'warn'}" data-go="${go}"><small>${label}</small><b>${val}</b></button>`;
+        const chk = (ok, text, go) => `<li data-go="${go}"><span>${ok ? '&#9989;' : '&#11036;'}</span><span>${text}</span></li>`;
+        box.innerHTML = '<div class="sec-tiles">' +
+            tile('Second step (authenticator)', m.required ? 'REQUIRED' : 'not required', m.required, 'mfa') +
+            tile('Super Admin computer lock', d.lock ? 'ON' : 'OFF', d.lock, 'devices:superadmin') +
+            tile('Other logins locked', `${lockedN} of ${staff.length}`, staff.length > 0 && lockedN === staff.length, 'devices') +
+            tile('Computers waiting for approval', String(waiting), waiting === 0, 'devices') + '</div>' +
+            '<h4 style="margin:0 0 0.3rem;">Checklist (click a line to go there)</h4><ul class="sec-check">' +
+            chk(setUp === people.length, 'Every Admin / Super Admin login has set up the authenticator app (or is a machine login)', 'mfa') +
+            chk(m.required, 'The second step is required', 'mfa') +
+            chk(meOk, 'Your own computer is trusted', 'devices:superadmin') +
+            chk(d.lock, 'The Super Admin lock is ON', 'devices:superadmin') +
+            chk(staff.every(x => x.trusted > 0), 'Every other login has at least one approved computer', 'devices') +
+            chk(staff.length > 0 && lockedN === staff.length, 'Every other login is locked to its approved computers', 'devices') + '</ul>';
+        const badge = sx$('sx-sec-badge'); badge.textContent = String(waiting); badge.style.display = waiting ? 'inline-block' : 'none';
+    }
+
+    function secRenderMfaPeople() {
+        const o = sxSec.mfa;
+        sx$('sx-mfa-people').innerHTML = '<div class="table-responsive"><table style="min-width:0; font-size:0.88rem;"><thead><tr><th>Login</th><th>Name</th><th>Role</th><th>Authenticator app</th><th></th></tr></thead><tbody>' +
+            o.people.map(x => `<tr><td><b>${esc(x.username)}</b></td><td>${esc(x.name)}</td><td>${esc(x.role)}</td><td>${x.exempt ? '<span class="mixr-pill info">machine login &ndash; password only</span>' : (x.enrolled ? '<span class="mixr-pill ok">set up</span>' : '<span class="mixr-pill wait">not yet</span>')}</td>` +
+                `<td>${x.role === 'admin' ? `<button type="button" class="btn btn-secondary btn-sm" data-mx="${esc(x.username)}" data-on="${x.exempt ? 0 : 1}">${x.exempt ? 'Needs the code again' : 'Machine login (no code)'}</button>` : ''}</td></tr>`).join('') + '</tbody></table></div>';
+        sx$('sx-mfa-people').onclick = (e) => {
+            const b = e.target.closest('button[data-mx]'); if (!b) return;
+            const who = b.dataset.mx, on = b.dataset.on === '1';
+            openSuperEdit(on ? 'Machine login: ' + who : who + ' needs the code again',
+                on ? '<b>Only for a login that no person types into</b> &ndash; for example the daily-backup tool. This login will work with its password alone even when the second step is required, and it is never held back by a computer lock, so give it a long random password and keep it only on the backup computer. Never do this for a login a person uses.' : 'This login will need the 6-digit code like the others (the backup tool would stop working until it is exempted again or enrols an authenticator).',
+                [], async (v, why) => { await window.BiomassAPI.superMfaExempt(who, on, why); }, { saveLabel: on ? 'Make it a machine login' : 'Require the code', danger: !on, after: renderSuperSecurity });
+        };
+        sx$('sx-mfa-required').innerHTML = o.required ? '&#9989; The second step is <b>REQUIRED</b>: the Admin and Super Admin can do nothing without the code.' : 'The second step is <b>not required yet</b> (everyone who has set the app up is still asked for the code at sign-in).';
+        sx$('btn-sx-mfa-required').textContent = o.required ? 'Switch the second step OFF…' : 'Switch the second step ON for the Admin and Super Admin logins…';
+    }
+
+    // ---- Registered computers: an Overview tab and one tab per login ----
+    const secLockPill = (x) => x.exempt ? '<span class="mixr-pill info">machine login &ndash; never locked</span>' : (x.lock ? '<span class="mixr-pill ok">LOCKED to approved computers</span>' : '<span class="mixr-pill wait">not locked</span>');
+    const secCount = (x) => `${x.trusted} approved${x.pending ? ` &middot; <b style="color:#fbbf24;">${x.pending} waiting</b>` : ''}`;
+    function secDevRows(list, showLogin) {
+        const cols = showLogin ? 6 : 5;
+        return '<div class="table-responsive"><table style="min-width:0; font-size:0.88rem;"><thead><tr>' + (showLogin ? '<th>Login</th>' : '') + '<th>Computer</th><th>Status</th><th>Where</th><th>Last seen</th><th></th></tr></thead><tbody>' +
+            (list.map(x => {
+                const pill = x.status === 'TRUSTED' ? '<span class="mixr-pill ok">APPROVED</span>' : (x.status === 'PENDING' ? '<span class="mixr-pill wait">WAITING FOR APPROVAL</span>' : '<span class="mixr-pill bad">REVOKED</span>');
+                const where = `${x.ip_label ? '<span class="ip-tag known">' + esc(x.ip_label) + '</span><br>' : ''}<small style="font-family:monospace; color:#94a3b8;">${esc(x.last_ip || '-')}</small>${x.agent ? '<br><small style="color:#94a3b8; font-size:0.7rem; overflow-wrap:anywhere;">' + esc(String(x.agent).slice(0, 70)) + '</small>' : ''}`;
+                const acts = `${x.status !== 'TRUSTED' ? `<button type="button" class="btn btn-primary btn-sm" data-dev="${x.id}" data-act="approve">Approve</button> ` : ''}` +
+                    `${x.status === 'TRUSTED' && !x.this_device ? `<button type="button" class="btn btn-secondary btn-sm" data-dev="${x.id}" data-act="revoke" style="border-color:#ef4444; color:#fca5a5;">Revoke</button> ` : ''}` +
+                    `${!x.this_device && x.status !== 'TRUSTED' ? `<button type="button" class="btn btn-secondary btn-sm" data-dev="${x.id}" data-act="remove">Remove</button> ` : ''}` +
+                    `<button type="button" class="btn btn-secondary btn-sm" data-dev="${x.id}" data-act="activity">What it did</button>`;
+                return `<tr>${showLogin ? `<td><b>${esc(x.username)}</b><br><small style="color:#94a3b8;">${esc(x.role)}</small></td>` : ''}<td><b>${esc(x.name)}</b>${x.this_device ? ' <span class="mixr-pill info">this computer</span>' : ''}</td><td>${pill}${x.approved_by ? '<br><small style="color:#94a3b8;">by ' + esc(x.approved_by) + '</small>' : ''}</td>` +
+                    `<td>${where}</td><td>${esc(x.last_seen || '-')}<br><small style="color:#94a3b8;">asked ${esc(x.requested_at)}</small></td><td>${acts}</td></tr>`;
+            }).join('') || `<tr><td colspan="${cols}" style="text-align:center; color:var(--text-muted);">Nothing here.</td></tr>`) + '</tbody></table></div>';
+    }
+
+    function secRenderDevices() {
+        const d = sxSec.dev; if (!d) return;
+        if (sxSec.sub !== 'overview' && !d.logins.some(x => x.username === sxSec.sub)) sxSec.sub = 'overview';
+        const waiting = d.devices.filter(x => x.status === 'PENDING').length, badge = (n) => n ? ` <span class="sec-badge">${n}</span>` : '';
+        sx$('sx-dev-sub').innerHTML = `<button type="button" data-sub="overview" class="${sxSec.sub === 'overview' ? 'active' : ''}">&#128202; Overview${badge(waiting)}</button>` +
+            d.logins.map(x => `<button type="button" data-sub="${esc(x.username)}" class="${sxSec.sub === x.username ? 'active' : ''}">${x.lock && !x.exempt ? '&#128274; ' : ''}${esc(x.username)}${badge(x.pending)}</button>`).join('');
+        const main = sx$('sx-dev-main');
+        if (sxSec.sub === 'overview') {
+            const pend = d.devices.filter(x => x.status === 'PENDING');
+            main.innerHTML = '<h4 style="margin:0 0 0.4rem;">Logins</h4><div class="table-responsive"><table style="min-width:0; font-size:0.88rem;"><thead><tr><th>Login</th><th>Role</th><th>Lock</th><th>Computers</th><th></th></tr></thead><tbody>' +
+                d.logins.map(x => `<tr><td><b>${esc(x.username)}</b><br><small style="color:#94a3b8;">${esc(x.name)}</small></td><td>${esc(x.role)}</td><td>${secLockPill(x)}</td><td>${secCount(x)}</td><td><button type="button" class="btn btn-secondary btn-sm" data-sec-act="goto" data-to="${esc(x.username)}">Open &rarr;</button></td></tr>`).join('') + '</tbody></table></div>' +
+                '<div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin:0.7rem 0 1.3rem;"><button type="button" class="btn btn-primary" data-sec-act="lockall-on">Lock every login that has an approved computer&hellip;</button><button type="button" class="btn btn-secondary" data-sec-act="lockall-off">Unlock every login&hellip;</button></div>' +
+                `<h4 style="margin:0 0 0.4rem;">Waiting for approval (${pend.length})</h4>` + (pend.length ? secDevRows(pend, true) : '<p style="color:var(--text-muted); font-size:0.9rem;">No computer is waiting. A new computer appears here the first time a login is used on it.</p>') +
+                '<div id="sx-dev-act" style="display:none;"></div>';
+            return;
+        }
+        const x = d.logins.find(v => v.username === sxSec.sub), isS = x.role === 'superadmin', mine = d.devices.find(v => v.this_device);
+        const btns = isS ? `${mine && mine.status === 'TRUSTED' ? '' : '<button type="button" class="btn btn-primary" data-sec-act="trust">&#128274; Trust this computer&hellip;</button> '}<button type="button" class="btn btn-secondary" data-sec-act="superlock">${d.lock ? 'Switch the lock OFF…' : 'Switch the lock ON…'}</button>`
+            : (x.exempt ? '' : `<button type="button" class="btn ${x.lock ? 'btn-secondary' : 'btn-primary'}" data-lg="${esc(x.username)}" data-on="${x.lock ? 0 : 1}">${x.lock ? 'Unlock this login…' : 'Lock this login to approved computers…'}</button>`);
+        main.innerHTML = `<div class="sec-loginhead"><div><h3>${esc(x.username)}</h3><small style="color:#94a3b8;">${esc(x.name)} &middot; ${esc(x.role)}</small></div><div>${secLockPill(x)}<br><small>${secCount(x)}</small></div><div style="display:flex; gap:0.5rem; flex-wrap:wrap;">${btns}</div></div>` +
+            (isS ? `<p style="font-size:0.88rem; margin:0 0 0.8rem;">This computer: <b>${mine ? esc(mine.status) + ' (' + esc(mine.name) + ')' : 'not trusted yet'}</b> &middot; this session: <b>${d.session_verified ? 'verified' : 'not verified'}</b></p>` : '') +
+            (x.exempt ? '<p style="font-size:0.88rem; color:#94a3b8;">A machine login (for example the backup tool) is never held back by a computer lock.</p>' : '') +
+            secDevRows(d.devices.filter(v => v.username === x.username), false) + '<div id="sx-dev-act" style="display:none;"></div>';
+    }
+
+    function secDevClick(e) {
+        const t = e.target.closest('button'); if (!t) return;
+        const d = sxSec.dev;
+        if (t.dataset.secAct) {
+            const a = t.dataset.secAct;
+            if (a === 'goto') { sxSec.sub = t.dataset.to; secRenderDevices(); }
+            else if (a === 'trust') superDeviceTrust();
+            else if (a === 'superlock') superLockSwitch();
+            else if (a === 'lockall-on') superLoginLockAll(true);
+            else if (a === 'lockall-off') superLoginLockAll(false);
+            return;
+        }
+        if (t.dataset.lg) {
+            const u = t.dataset.lg, on = t.dataset.on === '1';
+            openSuperEdit(on ? 'Lock ' + u + ' to approved computers' : 'Unlock ' + u,
+                on ? 'From now on the login <b>' + esc(u) + '</b> works only on a computer you have approved (anyone else with its password is stopped at the &ldquo;not approved&rdquo; screen). Refused if the login has no approved computer yet.' : 'The login <b>' + esc(u) + '</b> works from any computer again.',
+                [], async (v, why) => { await window.BiomassAPI.loginLock(u, on, why); }, { saveLabel: on ? 'Lock' : 'Unlock', danger: !on, after: renderSuperSecurity });
+            return;
+        }
+        if (t.dataset.dev) {
+            const act = t.dataset.act, id = Number(t.dataset.dev), dv = d.devices.find(x => x.id === id);
+            if (!dv) return;
+            if (act === 'activity') { superDeviceActivity(dv); return; }
+            if (act === 'approve') {
+                openSuperEdit('Approve a computer for ' + dv.username, 'The login <b>' + esc(dv.username) + '</b> will be able to work on <b>' + esc(dv.name) + '</b> (last seen from ' + esc(dv.ip_label || dv.last_ip || 'an unknown address') + '). Check that it really is your computer. Give it a name you will recognise.',
+                    [{ id: 'name', label: 'Name of this computer', type: 'text', value: dv.name, hint: '(e.g. Weighbridge tablet 2)' }],
+                    async (v, why) => { await window.BiomassAPI.deviceDecide(id, 'approve', why, v.name); }, { saveLabel: 'Approve', danger: false, after: renderSuperSecurity });
+            } else {
+                const rem = act === 'remove';
+                openSuperEdit((rem ? 'Remove ' : 'Revoke ') + dv.name, rem ? 'The computer is taken off the list (it can ask again the next time the login is used on it).' : 'The login <b>' + esc(dv.username) + '</b> can no longer work on this computer (its open session stops at once).',
+                    [], async (v, why) => { await window.BiomassAPI.deviceDecide(id, act, why); }, { saveLabel: rem ? 'Remove' : 'Revoke', danger: true, after: renderSuperSecurity });
+            }
+        }
+    }
+
+    // what did this computer do? (the log lines written while it was the verified computer of a session)
+    async function superDeviceActivity(dv) {
+        const box = sx$('sx-dev-act');
+        box.style.display = 'block'; box.innerHTML = '<p>Loading...</p>';
+        try {
+            const r = await window.BiomassAPI.deviceActivity(dv.id);
+            box.innerHTML = `<div style="display:flex; justify-content:space-between; gap:0.5rem; align-items:center; margin:0.8rem 0 0.4rem;"><h4 style="margin:0;">What &ldquo;${esc(r.name)}&rdquo; did (${esc(r.username)}) &ndash; ${r.rows.length} of ${esc(r.total)} line(s)</h4><button type="button" class="btn btn-secondary btn-sm" id="btn-sx-dev-act-close">Close</button></div>` +
+                '<div class="table-responsive"><table style="min-width:0; font-size:0.85rem;"><thead><tr><th>Time</th><th>Action</th><th>Details</th><th>Place</th></tr></thead><tbody>' +
+                (r.rows.map(l => `<tr><td style="white-space:nowrap; font-family:monospace;">${esc(l.timestamp)}</td><td><b>${esc(l.action)}</b></td><td>${esc(l.details)}</td><td>${l.ip_label ? '<span class="ip-tag known">' + esc(l.ip_label) + '</span><br>' : ''}<small style="font-family:monospace; color:#94a3b8;">${esc(l.ip || '-')}</small></td></tr>`).join('') ||
+                '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">Nothing was done on this computer yet (only the sign-ins made while it was approved are attributed to it).</td></tr>') + '</tbody></table></div>';
+            sx$('btn-sx-dev-act-close').onclick = () => { box.style.display = 'none'; };
+            box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } catch (e) { box.innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; }
+    }
+
+    function superLoginLockAll(on) {
+        openSuperEdit(on ? 'Lock every login that has an approved computer' : 'Unlock every login',
+            on ? 'Every login (except the Super Admin and the machine login) that already has an approved computer is locked to its approved computers. Logins without one are left alone and named afterwards.' : 'Every login (except the Super Admin) works from any computer again.',
+            [], async (v, why) => {
+                const r = await window.BiomassAPI.loginLockAll(on, why);
+                setTimeout(() => alert(on ? `Locked ${r.changed} login(s).` + (r.skipped ? `\n\nStill without an approved computer (left unlocked): ${r.skipped}` : '') : `Unlocked ${r.changed} login(s).`), 150);
+            }, { saveLabel: on ? 'Lock them' : 'Unlock them', danger: !on, after: renderSuperSecurity });
     }
 
     function superMfaSwitch() {
@@ -8205,19 +8391,22 @@ document.addEventListener('DOMContentLoaded', function() {
             [], async (v, why) => { await window.BiomassAPI.lockSet(on, why); }, { saveLabel: on ? 'Switch ON' : 'Switch OFF', danger: !on, after: renderSuperSecurity });
     }
 
-    // The Super Admin signed in from a computer that is not trusted (lock ON): nothing else is shown until a trusted computer approves it
+    // A login whose lock is ON was used from a computer that is not approved: nothing else is shown until the Super Admin approves it
     function showDeviceBlock(dev) {
         const m = document.getElementById('device-block-modal'), txt = document.getElementById('device-block-text'), ask = document.getElementById('device-block-ask'), msg = document.getElementById('device-block-msg');
         const ask_btn = document.getElementById('btn-device-ask');
-        const st = dev && dev.status;
+        const cu = window.BiomassAPI.getCurrentUser(), isSuper = !!(cu && cu.is_super);
+        const st = dev && dev.status, nm = dev && dev.name ? ' (<b>' + esc(dev.name) + '</b>)' : '';
         msg.textContent = '';
-        txt.innerHTML = st === 'PENDING' ? 'Your request is <b>waiting for approval</b>. Sign in from a trusted computer, open <b>Security</b> and press <b>Approve</b>; then press <b>Check again</b> here.'
-            : (st === 'REVOKED' ? 'This computer was <b>removed</b> from the trusted list. Use a trusted computer.' :
+        txt.innerHTML = st === 'PENDING' ? (isSuper ? 'Your request is <b>waiting for approval</b>. Sign in from a trusted computer, open <b>Security</b> and press <b>Approve</b>; then press <b>Check again</b> here.'
+                : 'This computer' + nm + ' is <b>waiting for approval</b>. Tell the Super Admin: they approve it in <b>Security</b>. Then press <b>Check again</b>.')
+            : (st === 'REVOKED' ? 'This computer was <b>removed</b> from the approved list. Use an approved computer.' :
                (st === 'ERROR' ? 'The computer could not be checked (connection problem?). Press <b>Check again</b>.' :
-                'The Super Admin lock is <b>ON</b> and this computer has not been approved. Give it a name and ask for approval, then approve it from your trusted computer (Security tab) and press <b>Check again</b>.'));
+                (isSuper ? 'The Super Admin lock is <b>ON</b> and this computer has not been approved. Give it a name and ask for approval, then approve it from your trusted computer (Security tab) and press <b>Check again</b>.'
+                    : 'This login works only on computers the Super Admin has approved, and this one has not been. Give it a name and ask for approval; the Super Admin approves it in <b>Security</b>. Then press <b>Check again</b>.')));
         ask.style.display = ask_btn.style.display = (st === 'UNKNOWN' || st === 'NONE') ? '' : 'none';
         m.style.display = 'flex';
-        document.getElementById('btn-device-signout').onclick = () => { window.BiomassAPI.logout(); m.style.display = 'none'; routeSession(); };
+        document.getElementById('btn-device-signout').onclick = () => { m.style.display = 'none'; hardSignOut(); };
         document.getElementById('btn-device-check').onclick = async () => {
             msg.style.color = ''; msg.textContent = 'Checking...';
             const r = await window.BiomassAPI.deviceCheck();
@@ -8227,7 +8416,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const name = document.getElementById('device-block-name').value.trim();
             if (name.length < 2) { msg.style.color = '#ef4444'; msg.textContent = 'Give this computer a name.'; return; }
             try { await window.BiomassAPI.deviceRequest(name); } catch (e) { msg.style.color = '#ef4444'; msg.textContent = e.message; return; }
-            showDeviceBlock({ status: 'PENDING', lock: true });
+            showDeviceBlock({ status: 'PENDING', lock: true, name: name });
         };
     }
 
@@ -8276,7 +8465,7 @@ document.addEventListener('DOMContentLoaded', function() {
             body.innerHTML = lines.map(l => {
                 const unk = ipUnknown(l);
                 return `<tr class="${unk ? 'ip-unknown' : ''}"><td style="font-family:monospace; font-size:0.82rem; white-space:nowrap;">${esc(l.timestamp)}</td>
-                    <td>${unk ? '<span class="ip-tag unknown">⚠ UNKNOWN</span>' : `<span class="ip-tag known">${esc(l.ip_label || '-')}</span>`}<br><small style="font-family:monospace; color:#94a3b8;">${esc(l.ip || '-')}</small></td>
+                    <td>${unk ? '<span class="ip-tag unknown">⚠ UNKNOWN</span>' : `<span class="ip-tag known">${esc(l.ip_label || '-')}</span>`}<br><small style="font-family:monospace; color:#94a3b8;">${esc(l.ip || '-')}</small>${devTag(l)}</td>
                     <td>${esc(l.username)}</td><td><b>${esc(l.action)}</b><br><span style="font-size:0.82rem;">${esc(l.details)}</span></td></tr>`;
             }).join('') || '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No activity found.</td></tr>';
         } catch (e) {
@@ -8296,9 +8485,9 @@ document.addEventListener('DOMContentLoaded', function() {
             if (onlyExceptions) logs = logs.filter(l => isExceptionLog(l));
             const wb = new ExcelJS.Workbook();
             const sheet = wb.addWorksheet(onlyExceptions ? 'Exceptions' : 'Audit log');
-            sheet.columns = [{ header: 'Timestamp', width: 22 }, { header: 'User', width: 16 }, { header: 'Action', width: 26 }, { header: 'Details', width: 110 }, { header: 'IP address', width: 18 }, { header: 'Place (name of the IP)', width: 28 }, { header: 'Device', width: 60 }];
+            sheet.columns = [{ header: 'Timestamp', width: 22 }, { header: 'User', width: 16 }, { header: 'Action', width: 26 }, { header: 'Details', width: 110 }, { header: 'IP address', width: 18 }, { header: 'Place (name of the IP)', width: 28 }, { header: 'Registered computer', width: 28 }, { header: 'Device', width: 60 }];
             sheet.getRow(1).font = { bold: true };
-            logs.forEach(l => sheet.addRow([l.timestamp, l.username, l.action, l.details, l.ip || '', l.ip_label || '', l.device || '']));
+            logs.forEach(l => sheet.addRow([l.timestamp, l.username, l.action, l.details, l.ip || '', l.ip_label || '', l.device_name || '', l.device || '']));
             const buffer = await wb.xlsx.writeBuffer();
             const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
             const a = document.createElement('a');
@@ -8311,9 +8500,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const r = await window.BiomassAPI.superLogs();
             const wb = new ExcelJS.Workbook();
             const s1 = wb.addWorksheet('Super Admin changes');
-            s1.columns = [{ header: 'Timestamp', width: 22 }, { header: 'User', width: 14 }, { header: 'Action', width: 28 }, { header: 'Details', width: 110 }, { header: 'IP address', width: 18 }, { header: 'Device', width: 60 }];
+            s1.columns = [{ header: 'Timestamp', width: 22 }, { header: 'User', width: 14 }, { header: 'Action', width: 28 }, { header: 'Details', width: 110 }, { header: 'IP address', width: 18 }, { header: 'Registered computer', width: 28 }, { header: 'Device', width: 60 }];
             s1.getRow(1).font = { bold: true };
-            (r.changes || []).forEach(l => s1.addRow([l.timestamp, l.username, l.action, l.details, l.ip || '', l.device || '']));
+            (r.changes || []).forEach(l => s1.addRow([l.timestamp, l.username, l.action, l.details, l.ip || '', l.device_name || '', l.device || '']));
             const s2 = wb.addWorksheet('Results submitted');
             s2.columns = [{ header: 'Timestamp', width: 22 }, { header: 'Login', width: 16 }, { header: 'Reference', width: 24 }, { header: 'Submitted', width: 120 }];
             s2.getRow(1).font = { bold: true };
@@ -8474,7 +8663,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const wt = v => Number(v) > 0 ? Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '-';
         const mtTxt = (kg) => (Number(kg) / 1000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' MT';
         const weekday = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long' });
-        if (!fromEl.value) fromEl.value = toEl.value = today();
+        if (!fromEl.value) { fromEl.value = shift(today(), -1); toEl.value = today(); }      // today and yesterday by default; the dates / chips show older days
         fromEl.max = toEl.max = today();
         let groups = [];
 
@@ -8563,7 +8752,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const b = e.target.closest('button[data-range]'); if (!b) return;
             const t = today(), r = b.dataset.range;
             if (r === 'any') { fromEl.value = toEl.value = ''; chips.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b)); input.focus(); return; }
-            if (r === 'today') { fromEl.value = toEl.value = t; }
+            if (r === 'two') { fromEl.value = shift(t, -1); toEl.value = t; }
+            else if (r === 'today') { fromEl.value = toEl.value = t; }
             else if (r === 'yesterday') { fromEl.value = toEl.value = shift(t, -1); }
             else if (r === 'week') { fromEl.value = shift(t, -6); toEl.value = t; }
             else { fromEl.value = t.slice(0, 8) + '01'; toEl.value = t; }
@@ -9611,6 +9801,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // ================= CORE RUNNER ON LOAD =================
     routeSession();
+    // a signed-in session that was left open: is this computer still approved for the login? (the lock may have been switched on meanwhile)
+    if (window.BiomassAPI.getCurrentUser()) window.BiomassAPI.deviceCheck().then(r => { if (r && r.lock && !r.verified) routeSession(); }).catch(() => { /* ignore */ });
     try {   // message left by hardSignOut() (session could not be renewed) - shown on the fresh login screen
         const flash = sessionStorage.getItem('BIOMASS_FLASH');
         if (flash) {

@@ -146,7 +146,7 @@
         catch (e) { clearSession(); return { success: false, message: e.message || 'This account is not provisioned.' }; }
         // The Super Admin has every Admin right: the app treats it as 'admin' and shows the extra Super Admin tab (is_super).
         const sessionUser = { username: who.username, role: who.role === 'superadmin' ? 'admin' : who.role, name: who.name, is_super: who.role === 'superadmin' };
-        if (sessionUser.is_super) sessionUser.device = await checkDevice();
+        sessionUser.device = await checkDevice();     // every login: is this one of its approved computers? (an unknown computer is written down as waiting for approval)
         const s = loadSession(); s.user = sessionUser; saveSession(s);
         _failCount = 0;
         return { success: true, user: sessionUser };
@@ -191,6 +191,7 @@
             const err = new Error(msg);
             err.code = data && data.code;
             err.status = res.status;
+            if (/This device is not (trusted|registered)/.test(msg)) { try { window.dispatchEvent(new Event('biomass-device-blocked')); } catch (e2) { /* ignore */ } }
             throw err;
         }
         return data;
@@ -460,7 +461,10 @@
         async deviceRequest(name) { return rpc('bm_device_request', { token: deviceToken(), name: name }); },
         async deviceList() { return rpc('bm_super_device_list', { token: deviceToken() }); },
         async deviceTrust(name, reason) { const r = await rpc('bm_super_device_trust', { token: deviceToken(), name: name, reason: reason }); await this.deviceCheck(); return r; },
-        async deviceDecide(id, action, reason) { return rpc('bm_super_device_decide', { id: id, action: action, reason: reason, token: deviceToken() }); },
+        async deviceDecide(id, action, reason, name) { return rpc('bm_super_device_decide', { id: id, action: action, reason: reason, name: name || undefined, token: deviceToken() }); },
+        async loginLock(username, on, reason) { return rpc('bm_super_login_lock', { username: username, on: !!on, reason: reason }); },
+        async loginLockAll(on, reason) { return rpc('bm_super_login_lock', { all: true, on: !!on, reason: reason }); },
+        async deviceActivity(id) { return rpc('bm_super_device_activity', { id: id }); },
         async lockSet(on, reason) { return rpc('bm_super_lock_set', { on: !!on, reason: reason }); },
         async superIpRangeLabel(range, label) { return rpc('bm_super_ip_range_label', { range: range, label: label }); },
         async superHealth() { return rpc('bm_super_health', {}); },

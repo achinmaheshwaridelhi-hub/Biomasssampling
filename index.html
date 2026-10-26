@@ -29,7 +29,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20261030_v54">
+    <link rel="stylesheet" href="style.css?v=20261030_v58">
     <!-- Chart.js 4.4.4 for the Executive Management Dashboard: the app's own copy (no outside server is trusted) -->
     <script src="lib/chart.umd.min.js"></script>
 </head>
@@ -1000,6 +1000,7 @@
                         <label>From<input type="date" id="mixr-from"></label>
                         <label>To<input type="date" id="mixr-to"></label>
                         <div class="mixr-chips" id="mixr-chips">
+                            <button type="button" data-range="two" class="active">Today &amp; yesterday</button>
                             <button type="button" data-range="today">Today</button>
                             <button type="button" data-range="yesterday">Yesterday</button>
                             <button type="button" data-range="week">Last 7 days</button>
@@ -1142,7 +1143,10 @@
                         <div class="sx-hero-sub">What each tool is for, when to reach for it, and how to use it. Tools that act on one truck first <b>find</b> the truck and open it in the Inspector, where all the buttons are.</div>
                     </div>
                 </div>
-                <div id="sx-tools-grid" class="sx-tools"></div>
+                <div class="sec-layout">
+                    <nav class="sec-nav" id="sx-tools-nav" aria-label="Tools"></nav>
+                    <div class="sec-body"><div id="sx-tools-grid" class="sx-tools sx-tools-one"></div></div>
+                </div>
             </div>
 
             <!-- DATA HEALTH -->
@@ -1154,7 +1158,10 @@
                     </div>
                     <div><button type="button" class="btn btn-primary" id="btn-sx-health-run">&#9654; Run the check</button></div>
                 </div>
-                <div id="sx-health-body"></div>
+                <div class="sec-layout">
+                    <nav class="sec-nav" id="sx-health-nav" aria-label="Findings"></nav>
+                    <div class="sec-body"><div id="sx-health-body"></div></div>
+                </div>
             </div>
 
             <!-- LOGINS -->
@@ -1194,29 +1201,56 @@
                 <div class="sx-hero">
                     <div>
                         <div class="sx-hero-title">&#128737;&#65039; Security</div>
-                        <div class="sx-hero-sub">Two protections for the Admin and Super Admin logins. A password alone is then not enough: a <b>6-digit code from your phone</b> (Google Authenticator) and, for the Super Admin, a <b>trusted computer</b>.</div>
+                        <div class="sx-hero-sub">Two protections. For the Admin and Super Admin logins a <b>6-digit code from your phone</b> (Google Authenticator); for <b>every</b> login a list of <b>approved computers</b> that only you can extend. A password alone is then not enough.</div>
                     </div>
                     <div><button type="button" class="btn btn-secondary" id="btn-sx-sec-refresh">&#8635; Refresh</button></div>
                 </div>
-                <div class="card">
-                    <h3 class="card-title">&#128241; Second step: authenticator app</h3>
-                    <div id="sx-mfa-mine" style="margin-bottom: 1rem;"></div>
-                    <h4 style="margin: 0 0 0.4rem;">Who has set it up</h4>
-                    <div id="sx-mfa-people" style="margin-bottom: 0.8rem;"></div>
-                    <div id="sx-mfa-required" style="font-size: 0.9rem; margin-bottom: 0.6rem;"></div>
-                    <button type="button" class="btn btn-primary" id="btn-sx-mfa-required">Switch the second step ON for the Admin and Super Admin logins&hellip;</button>
-                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.7rem;">Switch it on only after both logins have set the app up and you have signed in once with the code. Emergency switch-off (Supabase SQL editor): <code>update bm.settings set value = 'off' where key = 'mfa_required';</code></p>
-                </div>
-                <div class="card">
-                    <h3 class="card-title">&#128187; Trusted computers (Super Admin)</h3>
-                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.8rem;">With the lock <b>ON</b>, the Super Admin login works only on a trusted computer, on any Wi-Fi or mobile data. A trusted computer keeps a secret code in its browser (the server stores only a fingerprint of it). Clearing this browser&rsquo;s data removes the trust: sign in again and ask for approval from another trusted computer, or switch the lock off in the database.</p>
-                    <div id="sx-dev-state" style="margin-bottom: 0.8rem;"></div>
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.9rem;">
-                        <button type="button" class="btn btn-primary" id="btn-sx-dev-trust">&#128274; Trust this computer&hellip;</button>
-                        <button type="button" class="btn btn-secondary" id="btn-sx-dev-lock">Switch the lock ON&hellip;</button>
+                <div class="sec-layout">
+                    <nav class="sec-nav" id="sx-sec-nav" aria-label="Security features">
+                        <button type="button" class="active" data-sec="overview"><span>&#128202; Overview</span><small>where things stand</small></button>
+                        <button type="button" data-sec="mfa"><span>&#128241; Second step</span><small>authenticator app</small></button>
+                        <button type="button" data-sec="devices"><span>&#128187; Registered computers <b class="sec-badge" id="sx-sec-badge" style="display: none;"></b></span><small>one tab per login</small></button>
+                        <button type="button" data-sec="help"><span>&#127384; If someone is locked out</span><small>emergency steps</small></button>
+                    </nav>
+                    <div class="sec-body">
+                        <div class="sec-pane active" id="sec-pane-overview">
+                            <div class="card"><h3 class="card-title">&#128202; Where things stand</h3><div id="sx-sec-overview"><p>Loading...</p></div></div>
+                        </div>
+                        <div class="sec-pane" id="sec-pane-mfa">
+                            <div class="card">
+                                <h3 class="card-title">&#128241; Second step: authenticator app</h3>
+                                <div id="sx-mfa-mine" style="margin-bottom: 1rem;"></div>
+                                <h4 style="margin: 0 0 0.4rem;">Who has set it up</h4>
+                                <div id="sx-mfa-people" style="margin-bottom: 0.8rem;"></div>
+                                <div id="sx-mfa-required" style="font-size: 0.9rem; margin-bottom: 0.6rem;"></div>
+                                <button type="button" class="btn btn-primary" id="btn-sx-mfa-required">Switch the second step ON for the Admin and Super Admin logins&hellip;</button>
+                                <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.7rem;">Switch it on only after every Admin / Super Admin login has set the app up and you have signed in once with the code.</p>
+                            </div>
+                        </div>
+                        <div class="sec-pane" id="sec-pane-devices">
+                            <div class="card">
+                                <h3 class="card-title">&#128187; Registered computers</h3>
+                                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.9rem;">The first time a login is used on a computer, the computer appears here as <b>waiting for approval</b>. Once <b>you</b> approve it, every action done on it carries its name in the logs. With a login&rsquo;s lock <b>ON</b> it works only on approved computers (on any Wi-Fi or mobile data). Clearing a browser&rsquo;s data removes its secret code; it then simply asks for approval again.</p>
+                                <div class="sec-subbar" id="sx-dev-sub"></div>
+                                <div id="sx-dev-main"><p>Loading...</p></div>
+                            </div>
+                        </div>
+                        <div class="sec-pane" id="sec-pane-help">
+                            <div class="card">
+                                <h3 class="card-title">&#127384; If someone is locked out</h3>
+                                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.8rem;">Run these in the Supabase <b>SQL Editor</b>, one at a time. Nothing is lost; they only switch protections off or remove a lost phone&rsquo;s entry.</p>
+                                <h4 style="margin: 0.8rem 0 0.3rem;">A phone with the authenticator app was lost, or its entry was deleted</h4>
+                                <pre class="sec-code">delete from auth.mfa_factors where user_id = (select id from bm.profiles where username = 'admin');</pre>
+                                <p style="font-size: 0.8rem; color: var(--text-muted);">Replace <code>admin</code> with the login (for example <code>superadmin</code>). The login then needs the password only, and sets the app up again in its own card.</p>
+                                <h4 style="margin: 0.8rem 0 0.3rem;">Switch the second step off for everybody</h4>
+                                <pre class="sec-code">update bm.settings set value = 'off' where key = 'mfa_required';</pre>
+                                <h4 style="margin: 0.8rem 0 0.3rem;">Switch the Super Admin&rsquo;s computer lock off</h4>
+                                <pre class="sec-code">update bm.settings set value = 'off' where key = 'super_lock';</pre>
+                                <h4 style="margin: 0.8rem 0 0.3rem;">Switch every other login&rsquo;s computer lock off</h4>
+                                <pre class="sec-code">update bm.profiles set device_lock = false;</pre>
+                            </div>
+                        </div>
                     </div>
-                    <div class="table-responsive"><table style="min-width: 0; font-size: 0.88rem;"><thead><tr><th>Computer</th><th>Status</th><th>Asked / approved</th><th>Last seen</th><th></th></tr></thead><tbody id="sx-dev-body"></tbody></table></div>
-                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.7rem;">Emergency switch-off (Supabase SQL editor): <code>update bm.settings set value = 'off' where key = 'super_lock';</code></p>
                 </div>
             </div>
 
@@ -2081,10 +2115,10 @@
         </div>
     </div>
 
-    <!-- Super Admin log-in from a computer that is not trusted (the lock is ON) -->
+    <!-- A login whose lock is ON was used from a computer that is not approved -->
     <div id="device-block-modal" style="display: none; position: fixed; inset: 0; z-index: 99996; background: rgba(2,6,23,0.96); align-items: center; justify-content: center; padding: 1rem;">
         <div class="card" style="max-width: 480px; width: 100%; margin: 0; border: 2px solid #f59e0b;">
-            <h3 class="card-title" style="margin-bottom: 0.4rem;">&#128274; This computer is not trusted</h3>
+            <h3 class="card-title" style="margin-bottom: 0.4rem;">&#128274; This computer is not approved</h3>
             <p id="device-block-text" style="font-size: 0.92rem; margin-bottom: 0.8rem;"></p>
             <div id="device-block-ask">
                 <label style="display: block; font-size: 0.8rem; margin-bottom: 0.2rem;">Name of this computer</label>
@@ -2115,8 +2149,8 @@
 
     <!-- PDF.js library for offline PDF barcode scanning in pilot tests -->
     <script src="lib/pdf.min.js" onerror="alert('CRITICAL: lib/pdf.min.js failed to load!')"></script>
-    <script src="lib/mini-pdf.js?v=20261030_v54" onerror="alert('CRITICAL: lib/mini-pdf.js failed to load!')"></script>
-    <script src="lib/xlsx-crypt.js?v=20261030_v54" onerror="alert('CRITICAL: lib/xlsx-crypt.js failed to load!')"></script>
+    <script src="lib/mini-pdf.js?v=20261030_v58" onerror="alert('CRITICAL: lib/mini-pdf.js failed to load!')"></script>
+    <script src="lib/xlsx-crypt.js?v=20261030_v58" onerror="alert('CRITICAL: lib/xlsx-crypt.js failed to load!')"></script>
 
     <!-- ExcelJS 4.4.0 for the Excel exports: the app's own copy -->
     <script src="lib/exceljs.min.js"></script>
@@ -2126,14 +2160,14 @@
 
     <!-- Moisture-meter reader (trained offline OCR). Small loaders only; the ~8 MB engine in lib/ocr/ is fetched
          on first use. If these fail to load the app simply falls back to manual photo + typing. -->
-    <script src="lib/ocr/moisture-reader-core.js?v=20261030_v54"></script>
-    <script src="lib/ocr/led-weight-reader.js?v=20261030_v54"></script>
-    <script src="lib/ocr/led-templates.js?v=20261030_v54"></script>
-    <script src="moisture-ocr.js?v=20261030_v54"></script>
+    <script src="lib/ocr/moisture-reader-core.js?v=20261030_v58"></script>
+    <script src="lib/ocr/led-weight-reader.js?v=20261030_v58"></script>
+    <script src="lib/ocr/led-templates.js?v=20261030_v58"></script>
+    <script src="moisture-ocr.js?v=20261030_v58"></script>
 
     <!-- App JavaScript files -->
-    <script src="api.js?v=20261030_v54" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261030_v54" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="api.js?v=20261030_v58" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261030_v58" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

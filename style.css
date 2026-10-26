@@ -1810,3 +1810,57 @@ tr.ip-unknown td { background: rgba(239,68,68,0.10); }
 .mixr-facts div { background: rgba(0,0,0,0.25); border-radius: 8px; padding: 0.4rem 0.65rem; font-size: 0.9rem; font-weight: 600; }
 .mixr-facts small { display: block; font-weight: 400; font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; color: #94a3b8; }
 @media (max-width: 820px) { .mixr-head { grid-template-columns: 4.6rem 1fr 1.2rem; } .mixr-head .mixr-counts, .mixr-head .mixr-comp, .mixr-head .mixr-net { grid-column: 2 / 3; } }
+
+/* ---- Super Admin > Security: vertical feature tabs + one tab per login ---- */
+.sec-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 1.1rem; align-items: start; }
+.sec-nav { position: sticky; top: 0.6rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.sec-nav button { display: flex; flex-direction: column; align-items: flex-start; gap: 0.1rem; text-align: left; width: 100%; padding: 0.7rem 0.85rem; border-radius: 10px; cursor: pointer;
+    background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); color: var(--text-main, #e5e7eb); font: inherit; font-weight: 600; }
+.sec-nav button small { font-weight: 400; font-size: 0.74rem; color: var(--text-muted); }
+.sec-nav button:hover { border-color: var(--border-color-hover); }
+.sec-nav button.active { background: linear-gradient(135deg, rgba(220,38,38,0.35), rgba(153,27,27,0.25)); border-color: rgba(239,68,68,0.6); color: #fff; }
+.sec-nav button.active small { color: #fecaca; }
+.sec-pane { display: none; }
+.sec-pane.active { display: block; }
+.sec-badge { display: inline-block; min-width: 1.2rem; padding: 0 0.35rem; margin-left: 0.25rem; border-radius: 999px; background: #f59e0b; color: #111827; font-size: 0.72rem; font-weight: 800; text-align: center; }
+.sec-subbar { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; padding-bottom: 0.8rem; border-bottom: 1px solid var(--border-color); }
+.sec-subbar button { padding: 0.4rem 0.8rem; border-radius: 999px; cursor: pointer; font: inherit; font-size: 0.85rem; font-weight: 600; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); color: var(--text-muted); }
+.sec-subbar button:hover { border-color: var(--border-color-hover); color: #fff; }
+.sec-subbar button.active { background: var(--primary); border-color: var(--primary); color: #04130d; }
+.sec-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.7rem; margin-bottom: 1.1rem; }
+.sec-tile { text-align: left; padding: 0.8rem 0.9rem; border-radius: 12px; cursor: pointer; font: inherit; color: inherit; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); }
+.sec-tile small { display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.2rem; }
+.sec-tile b { font-size: 1.15rem; }
+.sec-tile.ok { border-color: rgba(16,185,129,0.5); } .sec-tile.ok b { color: #34d399; }
+.sec-tile.warn { border-color: rgba(245,158,11,0.5); } .sec-tile.warn b { color: #fbbf24; }
+.sec-check { list-style: none; padding: 0; margin: 0; }
+.sec-check li { display: flex; gap: 0.6rem; align-items: baseline; padding: 0.45rem 0; border-bottom: 1px solid var(--border-color); font-size: 0.92rem; cursor: pointer; }
+.sec-check li:hover { color: #fff; }
+.sec-loginhead { display: flex; flex-wrap: wrap; gap: 0.8rem 1.4rem; align-items: center; justify-content: space-between; margin-bottom: 0.9rem; }
+.sec-loginhead h3 { margin: 0; font-size: 1.15rem; }
+.sec-code { background: rgba(0,0,0,0.35); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.6rem 0.8rem; font-family: monospace; font-size: 0.82rem; white-space: pre-wrap; word-break: break-all; margin: 0 0 0.3rem; }
+@media (max-width: 860px) {
+    .sec-layout { grid-template-columns: 1fr; }
+    .sec-nav { position: static; flex-direction: row; flex-wrap: wrap; }
+    .sec-nav button { width: auto; flex: 1 1 150px; }
+}
+.sec-body .table-responsive > table { width: 100%; }
+
+/* ---- Toolbox / Data health: one tool or finding at a time, chosen in the vertical menu ---- */
+.sec-navhead { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); margin: 0.7rem 0.3rem 0; font-weight: 700; }
+.sec-navhead:first-child { margin-top: 0; }
+.sec-nav button .sec-n { display: inline-block; min-width: 1.4rem; margin-right: 0.3rem; padding: 0 0.3rem; border-radius: 999px; background: #dc2626; color: #fff; font-size: 0.72rem; font-weight: 800; text-align: center; }
+.sec-nav button.active .sec-n { background: #fff; color: #991b1b; }
+.sx-tools.sx-tools-one { display: block; }
+.sx-tools-one .sx-tool { display: none; margin-top: 12px; }
+.sx-tools-one .sx-tool.active { display: block; }
+.sx-tools-one .sx-tool p, .sx-tools-one .sx-tool li { font-size: 0.9rem; }
+
+/* ---- NO SIDEWAYS SCROLLING on a normal screen: the text in table cells wraps instead.
+   (On a phone a wide table still scrolls inside its own box - squeezing 10 columns into 360 px would be unreadable.) ---- */
+@media (min-width: 901px) {
+    .table-responsive table { width: 100%; min-width: 0; table-layout: auto; }
+    .table-responsive th, .table-responsive td { white-space: normal; overflow-wrap: break-word; word-break: normal; vertical-align: top; }
+    .table-responsive th { vertical-align: bottom; }
+    .table-responsive td.nowrap, .table-responsive th.nowrap { white-space: nowrap; }
+}

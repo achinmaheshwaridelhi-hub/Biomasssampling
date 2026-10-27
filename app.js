@@ -8283,6 +8283,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const acts = `${x.status !== 'TRUSTED' ? `<button type="button" class="btn btn-primary btn-sm" data-dev="${x.id}" data-act="approve">Approve</button> ` : ''}` +
                     `${x.status === 'TRUSTED' && !x.this_device ? `<button type="button" class="btn btn-secondary btn-sm" data-dev="${x.id}" data-act="revoke" style="border-color:#ef4444; color:#fca5a5;">Revoke</button> ` : ''}` +
                     `${!x.this_device && x.status !== 'TRUSTED' ? `<button type="button" class="btn btn-secondary btn-sm" data-dev="${x.id}" data-act="remove">Remove</button> ` : ''}` +
+                    `<button type="button" class="btn btn-secondary btn-sm" data-dev="${x.id}" data-act="rename">Rename</button> ` +
                     `<button type="button" class="btn btn-secondary btn-sm" data-dev="${x.id}" data-act="activity">What it did</button>`;
                 return `<tr>${showLogin ? `<td><b>${esc(x.username)}</b><br><small style="color:#94a3b8;">${esc(x.role)}</small></td>` : ''}<td><b>${esc(x.name)}</b>${x.this_device ? ' <span class="mixr-pill info">this computer</span>' : ''}</td><td>${pill}${x.approved_by ? '<br><small style="color:#94a3b8;">by ' + esc(x.approved_by) + '</small>' : ''}</td>` +
                     `<td>${where}</td><td>${esc(x.last_seen || '-')}<br><small style="color:#94a3b8;">asked ${esc(x.requested_at)}</small></td><td>${acts}</td></tr>`;
@@ -8337,6 +8338,12 @@ document.addEventListener('DOMContentLoaded', function() {
             const act = t.dataset.act, id = Number(t.dataset.dev), dv = d.devices.find(x => x.id === id);
             if (!dv) return;
             if (act === 'activity') { superDeviceActivity(dv); return; }
+            if (act === 'rename') {
+                openSuperEdit('Rename a computer', 'The login <b>' + esc(dv.username) + '</b> on <b>' + esc(dv.name) + '</b>. Use a name that tells you at once which device it is (for example <i>Weighbridge PC &ndash; office</i>). The new name also appears on the <b>older</b> log lines of this computer.',
+                    [{ id: 'name', label: 'New name of this computer', type: 'text', value: dv.name, hint: '(2 to 60 characters)' }],
+                    async (v, why) => { if (v.name.length < 2) throw new Error('Type a name of at least 2 characters.'); await window.BiomassAPI.deviceDecide(id, 'rename', why, v.name); }, { saveLabel: 'Rename', danger: false, after: renderSuperSecurity });
+                return;
+            }
             if (act === 'approve') {
                 openSuperEdit('Approve a computer for ' + dv.username, 'The login <b>' + esc(dv.username) + '</b> will be able to work on <b>' + esc(dv.name) + '</b> (last seen from ' + esc(dv.ip_label || dv.last_ip || 'an unknown address') + '). Check that it really is your computer. Give it a name you will recognise.',
                     [{ id: 'name', label: 'Name of this computer', type: 'text', value: dv.name, hint: '(e.g. Weighbridge tablet 2)' }],
@@ -8591,6 +8598,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div style="font-size:${pending ? '1.25rem' : '1rem'}; font-weight:800;">${pending ? '🔔 ' : '✅ '}${esc(r.truck_reg_number)}</div>
                         <div style="font-size:0.85rem; color:#cbd5e1;">${esc(r.company_name)} &bull; Driver: ${esc(r.driver_name || '-')}</div>
                         <div style="font-size:0.8rem; color:#94a3b8;">Requested ${esc(dmy(r.requested_date))} ${esc(r.requested_time || '')}${r.reason ? ' &bull; Reason: ' + esc(r.reason) : ''}</div>
+                        ${r.entry_date ? `<div style="font-size:0.8rem; color:#fbbf24;">The label will carry the truck's ORIGINAL entry date: ${esc(dmy(r.entry_date))}</div>` : ''}
                     </div>
                     <div></div>`;
                 const holder = card.lastElementChild;
@@ -8625,7 +8633,7 @@ document.addEventListener('DOMContentLoaded', function() {
         card.scrollIntoView({ behavior: 'smooth' });
     }
     async function generateBottomLabel(r, btn) {
-        if (!confirm(`Generate a NEW sample QR for truck ${r.truck_reg_number}?\n\nThe truck's existing sample stays valid for moisture and fineness, but it is taken out of the composite mixture. This cannot be undone.`)) return;
+        if (!confirm(`Generate a NEW sample QR for truck ${r.truck_reg_number}?\n\nThe new label carries the truck's ORIGINAL entry date (${r.entry_date ? dmy(r.entry_date) : 'not today'}) and a copy of its moisture and fineness. The truck's existing sample is taken out of the composite mixture. This cannot be undone.`)) return;
         btn.disabled = true;
         try {
             const res = await window.BiomassAPI.generateBottomSample(r.truck_id);

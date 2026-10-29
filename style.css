@@ -1864,3 +1864,15 @@ tr.ip-unknown td { background: rgba(239,68,68,0.10); }
     .table-responsive th { vertical-align: bottom; }
     .table-responsive td.nowrap, .table-responsive th.nowrap { white-space: nowrap; }
 }
+
+/* ---- Super Admin > Reader check ---- */
+.rc-seg { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.rc-seg button { padding: 0.5rem 0.9rem; border-radius: 999px; cursor: pointer; font: inherit; font-size: 0.88rem; font-weight: 600; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); color: var(--text-muted); }
+.rc-seg button:hover { border-color: var(--border-color-hover); color: #fff; }
+.rc-seg button.active { background: var(--primary); border-color: var(--primary); color: #04130d; }
+.rc-drop { display: block; text-align: center; padding: 1.4rem 1rem; border: 2px dashed var(--border-color); border-radius: 12px; cursor: pointer; color: var(--text-muted); font-weight: 600; }
+.rc-drop:hover, .rc-drop.over { border-color: var(--primary); color: #fff; }
+.rc-thumb { max-height: 64px; max-width: 110px; border-radius: 6px; display: block; }
+.rc-crop { max-height: 38px; max-width: 150px; border-radius: 4px; display: block; margin-top: 4px; background: #111; }
+.rc-val { font-size: 1.15rem; font-weight: 800; }
+.rc-exp { width: 7.5rem; padding: 0.35rem; }

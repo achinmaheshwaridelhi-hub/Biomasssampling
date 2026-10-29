@@ -130,8 +130,27 @@
             return t;
         } catch (e) { return ''; }
     }
+    // the web address this copy of the app was opened from: another address (localhost / the office IP / the GitHub page) keeps its own browser storage, so it counts as another computer
+    function siteName() { try { return String(location.host || '').slice(0, 80); } catch (e) { return ''; } }
+    // SHA-256 (the server keeps only this hash of the device code); the first 6 characters are the ID shown on the computer and in the Super Admin's list
+    function sha256hex(str) {
+        const K = [0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2];
+        const bytes = Array.from(new TextEncoder().encode(str)), l = bytes.length;
+        bytes.push(0x80); while (bytes.length % 64 !== 56) bytes.push(0);
+        const hi = Math.floor(l * 8 / 4294967296), lo = (l * 8) >>> 0; for (let i = 3; i >= 0; i--) bytes.push((hi >>> (8 * i)) & 255); for (let i = 3; i >= 0; i--) bytes.push((lo >>> (8 * i)) & 255);
+        const H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19], W = new Array(64), rr = (x, n) => (x >>> n) | (x << (32 - n));
+        for (let o = 0; o < bytes.length; o += 64) {
+            for (let i = 0; i < 16; i++) W[i] = (bytes[o + 4 * i] << 24) | (bytes[o + 4 * i + 1] << 16) | (bytes[o + 4 * i + 2] << 8) | bytes[o + 4 * i + 3];
+            for (let i = 16; i < 64; i++) { const s0 = rr(W[i - 15], 7) ^ rr(W[i - 15], 18) ^ (W[i - 15] >>> 3), s1 = rr(W[i - 2], 17) ^ rr(W[i - 2], 19) ^ (W[i - 2] >>> 10); W[i] = (W[i - 16] + s0 + W[i - 7] + s1) | 0; }
+            let [a, b, c, d, e, f, g, h] = H;
+            for (let i = 0; i < 64; i++) { const S1 = rr(e, 6) ^ rr(e, 11) ^ rr(e, 25), ch = (e & f) ^ (~e & g), t1 = (h + S1 + ch + K[i] + W[i]) | 0, S0 = rr(a, 2) ^ rr(a, 13) ^ rr(a, 22), mj = (a & b) ^ (a & c) ^ (b & c), t2 = (S0 + mj) | 0; h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0; }
+            H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0; H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+        }
+        return H.map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
+    }
+    function deviceId() { try { return sha256hex(deviceToken()).slice(0, 6).toUpperCase(); } catch (e) { return ''; } }
     async function checkDevice() {
-        try { const r = await rpc('bm_device_verify', { token: deviceToken() }); return { verified: !!r.verified, status: r.status, lock: !!r.lock, name: r.name || null }; }
+        try { const r = await rpc('bm_device_verify', { token: deviceToken(), site: siteName() }); return { verified: !!r.verified, status: r.status, lock: !!r.lock, name: r.name || null }; }
         catch (e) { return { verified: false, status: 'ERROR', lock: false }; }
     }
     let _pendingMfa = null;
@@ -458,9 +477,13 @@
         async superMfaExempt(username, exempt, reason) { return rpc('bm_super_mfa_exempt', { username: username, exempt: !!exempt, reason: reason }); },
         // --- TRUSTED DEVICES (Super Admin) -----------------------------------------------------------------------------
         async deviceCheck() { const r = await checkDevice(); const s = loadSession(); if (s && s.user) { s.user.device = r; saveSession(s); } return r; },
-        async deviceRequest(name) { return rpc('bm_device_request', { token: deviceToken(), name: name }); },
+        async deviceRequest(name) { return rpc('bm_device_request', { token: deviceToken(), name: name, site: siteName() }); },
+        deviceId: deviceId, siteName: siteName,
+        async recoveryStatus() { return rpc('bm_super_recovery_status', {}); },
+        async recoverySet(reason) { return rpc('bm_super_recovery_set', { reason: reason }); },
+        async deviceRecover(code, name) { const r = await rpc('bm_device_recover', { code: code, name: name, token: deviceToken(), site: siteName() }); if (r && r.success) await this.deviceCheck(); return r; },
         async deviceList() { return rpc('bm_super_device_list', { token: deviceToken() }); },
-        async deviceTrust(name, reason) { const r = await rpc('bm_super_device_trust', { token: deviceToken(), name: name, reason: reason }); await this.deviceCheck(); return r; },
+        async deviceTrust(name, reason) { const r = await rpc('bm_super_device_trust', { token: deviceToken(), name: name, reason: reason, site: siteName() }); await this.deviceCheck(); return r; },
         async deviceDecide(id, action, reason, name) { return rpc('bm_super_device_decide', { id: id, action: action, reason: reason, name: name || undefined, token: deviceToken() }); },
         async loginLock(username, on, reason) { return rpc('bm_super_login_lock', { username: username, on: !!on, reason: reason }); },
         async loginLockAll(on, reason) { return rpc('bm_super_login_lock', { all: true, on: !!on, reason: reason }); },

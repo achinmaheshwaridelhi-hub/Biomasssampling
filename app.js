@@ -340,8 +340,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     updateConnectionBanner();
 
-    // Downsamples camera/upload photos to max 1200px JPEG (~150KB) to prevent HTTP 413 Payload Too Large crashes
-    function compressScaleImage(dataUrl, maxDim = 1200, quality = 0.75) {
+    // Downsamples camera/upload photos (default max 1000 px, JPEG quality 0.62: about a third smaller than the old 1200 px / 0.75) to prevent HTTP 413 crashes and to save Storage.
+    // This only shrinks the STORED copy: the readers always read the ORIGINAL file, and the training digit examples are cut from the original too.
+    function compressScaleImage(dataUrl, maxDim = 1000, quality = 0.62) {
         return new Promise((resolve) => {
             if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image')) {
                 resolve(dataUrl);
@@ -2376,6 +2377,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 renderSuperPasswords();
             } else if (targetContentId === 'tab-super-security') {
                 renderSuperSecurity();
+            } else if (targetContentId === 'tab-super-reader') {
+                initReaderCheck();
             } else if (targetContentId === 'tab-admin-activity') {
                 renderActivityLogTab();
                 refreshSuperAlert();
@@ -2767,7 +2770,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             
             if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No registered trucks found for today (${todayStr}).</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No registered trucks found for today (${todayStr}).</td></tr>`;
                 return;
             }
             
@@ -2781,7 +2784,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 tr.innerHTML = `
                     <td style="font-weight: bold;">${esc(truck.truck_id)}</td>
                     <td>${esc(truck.entry_date)} ${esc((truck.entry_time || '').substring(0, 5))}</td>
-                    <td>${esc(truck.company_name)}</td>
                     <td>${esc(truck.truck_reg_number)}</td>
                     <td><span style="font-family: monospace;">${esc(chNo)}</span></td>
                     <td>${esc(truck.driver_name)}</td>
@@ -2789,7 +2791,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 tbody.appendChild(tr);
             });
         } catch (err) {
-            if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--danger);">Failed to load recent registrations: ${esc(err.message)}</td></tr>`;
+            if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--danger);">Failed to load recent registrations: ${esc(err.message)}</td></tr>`;
         }
     }
 
@@ -2993,8 +2995,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(videoFeed, 0, 0, canvas.width, canvas.height);
                 
-                // Compress image to JPEG
-                capturedPhotoBase64 = canvas.toDataURL('image/jpeg', 0.7);
+                // Compress image to JPEG: at most 1000 px on the long side, quality 0.62 (the truck photo is only looked at, never read by a reader)
+                const shrink = Math.min(1, 1000 / Math.max(canvas.width, canvas.height));
+                let outCanvas = canvas;
+                if (shrink < 1) { outCanvas = document.createElement('canvas'); outCanvas.width = Math.round(canvas.width * shrink); outCanvas.height = Math.round(canvas.height * shrink); outCanvas.getContext('2d').drawImage(canvas, 0, 0, outCanvas.width, outCanvas.height); }
+                capturedPhotoBase64 = outCanvas.toDataURL('image/jpeg', 0.62);
                 
                 if (capturedImg) capturedImg.src = capturedPhotoBase64;
                 if (previewPanel) previewPanel.style.display = 'block';
@@ -3372,7 +3377,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (truck.acceptance_status === 'REJECTED' || truck.acceptance_status === 'CANCELLED') {
                     // A rejected truck still needs its exit (tare) weight recorded once - but once that's
                     // done it is COMPLETE like any other truck; it must not keep offering "Record Exit Tare".
-                    if (hasTare) {
+                    if (!hasGross) {
+                        weighActionBtn = `
+                            <button class="btn btn-secondary btn-sm" onclick="window.triggerWeighmentEdit('${truck.truck_id}', ${truck.gross_weight}, ${truck.tare_weight})">⚖️ Record Gross</button>
+                        `;
+                    } else if (hasTare) {
                         weighActionBtn = `
                             <button class="btn btn-secondary btn-sm" onclick="window.openTruckWeighmentSlip('${truck.truck_id}')" title="View & Print Rejection Slip">🖨️ Print Slip</button>
                         `;
@@ -3809,7 +3818,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 moistureAlert.innerHTML = `
                     <div style="font-weight: bold; color: #ef4444; font-size: 1rem;">⛔ REJECTED CONSIGNMENT DETECTED (${truck.moisture_pct}% Moisture)</div>
                     <div style="font-size: 0.85rem; color: #fca5a5; margin-top: 0.25rem;">
-                        This consignment was rejected by Lab 1. Biomass must NOT be unloaded. Record exit tare weight for gate release; net weight will be recorded as 0 kg.
+                        This consignment was rejected by Lab 1. Biomass must NOT be unloaded. Record the exit tare weight for gate release; the net weight is kept as weighed but is not counted as unloaded quantity.
                     </div>
                 `;
             } else {
@@ -5546,8 +5555,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // For a reading the reader was < 50 % sure about: (1) a training photo cut down from the ORIGINAL (the stored audit photo is smaller and less sharp than what the
     // reader actually saw) and (2) for a weight, the digit examples the reader cuts out of that original, labelled with the value the operator confirmed.
     async function captureTrainingMaterial(slot, kind, p) {
-        const big = await compressScaleImage(p.dataUrl, 2400, 0.9);
-        slot.photo = big.length * 0.75 > 2800000 ? await compressScaleImage(p.dataUrl, 1800, 0.8) : big;
+        // The training photo is only used to look at / re-check a reading (the digit examples above are cut from the original): 1800 px q0.8, and 1400 px q0.7 if that is still over ~0.9 MB
+        const big = await compressScaleImage(p.dataUrl, 1800, 0.8);
+        slot.photo = big.length * 0.75 > 900000 ? await compressScaleImage(p.dataUrl, 1400, 0.7) : big;
         if (kind !== 'weight' || !window.LedWeightReader) return;
         const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = p.dataUrl; });
         const lab = Number(p.value).toFixed(3).replace('.', '');
@@ -6059,8 +6069,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         try {
-            // Client-side canvas downsampling to max 1200px JPEG (~150KB)
-            const compressed = await compressScaleImage(rawDataUrl, 1200, 0.75);
+            // Client-side canvas downsampling of the audit photo (max 1000 px, quality 0.62; the reader has already read the original)
+            const compressed = await compressScaleImage(rawDataUrl, 1000, 0.62);
 
             if (previewImg) {
                 previewImg.src = compressed;
@@ -8147,7 +8157,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ---------- Security: second step (authenticator app) and trusted computers ----------
-    const sxSec = { mfaRequired: false, lock: false, thisStatus: null, aal: 'aal1', pane: 'overview', sub: 'overview', mfa: null, dev: null };
+    const sxSec = { mfaRequired: false, lock: false, thisStatus: null, aal: 'aal1', pane: 'overview', sub: 'overview', mfa: null, dev: null, rec: null };
 
     // The person's own authenticator-app card (Admin: Settings tab, Super Admin: Security tab)
     async function renderMfaBox(box) {
@@ -8209,6 +8219,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (e) { sxSec.mfa = null; sx$('sx-mfa-people').innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; }
         try {
             sxSec.dev = await window.BiomassAPI.deviceList();
+            try { sxSec.rec = await window.BiomassAPI.recoveryStatus(); } catch (e) { sxSec.rec = null; }
             sxSec.lock = !!sxSec.dev.lock;
             const me = sxSec.dev.devices.find(x => x.this_device);
             sxSec.thisStatus = me ? me.status : null;
@@ -8249,6 +8260,7 @@ document.addEventListener('DOMContentLoaded', function() {
             chk(setUp === people.length, 'Every Admin / Super Admin login has set up the authenticator app (or is a machine login)', 'mfa') +
             chk(m.required, 'The second step is required', 'mfa') +
             chk(meOk, 'Your own computer is trusted', 'devices:superadmin') +
+            chk(!!(sxSec.rec && sxSec.rec.set), 'A recovery code exists and is kept written down (your way back in if no trusted computer is at hand)', 'devices:superadmin') +
             chk(d.lock, 'The Super Admin lock is ON', 'devices:superadmin') +
             chk(staff.every(x => x.trusted > 0), 'Every other login has at least one approved computer', 'devices') +
             chk(staff.length > 0 && lockedN === staff.length, 'Every other login is locked to its approved computers', 'devices') + '</ul>';
@@ -8279,7 +8291,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return '<div class="table-responsive"><table style="min-width:0; font-size:0.88rem;"><thead><tr>' + (showLogin ? '<th>Login</th>' : '') + '<th>Computer</th><th>Status</th><th>Where</th><th>Last seen</th><th></th></tr></thead><tbody>' +
             (list.map(x => {
                 const pill = x.status === 'TRUSTED' ? '<span class="mixr-pill ok">APPROVED</span>' : (x.status === 'PENDING' ? '<span class="mixr-pill wait">WAITING FOR APPROVAL</span>' : '<span class="mixr-pill bad">REVOKED</span>');
-                const where = `${x.ip_label ? '<span class="ip-tag known">' + esc(x.ip_label) + '</span><br>' : ''}<small style="font-family:monospace; color:#94a3b8;">${esc(x.last_ip || '-')}</small>${x.agent ? '<br><small style="color:#94a3b8; font-size:0.7rem; overflow-wrap:anywhere;">' + esc(String(x.agent).slice(0, 70)) + '</small>' : ''}`;
+                const where = `${x.ip_label ? '<span class="ip-tag known">' + esc(x.ip_label) + '</span><br>' : ''}<small style="font-family:monospace; color:#94a3b8;">${esc(x.last_ip || '-')}</small><br><small style="color:#94a3b8;">ID <b style="font-family:monospace; color:#e5e7eb;">${esc(x.fp || '')}</b>${x.site ? ' &middot; opened from ' + esc(x.site) : ''}</small>${x.agent ? '<br><small style="color:#94a3b8; font-size:0.7rem; overflow-wrap:anywhere;">' + esc(String(x.agent).slice(0, 70)) + '</small>' : ''}`;
                 const acts = `${x.status !== 'TRUSTED' ? `<button type="button" class="btn btn-primary btn-sm" data-dev="${x.id}" data-act="approve">Approve</button> ` : ''}` +
                     `${x.status === 'TRUSTED' && !x.this_device ? `<button type="button" class="btn btn-secondary btn-sm" data-dev="${x.id}" data-act="revoke" style="border-color:#ef4444; color:#fca5a5;">Revoke</button> ` : ''}` +
                     `${!x.this_device && x.status !== 'TRUSTED' ? `<button type="button" class="btn btn-secondary btn-sm" data-dev="${x.id}" data-act="remove">Remove</button> ` : ''}` +
@@ -8310,9 +8322,18 @@ document.addEventListener('DOMContentLoaded', function() {
         const btns = isS ? `${mine && mine.status === 'TRUSTED' ? '' : '<button type="button" class="btn btn-primary" data-sec-act="trust">&#128274; Trust this computer&hellip;</button> '}<button type="button" class="btn btn-secondary" data-sec-act="superlock">${d.lock ? 'Switch the lock OFF…' : 'Switch the lock ON…'}</button>`
             : (x.exempt ? '' : `<button type="button" class="btn ${x.lock ? 'btn-secondary' : 'btn-primary'}" data-lg="${esc(x.username)}" data-on="${x.lock ? 0 : 1}">${x.lock ? 'Unlock this login…' : 'Lock this login to approved computers…'}</button>`);
         main.innerHTML = `<div class="sec-loginhead"><div><h3>${esc(x.username)}</h3><small style="color:#94a3b8;">${esc(x.name)} &middot; ${esc(x.role)}</small></div><div>${secLockPill(x)}<br><small>${secCount(x)}</small></div><div style="display:flex; gap:0.5rem; flex-wrap:wrap;">${btns}</div></div>` +
-            (isS ? `<p style="font-size:0.88rem; margin:0 0 0.8rem;">This computer: <b>${mine ? esc(mine.status) + ' (' + esc(mine.name) + ')' : 'not trusted yet'}</b> &middot; this session: <b>${d.session_verified ? 'verified' : 'not verified'}</b></p>` : '') +
+            (isS ? `<p style="font-size:0.88rem; margin:0 0 0.8rem;">This computer: <b>${mine ? esc(mine.status) + ' (' + esc(mine.name) + ')' : 'not trusted yet'}</b> &middot; ID <b style="font-family:monospace;">${esc(d.this_fp || '')}</b> &middot; opened from <b>${esc(window.BiomassAPI.siteName() || '-')}</b> &middot; this session: <b>${d.session_verified ? 'verified' : 'not verified'}</b></p>` : '') +
+            (isS ? secRecoveryHtml() : '') +
             (x.exempt ? '<p style="font-size:0.88rem; color:#94a3b8;">A machine login (for example the backup tool) is never held back by a computer lock.</p>' : '') +
             secDevRows(d.devices.filter(v => v.username === x.username), false) + '<div id="sx-dev-act" style="display:none;"></div>';
+    }
+
+    function secRecoveryHtml() {
+        const r = sxSec.rec;
+        return `<div style="margin:0 0 1rem; padding:0.8rem 1rem; border-radius:10px; border:1px solid ${r && r.set ? 'rgba(16,185,129,0.5)' : 'rgba(245,158,11,0.6)'}; background:rgba(0,0,0,0.2);">` +
+            `<b>&#128273; Recovery code</b> &ndash; your way back in if no trusted computer is at hand (it lets you register a new one together with your password${sxSec.mfaRequired ? ' and the 6-digit code' : ''}).<br>` +
+            (r ? (r.set ? `<span style="color:#34d399;">A recovery code exists (created ${esc(r.created_at || '')}). It works once.</span>` : '<span style="color:#fbbf24;">No recovery code exists yet &ndash; create one and keep it written down somewhere safe.</span>') : '') +
+            ` <button type="button" class="btn ${r && r.set ? 'btn-secondary' : 'btn-primary'} btn-sm" data-sec-act="recovery-new" style="margin-left:0.4rem;">${r && r.set ? 'Create a new one&hellip; (the old one stops working)' : 'Create a recovery code&hellip;'}</button></div>`;
     }
 
     function secDevClick(e) {
@@ -8325,6 +8346,7 @@ document.addEventListener('DOMContentLoaded', function() {
             else if (a === 'superlock') superLockSwitch();
             else if (a === 'lockall-on') superLoginLockAll(true);
             else if (a === 'lockall-off') superLoginLockAll(false);
+            else if (a === 'recovery-new') openSuperEdit('Create a recovery code', 'A new 20-character code is made and shown <b>once</b>. Any earlier code stops working. Keep it written down, away from this computer.', [], async (v, why) => { const r = await window.BiomassAPI.recoverySet(why); showRecoveryCode(r.code); }, { saveLabel: 'Create the code', danger: false, after: renderSuperSecurity });
             return;
         }
         if (t.dataset.lg) {
@@ -8401,17 +8423,24 @@ document.addEventListener('DOMContentLoaded', function() {
     // A login whose lock is ON was used from a computer that is not approved: nothing else is shown until the Super Admin approves it
     function showDeviceBlock(dev) {
         const m = document.getElementById('device-block-modal'), txt = document.getElementById('device-block-text'), ask = document.getElementById('device-block-ask'), msg = document.getElementById('device-block-msg');
-        const ask_btn = document.getElementById('btn-device-ask');
+        const ask_btn = document.getElementById('btn-device-ask'), rec = document.getElementById('device-block-recover'), nameIn = document.getElementById('device-block-name');
         const cu = window.BiomassAPI.getCurrentUser(), isSuper = !!(cu && cu.is_super);
         const st = dev && dev.status, nm = dev && dev.name ? ' (<b>' + esc(dev.name) + '</b>)' : '';
         msg.textContent = '';
         txt.innerHTML = st === 'PENDING' ? (isSuper ? 'Your request is <b>waiting for approval</b>. Sign in from a trusted computer, open <b>Security</b> and press <b>Approve</b>; then press <b>Check again</b> here.'
-                : 'This computer' + nm + ' is <b>waiting for approval</b>. Tell the Super Admin: they approve it in <b>Security</b>. Then press <b>Check again</b>.')
+                : 'This computer' + nm + ' is <b>waiting for approval</b>. Tell the Super Admin the <b>ID</b> below: they approve it in <b>Security</b>. Then press <b>Check again</b>.')
             : (st === 'REVOKED' ? 'This computer was <b>removed</b> from the approved list. Use an approved computer.' :
                (st === 'ERROR' ? 'The computer could not be checked (connection problem?). Press <b>Check again</b>.' :
-                (isSuper ? 'The Super Admin lock is <b>ON</b> and this computer has not been approved. Give it a name and ask for approval, then approve it from your trusted computer (Security tab) and press <b>Check again</b>.'
+                (isSuper ? 'The Super Admin lock is <b>ON</b> and this computer has not been approved. Give it a name and ask for approval, then approve it from your trusted computer (Security tab) and press <b>Check again</b>. <b>No trusted computer at hand?</b> Use your recovery code below.'
                     : 'This login works only on computers the Super Admin has approved, and this one has not been. Give it a name and ask for approval; the Super Admin approves it in <b>Security</b>. Then press <b>Check again</b>.')));
-        ask.style.display = ask_btn.style.display = (st === 'UNKNOWN' || st === 'NONE') ? '' : 'none';
+        // "which computer is this?": an ID the Super Admin sees in the list, and the web address (another address = another computer for the app)
+        document.getElementById('device-block-id').innerHTML = 'This computer&rsquo;s ID: <b style="font-family:monospace; letter-spacing:0.08em; color:#fff;">' + esc(window.BiomassAPI.deviceId() || '-') + '</b> &middot; opened from: <b>' + esc(window.BiomassAPI.siteName() || '-') + '</b>' +
+            '<br>(Approved it already but still asked? Then this is another browser, a private window, a cleared browser, or another web address &ndash; each counts as a separate computer.)';
+        const canName = st === 'UNKNOWN' || st === 'NONE' || st === 'PENDING';
+        ask.style.display = ask_btn.style.display = canName ? '' : 'none';
+        document.getElementById('device-block-name-label').textContent = st === 'PENDING' ? 'Name of this computer (you can change it so the Super Admin recognises it)' : 'Name of this computer';
+        ask_btn.textContent = st === 'PENDING' ? 'Save the name' : 'Ask for approval';
+        rec.style.display = isSuper && st !== 'ERROR' ? '' : 'none';
         m.style.display = 'flex';
         document.getElementById('btn-device-signout').onclick = () => { m.style.display = 'none'; hardSignOut(); };
         document.getElementById('btn-device-check').onclick = async () => {
@@ -8420,11 +8449,38 @@ document.addEventListener('DOMContentLoaded', function() {
             if (r.verified || !r.lock) { m.style.display = 'none'; routeSession(); } else showDeviceBlock(r);
         };
         ask_btn.onclick = async () => {
-            const name = document.getElementById('device-block-name').value.trim();
+            const name = nameIn.value.trim();
             if (name.length < 2) { msg.style.color = '#ef4444'; msg.textContent = 'Give this computer a name.'; return; }
             try { await window.BiomassAPI.deviceRequest(name); } catch (e) { msg.style.color = '#ef4444'; msg.textContent = e.message; return; }
             showDeviceBlock({ status: 'PENDING', lock: true, name: name });
         };
+        document.getElementById('btn-device-recover').onclick = async () => {
+            const code = document.getElementById('device-block-code').value.trim(), name = nameIn.value.trim();
+            if (name.length < 2) { msg.style.color = '#ef4444'; msg.textContent = 'First give this computer a name (above).'; return; }
+            if (code.replace(/[^A-Za-z0-9]/g, '').length < 12) { msg.style.color = '#ef4444'; msg.textContent = 'Type the recovery code.'; return; }
+            msg.style.color = ''; msg.textContent = 'Checking the code...';
+            try {
+                const r = await window.BiomassAPI.deviceRecover(code, name);
+                if (!r.success) { msg.style.color = '#ef4444'; msg.textContent = r.message || 'The code was not accepted.'; return; }
+                document.getElementById('device-block-code').value = '';
+                m.style.display = 'none'; routeSession();
+                setTimeout(() => alert('This computer is now trusted. The recovery code is used up - open Security > Registered computers > superadmin and create a NEW one.'), 300);
+            } catch (e) { msg.style.color = '#ef4444'; msg.textContent = e.message; }
+        };
+    }
+
+    // the recovery code is shown once
+    function showRecoveryCode(code) {
+        const m = document.getElementById('recovery-code-modal');
+        document.getElementById('recovery-code-value').textContent = code;
+        m.style.display = 'flex';
+        document.getElementById('btn-recovery-copy').onclick = () => { try { navigator.clipboard.writeText(code); } catch (e) { /* select it by hand */ } };
+        document.getElementById('btn-recovery-print').onclick = () => {
+            const w = window.open('', '_blank'); if (!w) { alert('Allow pop-ups to print, or write the code down.'); return; }
+            w.document.write('<title>Recovery code</title><body style="font-family:sans-serif; padding:30px;"><h2>Biomass app &ndash; Super Admin recovery code</h2><p style="font-size:30px; letter-spacing:3px; font-family:monospace;"><b>' + esc(code) + '</b></p><p>Works once, together with the Super Admin password. Keep it locked away.</p></body>');
+            w.document.close(); w.focus(); w.print();
+        };
+        document.getElementById('btn-recovery-done').onclick = () => { m.style.display = 'none'; document.getElementById('recovery-code-value').textContent = ''; };
     }
 
     // ---------- IP addresses (Super Admin) ----------
@@ -9805,6 +9861,132 @@ document.addEventListener('DOMContentLoaded', function() {
         dashTabBtn.addEventListener('click', () => {
             initExecutiveDashboard();
         });
+    }
+
+    // ================= READER CHECK (Super Admin) =================
+    // Runs a photo through the SAME readers the app uses (MoistureOCR for the moisture meter and the red-LED fineness scale,
+    // LcdWeightReader for the blue weighbridge indicator) and shows what an operator would be shown. Nothing is uploaded or stored.
+    const rc = { wired: false, kind: 'auto', rows: [], busy: false, lcdReady: null, engineMsg: '' };
+    const RC_HELP = {
+        auto: 'Tries the red-LED fineness scale first, then the blue weighbridge display, then the moisture meter.',
+        moisture: 'The moisture-meter reader (value in %).',
+        fineness: 'The fineness scale reader exactly as the Lab-1 login uses it (kg, 3 decimals; includes the examples learned in Reader training).',
+        weighbridge: 'The weighbridge indicator reader (blue digits, kg in 10-kg steps) - the reader built from the weighment-scale photos; it is not yet used by the Weighment login.'
+    };
+    const rcEl = (id) => document.getElementById(id);
+    function rcLoadScript(src) {
+        return new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = src; sc.onload = res; sc.onerror = () => rej(new Error('Could not load ' + src)); document.head.appendChild(sc); });
+    }
+    function rcEnsureLcd() {
+        if (window.LcdWeightReader && window.LCD_TEMPLATES) return Promise.resolve();
+        if (!rc.lcdReady) {
+            const m = (document.querySelector('script[src*="moisture-ocr.js"]') || {}).src || '', v = (m.match(/\?v=([\w]+)/) || [])[1] || '1';
+            rc.lcdReady = (window.LcdWeightReader ? Promise.resolve() : rcLoadScript('lib/ocr/lcd-weight-reader.js?v=' + v)).then(() => window.LCD_TEMPLATES ? 0 : rcLoadScript('lib/ocr/lcd-templates.js?v=' + v));
+        }
+        return rc.lcdReady;
+    }
+    function initReaderCheck() {
+        if (!rc.wired) {
+            rc.wired = true;
+            rcEl('rc-kind').onclick = (e) => { const b = e.target.closest('button[data-k]'); if (!b) return; rc.kind = b.dataset.k; rcEl('rc-kind').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b)); rcEl('rc-kind-help').textContent = RC_HELP[rc.kind]; };
+            rcEl('rc-file').onchange = (e) => { const fs = [...e.target.files]; e.target.value = ''; rcRun(fs); };
+            const drop = rcEl('rc-drop');
+            ['dragenter', 'dragover'].forEach(n => drop.addEventListener(n, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+            ['dragleave', 'drop'].forEach(n => drop.addEventListener(n, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+            drop.addEventListener('drop', (e) => rcRun([...e.dataTransfer.files].filter(f => /^image\//.test(f.type))));
+            rcEl('btn-rc-clear').onclick = () => { rc.rows.forEach(r => URL.revokeObjectURL(r.url)); rc.rows = []; rcRender(); };
+            rcEl('btn-rc-export').onclick = rcExport;
+            rcEl('rc-body').addEventListener('input', (e) => { const i = e.target.dataset && e.target.dataset.exp; if (i === undefined) return; rc.rows[Number(i)].expected = e.target.value.trim(); rcRender(true); });
+            rcEl('rc-kind-help').textContent = RC_HELP.auto;
+        }
+        rcEl('rc-engine').textContent = 'Loading the readers...';
+        const parts = [];
+        const jobs = [
+            (window.MoistureOCR ? window.MoistureOCR.preload() : Promise.resolve(false)).then(ok => parts.push(ok ? 'moisture / general engine ready' : 'moisture / general engine NOT available on this device')),
+            rcEnsureLcd().then(() => parts.push('weighbridge reader ready (' + window.LCD_TEMPLATES.length + ' examples)')).catch(() => parts.push('weighbridge reader NOT loaded')),
+            syncLearnedTemplates().then(v => parts.push(v ? 'fineness examples: learned version ' + v + ' + built-in' : 'fineness examples: built-in set'))
+        ];
+        Promise.all(jobs).then(() => { rcEl('rc-engine').textContent = parts.join(' \u00b7 '); });
+    }
+
+    function rcOpen(url) { return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('photo could not be opened')); i.src = url; }); }
+    async function rcReadOne(file, url, kind) {
+        const MO = window.MoistureOCR, dec = (window.MeterAutoRead || {}).weightDecimals;
+        const norm = (reader, r, unit, extra) => ({ reader: reader, value: r && r.value != null && isFinite(Number(r.value)) ? Number(r.value) : null, shown: r && r.value != null ? String(r.value) : '', unit: unit, conf: r ? Math.round(r.conf) : null, path: (r && r.meter) || '', crop: (r && r.crop) || '', notes: (extra && extra.notes) || '', fallback: !!(extra && extra.fallback) });
+        if (kind === 'weighbridge' || kind === 'auto') {
+            const img = await rcOpen(url);
+            if (kind === 'auto') {
+                const led = window.LedWeightReader ? window.LedWeightReader.read(img, dec == null ? 3 : dec) : { found: false };
+                if (led.found) kind = 'fineness';
+                else { try { await rcEnsureLcd(); } catch (e) { /* weighbridge reader not available */ } const w = window.LcdWeightReader ? window.LcdWeightReader.read(img) : { ok: false }; if (w.ok && w.conf >= MO.MIN_CONFIDENCE) return rcWeighbridge(w); kind = 'moisture'; }
+            } else { await rcEnsureLcd(); return rcWeighbridge(window.LcdWeightReader.read(img)); }
+        }
+        if (kind === 'fineness') {
+            const r = await MO.read(file, { kind: 'weight', decimals: dec });
+            const dedicated = r && /LED 7-segment scale/.test(r.meter || '');
+            return norm('Fineness scale (red LED)', r, 'kg', { fallback: !dedicated, notes: dedicated ? '' : 'FALLBACK reader: no red-LED display of the trained kind was found, so this is a guess from a general reader' });
+        }
+        const r = await MO.read(file, { kind: 'moisture' });
+        return norm('Moisture meter' + (rc.kind === 'auto' ? ' (nothing else matched)' : ''), r, '%', {});
+    }
+    function rcWeighbridge(w) {
+        return { reader: 'Weighbridge indicator (blue)', value: w.ok ? w.value : null, shown: w.ok ? String(w.value) : '', unit: 'kg', conf: w.ok ? w.conf : null, path: w.ok ? 'digits: ' + w.digits.map(d => d.ch + ':' + d.conf).join(' ') : '', crop: '', notes: w.ok ? (w.notes || []).join(', ') : (w.why || 'no reading'), fallback: false };
+    }
+    async function rcRun(files) {
+        files = files.filter(f => /^image\//.test(f.type || 'image/'));
+        if (!files.length || rc.busy) return;
+        rc.busy = true; const prog = rcEl('rc-progress');
+        for (let i = 0; i < files.length; i++) {
+            prog.textContent = 'Reading photo ' + (i + 1) + ' of ' + files.length + '... (the first moisture / fallback read after opening the page can take a minute while the engine loads)';
+            const f = files[i], url = URL.createObjectURL(f), t0 = performance.now();
+            let row = { name: f.name, url: url, expected: '', seconds: 0, err: '' };
+            try { Object.assign(row, await rcReadOne(f, url, rc.kind)); } catch (e) { row.err = e.message || String(e); }
+            row.seconds = Math.round((performance.now() - t0) / 100) / 10;
+            rc.rows.push(row); rcRender();
+        }
+        prog.textContent = ''; rc.busy = false;
+    }
+    function rcVerdict(r) {
+        if (r.err) return ['no', '\u274C The reader could not run: ' + r.err];
+        if (r.value === null) return ['no', '\u274C No reading found - the operator would be asked to retake the photo'];
+        if (r.conf >= window.MoistureOCR.MIN_CONFIDENCE) return ['ok', '\u2705 Shown as a clear reading (the operator presses "Yes, use this value")'];
+        return ['unsure', '\u26A0\uFE0F Shown as "Not sure" - the operator can still accept it by confirming in a pop-up'];
+    }
+    function rcMatch(r) {
+        if (r.expected === '' || r.expected === undefined) return null;
+        const e = Number(String(r.expected).replace(',', '.'));
+        if (!isFinite(e)) return null;
+        return r.value !== null && Math.abs(r.value - e) < 1e-9;
+    }
+    function rcRender(keepFocus) {
+        rcEl('rc-results-card').style.display = rc.rows.length ? '' : 'none';
+        const body = rcEl('rc-body');
+        if (keepFocus) {       // only the "Right?" cells and the summary change while somebody types a real value
+            rc.rows.forEach((r, i) => { const c = body.querySelector('[data-right="' + i + '"]'); if (c) c.innerHTML = rcRight(r); });
+        } else {
+            body.innerHTML = rc.rows.map((r, i) => {
+                const v = rcVerdict(r), col = v[0] === 'ok' ? '#34d399' : (v[0] === 'unsure' ? '#fbbf24' : '#f87171');
+                return `<tr><td><img class="rc-thumb" src="${r.url}" alt=""><small style="color:#94a3b8; overflow-wrap:anywhere;">${esc(r.name)}</small></td>` +
+                    `<td>${esc(r.reader || '-')}${r.path ? `<br><small style="color:#94a3b8;">${esc(r.path)}</small>` : ''}${r.crop ? `<img class="rc-crop" src="${r.crop}" alt="what the reader looked at">` : ''}${r.notes ? `<br><small style="color:#fbbf24;">${esc(r.notes)}</small>` : ''}</td>` +
+                    `<td><span class="rc-val">${r.value === null ? '&ndash;' : esc(r.shown)}</span> <small>${r.value === null ? '' : esc(r.unit)}</small><br><small style="color:#94a3b8;">${r.seconds} s</small></td>` +
+                    `<td>${r.conf === null ? '&ndash;' : r.conf + ' %'}</td><td style="color:${col};">${esc(v[1])}</td>` +
+                    `<td><input class="rc-exp" type="text" inputmode="decimal" data-exp="${i}" value="${esc(r.expected)}" placeholder="real value"></td><td data-right="${i}">${rcRight(r)}</td></tr>`;
+            }).join('');
+        }
+        const withExp = rc.rows.filter(r => rcMatch(r) !== null), right = withExp.filter(r => rcMatch(r) === true).length;
+        const confidentWrong = withExp.filter(r => rcMatch(r) === false && r.value !== null && r.conf >= window.MoistureOCR.MIN_CONFIDENCE).length;
+        rcEl('rc-summary').innerHTML = `<b>${rc.rows.length}</b> photo(s)` + (withExp.length ? ` &middot; with a real value typed: <b>${withExp.length}</b> &middot; right <b style="color:#34d399;">${right}</b> &middot; wrong <b style="color:#f87171;">${withExp.length - right}</b>` + (confidentWrong ? ` &middot; <b style="color:#f87171;">${confidentWrong} wrong although shown as a clear reading</b>` : '') : ' &middot; type the real value in the column on the right to count right and wrong answers');
+    }
+    function rcRight(r) { const m = rcMatch(r); return m === null ? '<span style="color:#94a3b8;">&ndash;</span>' : (m ? '<b style="color:#34d399;">&#10003; right</b>' : '<b style="color:#f87171;">&#10007; wrong</b>'); }
+    async function rcExport() {
+        try {
+            const wb = new ExcelJS.Workbook(), sh = wb.addWorksheet('Reader check');
+            sh.columns = [{ header: 'Photo', width: 44 }, { header: 'Reader used', width: 30 }, { header: 'It read', width: 12 }, { header: 'Unit', width: 6 }, { header: 'Sure %', width: 8 }, { header: 'What the operator would see', width: 60 }, { header: 'Real value', width: 12 }, { header: 'Right?', width: 8 }, { header: 'Seconds', width: 8 }, { header: 'Notes', width: 60 }];
+            sh.getRow(1).font = { bold: true };
+            rc.rows.forEach(r => { const m = rcMatch(r); sh.addRow([r.name, r.reader || '', r.value === null ? '' : r.value, r.unit || '', r.conf === null ? '' : r.conf, rcVerdict(r)[1].replace(/[\u2705\u274C\u26A0\uFE0F]/g, '').trim(), r.expected, m === null ? '' : (m ? 'yes' : 'NO'), r.seconds, r.notes || r.err || '']); });
+            const buf = await wb.xlsx.writeBuffer(), url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })), a = document.createElement('a');
+            a.href = url; a.download = 'Reader_check_' + window.BiomassAPI.todayIST().replace(/-/g, '') + '.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        } catch (e) { alert('Export failed: ' + e.message); }
     }
 
     // ================= CORE RUNNER ON LOAD =================

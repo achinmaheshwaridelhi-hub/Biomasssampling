@@ -29,7 +29,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20261030_v60">
+    <link rel="stylesheet" href="style.css?v=20261030_v63">
     <!-- Chart.js 4.4.4 for the Executive Management Dashboard: the app's own copy (no outside server is trusted) -->
     <script src="lib/chart.umd.min.js"></script>
 </head>
@@ -162,6 +162,7 @@
                 <button class="tab-btn sx-tab" data-tab="super-ips" id="tab-btn-sx-ips" style="display: none;">&#127760; IP addresses <span id="sx-ip-badge" class="bottom-badge" style="display: none;">0</span></button>
                 <button class="tab-btn sx-tab" data-tab="super-passwords" id="tab-btn-sx-passwords" style="display: none;">&#128273; Passwords</button>
                 <button class="tab-btn sx-tab" data-tab="super-security" id="tab-btn-sx-security" style="display: none;">&#128737;&#65039; Security</button>
+                <button class="tab-btn sx-tab" data-tab="super-reader" id="tab-btn-sx-reader" style="display: none;">&#128247; Reader check</button>
             </div>
 
             <!-- TAB 0: EXECUTIVE DASHBOARD -->
@@ -593,7 +594,6 @@
                                 <tr>
                                     <th>Truck ID</th>
                                     <th>Reg Date/Time</th>
-                                    <th>Supplier Name</th>
                                     <th>Vehicle Number</th>
                                     <th>Invoice / Challan No.</th>
                                     <th>Driver Name</th>
@@ -1251,6 +1251,36 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- READER CHECK (Super Admin): try any photo on the same readers the app uses -->
+            <div id="tab-super-reader" class="tab-content">
+                <div class="sx-hero">
+                    <div>
+                        <div class="sx-hero-title">&#128247; Reader check</div>
+                        <div class="sx-hero-sub">Try any photo on the <b>same readers the app uses</b> (moisture meter, fineness scale, weighbridge indicator): what it reads, how sure it is, and what an operator would be shown. Type the real value to count right and wrong answers. <b>Nothing is saved or uploaded</b> &ndash; the photos stay in this browser.</div>
+                    </div>
+                    <div><button type="button" class="btn btn-secondary" id="btn-rc-clear">Clear the list</button></div>
+                </div>
+                <div class="card">
+                    <div class="rc-seg" id="rc-kind">
+                        <button type="button" class="active" data-k="auto">&#128269; Auto-detect</button>
+                        <button type="button" data-k="moisture">&#128167; Moisture meter</button>
+                        <button type="button" data-k="fineness">&#9878;&#65039; Fineness scale (red LED, kg)</button>
+                        <button type="button" data-k="weighbridge">&#128667; Weighbridge indicator (blue, kg)</button>
+                    </div>
+                    <p id="rc-kind-help" style="font-size: 0.85rem; color: var(--text-muted); margin: 0.7rem 0;"></p>
+                    <label class="rc-drop" id="rc-drop" for="rc-file">&#128193; Choose photos (several at once) or drop them here<input type="file" id="rc-file" accept="image/*" multiple style="display: none;"></label>
+                    <div id="rc-engine" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.6rem;"></div>
+                    <div id="rc-progress" style="font-size: 0.9rem; margin-top: 0.5rem;"></div>
+                </div>
+                <div class="card" id="rc-results-card" style="display: none;">
+                    <div style="display: flex; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.5rem;">
+                        <div id="rc-summary" style="font-size: 0.92rem;"></div>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btn-rc-export">&#11015; Download as Excel</button>
+                    </div>
+                    <div class="table-responsive"><table style="min-width: 0; font-size: 0.86rem;"><thead><tr><th>Photo</th><th>Reader used</th><th>It read</th><th>Sure</th><th>What the operator would see</th><th>Real value</th><th>Right?</th></tr></thead><tbody id="rc-body"></tbody></table></div>
                 </div>
             </div>
 
@@ -2115,14 +2145,34 @@
         </div>
     </div>
 
+    <!-- The Super Admin's recovery code: shown ONCE -->
+    <div id="recovery-code-modal" style="display: none; position: fixed; inset: 0; z-index: 99997; background: rgba(2,6,23,0.94); align-items: center; justify-content: center; padding: 1rem;">
+        <div class="card" style="max-width: 520px; width: 100%; margin: 0; border: 2px solid #10b981;">
+            <h3 class="card-title" style="margin-bottom: 0.4rem;">&#128273; Your recovery code</h3>
+            <p style="font-size: 0.9rem; margin-bottom: 0.7rem;">Write it down or print it and keep it somewhere safe (a locked drawer, not on this computer). It is <b>shown only now</b>, works <b>once</b>, and only together with your password. It lets you register a new computer if no trusted computer is at hand.</p>
+            <div id="recovery-code-value" style="font-family: monospace; font-size: 1.5rem; font-weight: 800; letter-spacing: 0.08em; text-align: center; padding: 0.9rem; border-radius: 10px; background: rgba(0,0,0,0.35); word-break: break-all; user-select: all;"></div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end; flex-wrap: wrap; margin-top: 0.9rem;">
+                <button type="button" class="btn btn-secondary" id="btn-recovery-copy">Copy</button>
+                <button type="button" class="btn btn-secondary" id="btn-recovery-print">Print</button>
+                <button type="button" class="btn btn-primary" id="btn-recovery-done">I have saved it</button>
+            </div>
+        </div>
+    </div>
+
     <!-- A login whose lock is ON was used from a computer that is not approved -->
     <div id="device-block-modal" style="display: none; position: fixed; inset: 0; z-index: 99996; background: rgba(2,6,23,0.96); align-items: center; justify-content: center; padding: 1rem;">
         <div class="card" style="max-width: 480px; width: 100%; margin: 0; border: 2px solid #f59e0b;">
             <h3 class="card-title" style="margin-bottom: 0.4rem;">&#128274; This computer is not approved</h3>
             <p id="device-block-text" style="font-size: 0.92rem; margin-bottom: 0.8rem;"></p>
+            <div id="device-block-id" style="font-size: 0.82rem; color: #94a3b8; margin-bottom: 0.7rem;"></div>
             <div id="device-block-ask">
-                <label style="display: block; font-size: 0.8rem; margin-bottom: 0.2rem;">Name of this computer</label>
-                <input type="text" id="device-block-name" maxlength="60" placeholder="e.g. Office PC" style="width: 100%; padding: 0.55rem; margin-bottom: 0.7rem;">
+                <label style="display: block; font-size: 0.8rem; margin-bottom: 0.2rem;" id="device-block-name-label">Name of this computer</label>
+                <input type="text" id="device-block-name" maxlength="60" placeholder="e.g. Weighbridge PC - office" style="width: 100%; padding: 0.55rem; margin-bottom: 0.7rem;">
+            </div>
+            <div id="device-block-recover" style="display: none; margin: 0.2rem 0 0.9rem; padding-top: 0.8rem; border-top: 1px solid var(--border-color);">
+                <label style="display: block; font-size: 0.8rem; margin-bottom: 0.2rem;">No trusted computer at hand? Type the <b>recovery code</b> (Super Admin) &ndash; the name above is used for this computer</label>
+                <input type="text" id="device-block-code" maxlength="40" autocomplete="off" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX" style="width: 100%; padding: 0.55rem; letter-spacing: 0.08em; text-transform: uppercase;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-device-recover" style="margin-top: 0.5rem;">Use the recovery code</button>
             </div>
             <div id="device-block-msg" style="font-size: 0.88rem; margin-bottom: 0.6rem; min-height: 1.2em;"></div>
             <div style="display: flex; gap: 0.5rem; justify-content: flex-end; flex-wrap: wrap;">
@@ -2149,8 +2199,8 @@
 
     <!-- PDF.js library for offline PDF barcode scanning in pilot tests -->
     <script src="lib/pdf.min.js" onerror="alert('CRITICAL: lib/pdf.min.js failed to load!')"></script>
-    <script src="lib/mini-pdf.js?v=20261030_v60" onerror="alert('CRITICAL: lib/mini-pdf.js failed to load!')"></script>
-    <script src="lib/xlsx-crypt.js?v=20261030_v60" onerror="alert('CRITICAL: lib/xlsx-crypt.js failed to load!')"></script>
+    <script src="lib/mini-pdf.js?v=20261030_v63" onerror="alert('CRITICAL: lib/mini-pdf.js failed to load!')"></script>
+    <script src="lib/xlsx-crypt.js?v=20261030_v63" onerror="alert('CRITICAL: lib/xlsx-crypt.js failed to load!')"></script>
 
     <!-- ExcelJS 4.4.0 for the Excel exports: the app's own copy -->
     <script src="lib/exceljs.min.js"></script>
@@ -2160,14 +2210,14 @@
 
     <!-- Moisture-meter reader (trained offline OCR). Small loaders only; the ~8 MB engine in lib/ocr/ is fetched
          on first use. If these fail to load the app simply falls back to manual photo + typing. -->
-    <script src="lib/ocr/moisture-reader-core.js?v=20261030_v60"></script>
-    <script src="lib/ocr/led-weight-reader.js?v=20261030_v60"></script>
-    <script src="lib/ocr/led-templates.js?v=20261030_v60"></script>
-    <script src="moisture-ocr.js?v=20261030_v60"></script>
+    <script src="lib/ocr/moisture-reader-core.js?v=20261030_v63"></script>
+    <script src="lib/ocr/led-weight-reader.js?v=20261030_v63"></script>
+    <script src="lib/ocr/led-templates.js?v=20261030_v63"></script>
+    <script src="moisture-ocr.js?v=20261030_v63"></script>
 
     <!-- App JavaScript files -->
-    <script src="api.js?v=20261030_v60" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261030_v60" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="api.js?v=20261030_v63" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261030_v63" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

@@ -1884,7 +1884,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             TRUCK NO: <span style="background: #ef4444; color: white; padding: 0.2rem 0.6rem; border-radius: 4px; border: 1px solid #ffffff; font-size: 1.2rem; display: inline-block; margin-top: 0.25rem;">${esc(res.truck_reg_number)}</span>
                         </div>
                         <strong>UNLOADING STRICTLY FORBIDDEN</strong><br>
-                        Moisture level is <strong>${res.moisture_pct}%</strong> (Maximum allowed: ${res.moisture_limit}%). Do not unload this truck. Weights are recorded exactly as weighed (Net: <strong>${Number(res.net_weight || 0).toLocaleString()} kg</strong>).<br>
+                        Moisture level is <strong>${res.moisture_pct}%</strong> (Maximum allowed: ${res.moisture_limit}%). Do not unload this truck. Its final weight is the same as its initial weight (net <strong>0 kg</strong>) - nothing to enter at the exit.<br>
                         <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="window.openTruckWeighmentSlip('${res.truck_id}')" style="background:#dc2626; color:white; border:none;">🖨️ Print Rejection Slip</button>
                     `;
                 } else if (status === 'CANCELLED') {
@@ -3417,7 +3417,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td><span style="font-family: monospace;">${esc(truck.truck_reg_number)}</span></td>
                     <td><span style="font-family: monospace;">${esc(chNo)}</span></td>
                     <td>${truck.gross_weight ? Number(truck.gross_weight).toLocaleString() : '-'}</td>
-                    <td>${truck.tare_weight ? Number(truck.tare_weight).toLocaleString() : '-'}</td>
+                    <td>${truck.tare_weight ? Number(truck.tare_weight).toLocaleString() : '-'}${(truck.acceptance_status === 'REJECTED' || truck.acceptance_status === 'CANCELLED') && hasTare ? '<br><small style="color:#fca5a5;">= gross (rejected)</small>' : ''}</td>
                     <td style="color: var(--primary); font-weight: bold;">${truck.net_weight ? Number(truck.net_weight).toLocaleString() : '-'}</td>
                     <td style="text-align: center;">${stageBadge}</td>
                     <td style="text-align: center;">${photoHtml}</td>
@@ -3652,12 +3652,12 @@ document.addEventListener('DOMContentLoaded', function() {
                             <tr>
                                 <td>Tare Weight (Outbound Empty)</td>
                                 <td><strong>${tare > 0 ? tare.toLocaleString() + ' kg' : 'Pending Outbound Weighment'}</strong></td>
-                                <td>${tare > 0 ? 'Phase 2 Tare Confirmed' : 'Material In Yard'}</td>
+                                <td>${tare > 0 ? (status === 'REJECTED' || status === 'CANCELLED' ? 'Rejected: leaves with the load it came with (final = initial)' : 'Phase 2 Tare Confirmed') : 'Material In Yard'}</td>
                             </tr>
                             <tr style="background: rgba(0,0,0,0.05); font-weight: bold;">
                                 <td>${status === 'REJECTED' ? 'Net Weight (Rejected Consignment)' : 'Net Biomass Delivered'}</td>
                                 <td style="font-size: 1.15rem; color: #0284c7;">${tare > 0 ? net.toLocaleString() + ' kg (' + (net/1000).toFixed(2) + ' MT)' : '—'}</td>
-                                <td>${status === 'REJECTED' ? 'REJECTED (actual weighed net)' : (tare > 0 ? 'Discharged' : 'Pending')}</td>
+                                <td>${status === 'REJECTED' ? 'REJECTED (not unloaded: final weight = initial weight)' : (tare > 0 ? 'Discharged' : 'Pending')}</td>
                             </tr>
                             <tr>
                                 <td>Gate Moisture %</td>
@@ -3769,6 +3769,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const hasGross = gross !== null && gross !== undefined && Number(gross) > 0;
         const hasTare  = tare  !== null && tare  !== undefined && Number(tare)  > 0;
+        // a REJECTED / cancelled truck has no final weight to enter: the system sets it equal to the gross weight (net 0)
+        const isRej = !!(truck && (truck.acceptance_status === 'REJECTED' || truck.acceptance_status === 'CANCELLED'));
         const grossLocked = hasGross && role !== 'admin';
         // The tare weight is locked the same way the gross weight is, the moment it has been recorded:
         // a non-admin login must not be able to type over an already-submitted value (the server also
@@ -3782,9 +3784,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (grossLockedNotice) grossLockedNotice.style.display = grossLocked ? 'block' : 'none';
 
         if (tareInput) {
-            tareInput.disabled = tareLocked || (!hasGross && role !== 'admin');
+            tareInput.disabled = tareLocked || isRej || (!hasGross && role !== 'admin');
             tareInput.style.background = tareInput.disabled ? 'rgba(255,255,255,0.06)' : '';
-            tareInput.placeholder = hasGross ? 'e.g. 11500' : 'Awaiting outbound return';
+            tareInput.placeholder = isRej ? 'Not needed (rejected truck)' : (hasGross ? 'e.g. 11500' : 'Awaiting outbound return');
         }
         if (tareLockedNotice) tareLockedNotice.style.display = tareLocked ? 'block' : 'none';
 
@@ -3818,7 +3820,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 moistureAlert.innerHTML = `
                     <div style="font-weight: bold; color: #ef4444; font-size: 1rem;">⛔ REJECTED CONSIGNMENT DETECTED (${truck.moisture_pct}% Moisture)</div>
                     <div style="font-size: 0.85rem; color: #fca5a5; margin-top: 0.25rem;">
-                        This consignment was rejected by Lab 1. Biomass must NOT be unloaded. Record the exit tare weight for gate release; the net weight is kept as weighed but is not counted as unloaded quantity.
+                        This consignment was rejected by Lab 1. Biomass must NOT be unloaded. <b>Nothing to enter at the exit</b>: the final weight is set equal to the gross weight (net 0 kg) as soon as the gross is recorded.
                     </div>
                 `;
             } else {
@@ -7737,7 +7739,9 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
 
             <div class="sxd-sec"><h5>Weighment</h5>
-                <div class="sxd-kv">${kv('Gross (kg)', wt(t.gross_weight))}${kv('Final / tare (kg)', wt(t.tare_weight))}${kv('Net (kg)', wt(t.net_weight))}</div></div>
+                <div class="sxd-kv">${kv('Gross (kg)', wt(t.gross_weight))}${kv('Final / tare (kg)', wt(t.tare_weight))}${kv('Net (kg)', wt(t.net_weight))}</div>
+                <div class="sx-btnrow">${btn('edit-wt', '✏️ Edit the weighment', 'btn-primary')}</div>
+                <div class="sx-meta">${d.status === 'REJECTED' || d.status === 'CANCELLED' ? 'This truck is rejected / cancelled: its final weight is always equal to its gross weight (net 0).' : 'Gross and final weight are locked for the weighment login once recorded; only you can correct them here (reason + password, written to the audit log).'}</div></div>
 
             <div class="sxd-sec"><h5>Lab 1 results</h5>
                 <div class="sxd-kv">${kv('Moisture %', sxF(l.moisture_pct, 3))}${kv('Fineness %', sxF(l.fineness_value, 2))}${kv('Fineness weights (kg)', l.fineness_initial_weight ? `${esc(l.fineness_initial_weight)} &rarr; ${esc(l.fineness_final_weight)}` : '')}${kv('Tested', esc(l.tested_at || ''))}${kv('Scanned for mixing', d.mixing_scanned ? '✅ yes' : 'no')}</div>
@@ -7790,6 +7794,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const sample = { sample1_barcode_id: t.sample1_barcode_id, truck_reg_number: t.truck_reg_number, mixing_code: t.daily_group_code, entry_date: t.entry_date, truck_id: t.truck_id,
             kind: 'TRUCK_SAMPLE', moisture_pct: l.moisture_pct, fineness_value: l.fineness_value, fineness_initial_weight: l.fineness_initial_weight, fineness_final_weight: l.fineness_final_weight };
         if (act === 'edit-reg') return superEditRegistration(d);
+        if (act === 'edit-wt') return superEditWeighment(d);
         if (act === 'feed-lab1') return superEditLab1(sample);
         if (act === 'print-qr') return superPrintSample(sample);
         if (act === 'png-qr') return superDownloadSample(sample);
@@ -7829,6 +7834,20 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // Super Admin: correct the weighment (gross / final weight) of a truck
+    function superEditWeighment(d) {
+        const t = d.truck, rej = d.status === 'REJECTED' || d.status === 'CANCELLED' || !!t.cancel_status;
+        openSuperEdit('Edit the weighment', `Truck <b>${esc(t.truck_reg_number)}</b> (${esc(t.company_name)}). Now: gross <b>${Number(t.gross_weight) > 0 ? esc(t.gross_weight) : '-'}</b> kg, final <b>${Number(t.tare_weight) > 0 ? esc(t.tare_weight) : '-'}</b> kg, net <b>${Number(t.net_weight) > 0 ? esc(t.net_weight) : '-'}</b> kg. ` +
+            (rej ? 'This truck is <b>rejected / cancelled</b>: whatever you type, its final weight is set equal to its gross weight (net 0).' : 'Net = gross &minus; final. Leave the final weight empty (0) to let the weighment login record it again.'), [
+            { id: 'gross', label: 'Gross weight (kg)', type: 'number', value: Number(t.gross_weight) > 0 ? t.gross_weight : '', step: '0.001' },
+            { id: 'tare', label: rej ? 'Final weight (kg) - follows the gross weight' : 'Final / tare weight (kg)', type: 'number', value: Number(t.tare_weight) > 0 ? t.tare_weight : '', step: '0.001' }
+        ], async (v, why) => {
+            if (v.gross === '' && v.tare === '' ) throw new Error('Nothing to change.');
+            const r = await window.BiomassAPI.superEditWeighment({ truck_id: t.truck_id, gross: v.gross === '' ? '0' : v.gross, tare: rej ? '0' : (v.tare === '' ? '0' : v.tare), reason: why });
+            alert(`Saved: gross ${r.gross_weight} kg, final ${r.tare_weight} kg, net ${r.net_weight} kg.`);
+        }, { saveLabel: 'Save the weights' });
+    }
+
     // Tool 2: registration details. Vehicle / driver / invoice never regroup. Changing the Lot / vendor / date regroups the truck automatically; or the mixing code can be chosen by hand
     // (one of the vendor's other codes of that day - the truck takes over its lot and PO, and its Fineness scan goes along).
     async function superEditRegistration(d) {
@@ -7842,17 +7861,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 .forEach(x => { const c = codes[x.mixing_code] || (codes[x.mixing_code] = { lot: x.lot, po: x.po_number, n: 0 }); c.n++; });
         } catch (e) { alert(e.message); return; }
         const cur = comps.findIndex(c => c.name === t.company_name && c.lot === t.lot);
-        const vendorOpts = (lot) => comps.map((c, i) => ({ c, i })).filter(x => x.c.lot === lot && (x.c.active || x.i === cur))
-            .map(x => ({ v: x.i, l: `${x.c.name}${x.c.po_number ? ' - PO ' + x.c.po_number : ''}${x.c.active ? '' : ' (retired - this truck\'s present entry)'}` }));
+        // EVERY vendor entry of the database (all lots, also vendors that had no truck that day, also retired ones at the end): choosing an entry also chooses its lot and PO
+        const vendorOpts = () => comps.map((c, i) => ({ c, i })).sort((a, b) => (b.c.active - a.c.active) || String(a.c.name).localeCompare(String(b.c.name)) || String(a.c.lot).localeCompare(String(b.c.lot)))
+            .map(x => ({ v: x.i, l: `${x.c.name} - ${lotLabel(x.c.lot)}${x.c.po_number ? ' - PO ' + x.c.po_number : ''}${x.c.active ? '' : ' (RETIRED)'}${x.i === cur ? ' - this truck now' : ''}` }));
         const codeOpts = [{ v: '', l: `Keep the present mixing code (${t.daily_group_code}) - automatic` }].concat(Object.entries(codes).map(([k, c]) =>
             ({ v: k, l: `${k} - ${c.lot}, ${c.n} truck(s) of this vendor today, PO ${c.po || '-'}` })));
-        openSuperEdit('Edit registration details', `Truck <b>${esc(t.truck_reg_number)}</b> &bull; mixing code <b>${esc(t.daily_group_code)}</b> &bull; ${esc(t.lot)}.<br>Vehicle number, driver and invoice can be corrected freely - the mixing group stays. <b>Changing the Lot / vendor / date</b> moves the truck to the mixing group of that vendor (the container must be scanned again). Or <b>choose the mixing code yourself</b> below: the truck joins that code with its Lot and PO and <b>keeps its scan</b>. Not possible while a composite exists for the old or the new code.`, [
+        openSuperEdit('Edit registration details', `Truck <b>${esc(t.truck_reg_number)}</b> &bull; mixing code <b>${esc(t.daily_group_code)}</b> &bull; ${esc(t.lot)}.<br>Vehicle number, driver and invoice can be corrected freely - the mixing group stays. <b>Changing the vendor / date</b> moves the truck to the mixing group of that vendor (the container must be scanned again). Or <b>choose the mixing code yourself</b> below: the truck joins that code with its Lot and PO and <b>keeps its scan</b>. Not possible while a composite exists for the old or the new code.`, [
             { id: 'truck_reg_number', label: 'Vehicle number', value: t.truck_reg_number, type: 'text' },
             { id: 'driver_name', label: 'Driver name', value: t.driver_name, type: 'text' },
             { id: 'invoice_no', label: 'Invoice / challan number', value: t.invoice_no || t.challan_no, type: 'text' },
             { id: 'code', label: 'Mixing code (join another code of this vendor today)', value: '', type: 'select', options: codeOpts, hint: Object.keys(codes).length ? '' : '(this vendor has no other code today)' },
-            { id: 'lot', label: 'Lot (changes the mixing group)', value: t.lot, type: 'select', options: (t.lot === 'LOT2/3' ? [{ v: 'LOT2/3', l: 'Lot 2/3 (old)' }] : []).concat([{ v: 'LOT2', l: 'Lot 2' }, { v: 'LOT3', l: 'Lot 3' }, { v: 'LOT4', l: 'Lot 4' }]) },
-            { id: 'vendor', label: 'Vendor entry of that lot', value: cur, type: 'select', options: vendorOpts(t.lot) },
+            { id: 'vendor', label: 'Vendor (all vendors of the database - the lot and PO come with the entry; type in the box to find one)', value: cur, type: 'select', options: vendorOpts() },
             { id: 'entry_date', label: 'Entry date', value: t.entry_date, type: 'date' }
         ], async (v, why) => {
             const p = { truck_id: t.truck_id, reason: why };
@@ -7869,19 +7888,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             const c = comps[Number(v.vendor)];
-            if (c && (c.name !== t.company_name || c.lot !== t.lot)) { p.company_name = c.name; p.lot = c.lot; }
+            if (c && (c.name !== t.company_name || c.lot !== t.lot)) {
+                p.company_name = c.name; p.lot = c.lot;
+                if (!c.active) { if (!confirm('"' + c.name + '" (' + lotLabel(c.lot) + ') is a RETIRED vendor entry.\n\nMove the truck to it anyway?')) throw new Error('Nothing was changed.'); p.allow_retired = 'true'; }
+            }
             if (v.entry_date && v.entry_date !== t.entry_date) p.entry_date = v.entry_date;
             if (Object.keys(p).length === 2) throw new Error('Nothing was changed.');
             const res = await window.BiomassAPI.superEditTruck(p);
             alert(res.regrouped ? `Saved. The truck moved to mixing code ${res.daily_group_code}. It must be scanned again in the Fineness login for that group.` : 'Saved and recorded. The mixing group is unchanged.');
         }, { onRender: (box) => {
-            const lotSel = box.querySelector('#se-lot'), venSel = box.querySelector('#se-vendor'), codeSel = box.querySelector('#se-code'), dateIn = box.querySelector('#se-entry_date');
-            lotSel.onchange = () => {                                      // vendor list follows the Lot; the same vendor is preselected
-                const o = vendorOpts(lotSel.value), same = o.find(x => comps[x.v].name === t.company_name);
+            const venSel = box.querySelector('#se-vendor'), codeSel = box.querySelector('#se-code'), dateIn = box.querySelector('#se-entry_date');
+            // a search box above the vendor list (there are 200+ entries)
+            const all = vendorOpts(), find = document.createElement('input');
+            find.type = 'text'; find.placeholder = 'Type part of the vendor name...'; find.style.cssText = 'width:100%; padding:0.45rem; margin:0.2rem 0;'; find.autocomplete = 'off';
+            venSel.parentNode.insertBefore(find, venSel);
+            find.oninput = () => {
+                const q = find.value.trim().toLowerCase(), keep = venSel.value, o = all.filter(x => !q || x.l.toLowerCase().includes(q) || String(x.v) === keep);
                 venSel.innerHTML = o.map(x => `<option value="${x.v}">${esc(x.l)}</option>`).join('');
-                if (same) venSel.value = String(same.v);
+                venSel.value = keep; if (venSel.value !== keep && o.length) venSel.selectedIndex = 0;
             };
-            const lockOthers = () => { const on = !!codeSel.value; [lotSel, venSel, dateIn].forEach(x => { x.disabled = on; x.style.opacity = on ? 0.45 : 1; }); };
+            const lockOthers = () => { const on = !!codeSel.value; [venSel, find, dateIn].forEach(x => { x.disabled = on; x.style.opacity = on ? 0.45 : 1; }); };
             codeSel.onchange = lockOthers; lockOthers();
         } });
     }

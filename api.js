@@ -440,6 +440,7 @@
         // --- SUPER ADMIN (the server refuses everybody else) ---
         async superDetail(v) { return rpc('bm_super_truck_detail', v); },
         async superEditTruck(v) { return rpc('bm_super_edit_truck', v); },
+        async superEditWeighment(v) { return rpc('bm_super_edit_weighment', v); },
         async superForceComposite(v) { return rpc('bm_super_force_composite', v); },
         async superReplaceQr(v) { return rpc('bm_super_replace_qr', v); },
         async superVoidComposite(v) { return rpc('bm_super_void_composite', v); },

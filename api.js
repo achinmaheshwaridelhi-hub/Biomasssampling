@@ -32,6 +32,7 @@
     // way (photo inside the record). If an upload fails for any reason the photo is saved the old way, so work never stops.
     const STORE_PHOTOS_IN_STORAGE = true;
     const EVIDENCE_BUCKET = 'evidence';
+    const isLot4 = (l) => l === 'LOT4' || l === 'LOT4A';        // Lot 4 and Lot 4A follow the same rules
     const STORAGE_LIMIT_BYTES = 1024 * 1024 * 1024;      // Supabase free plan: 1 GB of Storage
 
     const REST = `${SUPABASE_URL}/rest/v1`;
@@ -557,7 +558,7 @@
                 const rejectionReason = acceptance === 'CANCELLED' ? ('QR cancelled: ' + (truck.cancel_reason || ''))
                     : acceptance === 'REJECTED'
                     ? (moistureVal !== null ? `Moisture ${moistureVal}% ≥ ${MOISTURE_REJECT_LIMIT.toFixed(1)}% limit` : 'REJECTED')
-                    : acceptance === 'ACCEPTED' ? (truck.lot === 'LOT4' ? 'Accepted (Lot-4: no moisture rejection)' : `Passed (Moisture < ${MOISTURE_REJECT_LIMIT.toFixed(1)}%)`) : 'Pending Moisture Test';
+                    : acceptance === 'ACCEPTED' ? (isLot4(truck.lot) ? 'Accepted (Lot-4: no moisture rejection)' : `Passed (Moisture < ${MOISTURE_REJECT_LIMIT.toFixed(1)}%)`) : 'Pending Moisture Test';
                 const chVal = truck.invoice_no || truck.challan_no || '';
                 return {
                     truck_id: truck.truck_id, truck_reg_number: truck.truck_reg_number,
@@ -606,7 +607,7 @@
                 // the vendor's TM: the composites of the trucks that are in the normal mixture (a bottom-sampled truck has its own composite)
                 if (!r.excluded_from_mix && comp && comp.tm_value != null) tmList.push(Number(comp.tm_value));
             });
-            const hasLot4 = reportRows.some(r => r.lot === 'LOT4');
+            const hasLot4 = reportRows.some(r => isLot4(r.lot));
             return {
                 company_name: companyName, date, rows: reportRows,
                 summary: {
@@ -685,9 +686,11 @@
         async trainingSpace() { return rpc('bm_admin_training_space', {}); },
         async trainingExamples(ids) { return (await rpc('bm_admin_training_examples', { ids: ids })) || []; },
         /** Delete the training photos at once. scope: 'done' (learned + rejected samples) or 'all'. Files first, then the samples are marked (the database refuses to mark a file that still exists). */
-        async deleteTrainingPhotos(scope, onProgress) {
+        async deleteTrainingPhotos(scope, onProgress, onlyIds) {
             const plan = await rpc('bm_admin_training_delete_plan', { scope: scope });
-            const files = plan.files || [], ids = (plan.detach || []).concat(plan.missing || []);
+            // onlyIds (a Set of sample ids): delete ONLY these - used after a training-set download, so nothing that was not in the zip is ever removed
+            const keep = (x) => !onlyIds || onlyIds.has(Number(x && x.id !== undefined ? x.id : x));
+            const files = (plan.files || []).filter(keep), ids = (plan.detach || []).concat(plan.missing || []).filter(keep);
             let done = 0, failed = 0, freed = 0; const gone = [];
             for (let i = 0; i < files.length; i++) {
                 const it = files[i];

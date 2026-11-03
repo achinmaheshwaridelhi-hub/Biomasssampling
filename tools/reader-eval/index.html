@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Reader evaluation</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font: 14px/1.45 system-ui, sans-serif; margin: 1.2rem auto; max-width: 1100px; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.3rem; } h2 { font-size: 1.05rem; margin-top: 1.6rem; }
+  table { border-collapse: collapse; margin: .5rem 0 1rem; } th, td { border: 1px solid #ccc; padding: 4px 9px; text-align: right; } th:first-child, td:first-child { text-align: left; }
+  th { background: #f2f2f2; } .bad { color: #b00020; font-weight: 600; } .good { color: #0a7a33; font-weight: 600; } .dim { color: #777; }
+  button { font: inherit; padding: .45rem .9rem; margin-right: .5rem; cursor: pointer; } #log { white-space: pre-wrap; color: #555; min-height: 1.4em; }
+</style></head><body>
+<h1>Reader evaluation (offline)</h1>
+<p class="dim">Measures how often each reader gets the confirmed value right, how honest its confidence is, and - by cross-validation - whether learning from labelled photos really helps
+  (every photo is tested with examples learned ONLY from the other photos). Nothing leaves this computer. Data comes from <code>data/index.json</code> (see README.md).</p>
+<div id="summary">Loading...</div>
+<p><button id="b-base" disabled>1 &middot; Measure the readers as they are now</button>
+   <button id="b-cv" disabled>2 &middot; Does learning help? (cross-validation)</button>
+   <button id="b-moist" disabled>Include the moisture reader (loads ~8 MB)</button>
+   <label>blue-LCD learning depth <select id="depth"><option value="fast">fast (3 variants per photo)</option><option value="full">as in the app (10 variants, slow)</option></select></label></p>
+<div id="log"></div><div id="out"></div>
+
+<script src="../../lib/ocr/led-weight-reader.js"></script>
+<script src="../../lib/ocr/led-templates.js"></script>
+<script src="../../lib/ocr/lcd-weight-reader.js"></script>
+<script src="../../lib/ocr/lcd-templates.js"></script>
+<script>
+(function () {
+    'use strict';
+    var K = 5, ACCEPT = 75, LOW = 50;
+    var $ = function (id) { return document.getElementById(id); };
+    var data = null, examples = {}, moistureOn = false, lastRows = [];
+    var tick = function () { return new Promise(function (r) { setTimeout(r, 0); }); };
+    var log = function (t) { $('log').textContent = t; };
+    var esc = function (s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); };
+    var fmt3 = function (v) { return Number(v).toFixed(3); };
+
+    // reader family of every kind: led = red 7-segment scale (fineness), lcd = blue weighbridge indicator, moist = general OCR reader
+    function family(kind) { return kind === 'weighment' ? 'lcd' : kind === 'moisture' ? 'moist' : 'led'; }
+    function truthLed(v) { return fmt3(v).replace('.', ''); }
+    function truthLcd(v) { return String(Number(v)); }
+
+    function loadImage(url) {
+        return new Promise(function (res, rej) { var i = new Image(); i.onload = function () { res(i); }; i.onerror = function () { rej(new Error('cannot open ' + url)); }; i.src = url; });
+    }
+
+    // ---- one reading: returns {read, conf, correct} ------------------------------------------------------------------
+    async function readOne(s, img, templates) {
+        var fam = family(s.kind), out = { read: null, conf: 0, correct: false, note: '' };
+        if (fam === 'led') {
+            var r = window.LedWeightReader.read(img, 3, templates);
+            if (r.found && r.value) { out.read = fmt3(r.value); out.conf = r.conf; out.correct = out.read === fmt3(s.value); } else out.note = r.fail || 'no display found';
+        } else if (fam === 'lcd') {
+            var l = window.LcdWeightReader.read(img, templates ? { templates: templates } : {});
+            if (l.ok) { out.read = String(l.value); out.conf = l.conf; out.correct = out.read === truthLcd(s.value); } else out.note = l.why || 'unreadable';
+        } else {
+            if (!window.MoistureOCR) { out.note = 'moisture reader not loaded'; return out; }
+            var blob = await (await fetch(s.url)).blob();
+            var m = await window.MoistureOCR.read(blob, { kind: 'moisture' });
+            if (m && m.value != null) { out.read = String(Number(m.value)); out.conf = m.conf; out.correct = Math.abs(Number(m.value) - Number(s.value)) < 0.0005; } else out.note = 'no reading';
+        }
+        return out;
+    }
+
+    // ---- training examples of one labelled photo (what "Learn" in the app would add) -----------------------------------
+    async function learnFrom(s, img) {
+        var fam = family(s.kind);
+        if (fam === 'led') {
+            var lab = truthLed(s.value), out = [];
+            if (s.hasExamples && examples[s.id]) { examples[s.id].forEach(function (e) { out.push({ ch: e[0], g: e.slice(1) }); }); return out; }
+            var ex = window.LedWeightReader.examples(img, [-2, -1, 0, 1, 2], [-5, 0, 5], lab.length);
+            if (ex.found) ex.sets.forEach(function (set) { if (set.n !== lab.length) return; set.grids.forEach(function (gs) { gs.forEach(function (g, i) { out.push({ ch: lab[i], g: g }); }); }); });
+            return out;
+        }
+        if (fam === 'lcd') return window.LcdWeightReader.examples(img, truthLcd(s.value), $('depth').value === 'full' ? {} : { angles: [-3, 0, 3], scales: [1] }).examples;
+        return [];
+    }
+    var baseTemplates = function (fam) { return fam === 'led' ? window.LED_TEMPLATES : window.LCD_TEMPLATES; };
+    var extend = function (fam, base, add) { return base.concat(add); };
+
+    // ---- statistics ------------------------------------------------------------------------------------------------------
+    function stats(rows) {
+        var n = rows.length, found = rows.filter(function (r) { return r.read !== null; }), ok = rows.filter(function (r) { return r.correct; });
+        var acc = rows.filter(function (r) { return r.conf >= ACCEPT; }), wrongAcc = acc.filter(function (r) { return !r.correct; });
+        var mean = function (a) { return a.length ? Math.round(a.reduce(function (x, r) { return x + r.conf; }, 0) / a.length) : '-'; };
+        return { n: n, found: found.length, ok: ok.length, accepted: acc.length, wrongAccepted: wrongAcc.length, confOk: mean(ok), confWrong: mean(found.filter(function (r) { return !r.correct; })),
+                 low: rows.filter(function (r) { return r.conf < LOW; }).length };
+    }
+    var pct = function (a, b) { return b ? (100 * a / b).toFixed(1) + '%' : '-'; };
+
+    function table(rows, cols) {
+        return '<table><thead><tr>' + cols.map(function (c) { return '<th>' + c[0] + '</th>'; }).join('') + '</tr></thead><tbody>' +
+            rows.map(function (r) { return '<tr>' + cols.map(function (c) { return '<td>' + c[1](r) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>';
+    }
+
+    // ---- 1: the readers as they are ----------------------------------------------------------------------------------------
+    async function baseline() {
+        var rows = [], i, S = data.samples.filter(function (s) { return family(s.kind) !== 'moist' || moistureOn; });
+        for (i = 0; i < S.length; i++) {
+            log('Reading photo ' + (i + 1) + ' of ' + S.length + '...'); await tick();
+            var s = S[i], r;
+            try { r = await readOne(s, await loadImage(s.url), baseTemplates(family(s.kind))); } catch (e) { r = { read: null, conf: 0, correct: false, note: e.message }; }
+            r.s = s; rows.push(r);
+        }
+        lastRows = rows; log('');
+        var kinds = Array.from(new Set(rows.map(function (r) { return r.s.kind; }))), html = '<h2>Readers as they are now</h2>';
+        html += table(kinds.map(function (k) { var st = stats(rows.filter(function (r) { return r.s.kind === k; })); st.kind = k; return st; }), [
+            ['kind', function (r) { return esc(r.kind); }], ['photos', function (r) { return r.n; }], ['no reading', function (r) { return r.n - r.found; }],
+            ['exactly right', function (r) { return r.ok + ' (' + pct(r.ok, r.n) + ')'; }],
+            ['confidence ' + ACCEPT + '%+', function (r) { return r.accepted; }],
+            ['of those WRONG', function (r) { return r.wrongAccepted ? '<span class="bad">' + r.wrongAccepted + '</span>' : '<span class="good">0</span>'; }],
+            ['unsure (&lt;' + LOW + '%)', function (r) { return r.low; }], ['avg conf, right', function (r) { return r.confOk; }], ['avg conf, wrong', function (r) { return r.confWrong; }]]);
+        // honesty of the confidence: how often is a reading right at each confidence level
+        var bins = [[0, 50], [50, 60], [60, 75], [75, 90], [90, 101]];
+        html += '<h3>Is the confidence honest? (all kinds together)</h3>' + table(bins.map(function (b) {
+            var sel = rows.filter(function (r) { return r.read !== null && r.conf >= b[0] && r.conf < b[1]; });
+            return { range: b[0] + '-' + Math.min(100, b[1] - (b[1] === 101 ? 1 : 0)) + '%', n: sel.length, ok: sel.filter(function (r) { return r.correct; }).length };
+        }), [['confidence', function (r) { return r.range; }], ['readings', function (r) { return r.n; }], ['actually right', function (r) { return r.ok + ' (' + pct(r.ok, r.n) + ')'; }]]);
+        var wrong = rows.filter(function (r) { return !r.correct; });
+        html += '<h3>Misreads (' + wrong.length + ')</h3>' + (wrong.length ? table(wrong.slice(0, 200), [['photo', function (r) { return '<a href="' + r.s.url + '" target="_blank">' + esc(decodeURIComponent(r.s.url.split('/').pop())) + '</a>'; }],
+            ['kind', function (r) { return esc(r.s.kind); }], ['confirmed', function (r) { return esc(r.s.value); }], ['reader said', function (r) { return esc(r.read === null ? '(' + r.note + ')' : r.read); }],
+            ['conf', function (r) { return Math.round(r.conf); }]]) : '<p class="good">none</p>');
+        html += '<p><a id="dl" href="#">Download these results as CSV</a></p>';
+        $('out').innerHTML = html;
+        $('dl').onclick = function (e) {
+            e.preventDefault();
+            var csv = 'file,kind,confirmed,reader,conf,correct\n' + lastRows.map(function (r) { return [r.s.url.split('/').pop(), r.s.kind, r.s.value, r.read === null ? '' : r.read, Math.round(r.conf), r.correct ? 'yes' : 'NO'].join(','); }).join('\n');
+            var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'reader-eval-results.csv'; a.click();
+        };
+    }
+
+    // ---- 2: cross-validation: does learning from OTHER photos help the held-out one? ---------------------------------------
+    async function crossValidate() {
+        var html = '<h2>Does learning help? (' + K + '-fold cross-validation)</h2>', fams = ['led', 'lcd'], fi;
+        for (fi = 0; fi < fams.length; fi++) {
+            var fam = fams[fi], S = data.samples.filter(function (s) { return family(s.kind) === fam; });
+            var title = fam === 'led' ? 'Fineness scale (red 7-segment LED)' : 'Weighbridge indicator (blue LCD)';
+            if (S.length < 10) { html += '<p><b>' + title + '</b>: only ' + S.length + ' photo(s) - at least 10 are needed for a fair test.</p>'; continue; }
+            var imgs = [], i, k;
+            for (i = 0; i < S.length; i++) { log(title + ': opening photo ' + (i + 1) + ' of ' + S.length); await tick(); try { imgs.push(await loadImage(S[i].url)); } catch (e) { imgs.push(null); } }
+            var learned = [];
+            for (i = 0; i < S.length; i++) { log(title + ': cutting examples ' + (i + 1) + ' of ' + S.length); await tick(); learned.push(imgs[i] ? await learnFrom(S[i], imgs[i]).catch(function () { return []; }) : []); }
+            var before = [], after = [];
+            for (k = 0; k < K; k++) {
+                var train = [], base = baseTemplates(fam);
+                for (i = 0; i < S.length; i++) if (i % K !== k) train = train.concat(learned[i]);
+                var t = fam === 'led' ? base.concat(train) : base.concat(train);
+                for (i = 0; i < S.length; i++) {
+                    if (i % K !== k || !imgs[i]) continue;
+                    log(title + ': testing fold ' + (k + 1) + ' of ' + K + ', photo ' + (i + 1)); await tick();
+                    var b = await readOne(S[i], imgs[i], base), a = await readOne(S[i], imgs[i], t);
+                    b.s = a.s = S[i]; before.push(b); after.push(a);
+                }
+            }
+            var sb = stats(before), sa = stats(after);
+            html += '<h3>' + title + ' &mdash; ' + S.length + ' photos</h3>' + table([['Built-in examples only', sb], ['Built-in + learned from the OTHER photos', sa]], [
+                ['', function (r) { return r[0]; }], ['exactly right', function (r) { return r[1].ok + ' (' + pct(r[1].ok, r[1].n) + ')'; }], ['no reading', function (r) { return r[1].n - r[1].found; }],
+                ['confidence ' + ACCEPT + '%+', function (r) { return r[1].accepted; }], ['of those WRONG', function (r) { return r[1].wrongAccepted ? '<span class="bad">' + r[1].wrongAccepted + '</span>' : '<span class="good">0</span>'; }],
+                ['unsure (&lt;' + LOW + '%)', function (r) { return r[1].low; }], ['avg conf, right', function (r) { return r[1].confOk; }]]);
+            var fixed = 0, broke = 0; for (i = 0; i < before.length; i++) { if (!before[i].correct && after[i].correct) fixed++; if (before[i].correct && !after[i].correct) broke++; }
+            html += '<p>Learning <b class="good">fixed ' + fixed + '</b> reading(s) and <b class="' + (broke ? 'bad' : 'good') + '">broke ' + broke + '</b>. ' +
+                (fixed > broke ? 'Training helps on photos the reader has never seen.' : fixed === broke ? (sb.ok === sb.n ? 'The reader was already right on every photo, so there is nothing for training to fix.' : 'No net effect: more of the same examples will not help; the confidence rule or the capture needs changing instead.') : 'Training makes the reader worse here: do NOT publish.') + '</p>';
+        }
+        log(''); $('out').innerHTML = html;
+    }
+
+    // ---- start-up --------------------------------------------------------------------------------------------------------------
+    function loadScript(src) { return new Promise(function (res, rej) { var s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = function () { rej(new Error('cannot load ' + src)); }; document.head.appendChild(s); }); }
+    async function enableMoisture() {
+        $('b-moist').disabled = true; log('Loading the moisture reader...');
+        try {
+            await loadScript('../../lib/tesseract.min.js'); await loadScript('../../lib/ocr/moisture-reader-core.js'); await loadScript('../../moisture-ocr.js');
+            if (!(await window.MoistureOCR.preload())) throw new Error('the reader engine did not start');
+            moistureOn = true; log('Moisture reader ready: step 1 will now include the moisture photos.');
+        } catch (e) { log('Moisture reader could not be loaded: ' + e.message); }
+    }
+    async function init() {
+        try {
+            data = await (await fetch('data/index.json', { cache: 'no-store' })).json();
+            try { examples = await (await fetch('data/examples.json', { cache: 'no-store' })).json(); } catch (e) { examples = {}; }
+        } catch (e) { $('summary').innerHTML = '<span class="bad">No data yet.</span> Run <code>python3 -I import_data.py zip &lt;the downloaded zip&gt;</code> first (see README.md).'; return; }
+        var by = {}; data.samples.forEach(function (s) { by[s.kind] = (by[s.kind] || 0) + 1; });
+        $('summary').innerHTML = '<b>' + data.samples.length + '</b> labelled photo(s): ' + Object.keys(by).map(function (k) { return esc(k) + ' ' + by[k]; }).join(' &middot; ');
+        $('b-base').disabled = $('b-cv').disabled = $('b-moist').disabled = false;
+        $('b-base').onclick = function () { $('b-base').disabled = true; baseline().catch(function (e) { log('Error: ' + e.message); }).then(function () { $('b-base').disabled = false; }); };
+        $('b-cv').onclick = function () { $('b-cv').disabled = true; crossValidate().catch(function (e) { log('Error: ' + e.message); }).then(function () { $('b-cv').disabled = false; }); };
+        $('b-moist').onclick = enableMoisture;
+        window.__eval = { baseline: baseline, crossValidate: crossValidate };
+    }
+    init();
+})();
+</script></body></html>

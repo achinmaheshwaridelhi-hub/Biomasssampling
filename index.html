@@ -29,7 +29,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20261030_v63">
+    <link rel="stylesheet" href="style.css?v=20261103_v66">
     <!-- Chart.js 4.4.4 for the Executive Management Dashboard: the app's own copy (no outside server is trusted) -->
     <script src="lib/chart.umd.min.js"></script>
 </head>
@@ -430,6 +430,7 @@
                                     <button type="button" data-lot="LOT2">Lot 2</button>
                                     <button type="button" data-lot="LOT3">Lot 3</button>
                                     <button type="button" data-lot="LOT4">Lot 4</button>
+                                    <button type="button" data-lot="LOT4A">Lot 4A</button>
                                 </div>
                                 <div style="position: relative;">
                                     <input type="text" id="reg-company" placeholder="Start typing the vendor name or PO number..." autocomplete="off" style="width: 100%;" required>
@@ -440,7 +441,7 @@
                             </div>
                             <div class="form-group" id="reg-lot-group" style="display: none;">
                                 <label for="reg-lot">New supplier &mdash; which Lot?</label>
-                                <select id="reg-lot"><option value="">-- Select Lot --</option><option value="LOT2">Lot 2</option><option value="LOT3">Lot 3</option><option value="LOT4">Lot 4</option></select>
+                                <select id="reg-lot"><option value="">-- Select Lot --</option><option value="LOT2">Lot 2</option><option value="LOT3">Lot 3</option><option value="LOT4">Lot 4</option><option value="LOT4A">Lot 4A</option></select>
                             </div>
                             <div class="form-group">
                                 <label for="reg-driver">Driver Name</label>
@@ -1012,7 +1013,7 @@
                         <label style="flex: 1; min-width: 220px;">Narrow down (optional)
                             <input type="text" id="inspector-mix-input" placeholder="Mixing code, vendor name, PO number or truck number" maxlength="60" autocomplete="off"></label>
                         <label>Lot
-                            <select id="mixr-lot"><option value="">All lots</option><option value="LOT2">Lot 2</option><option value="LOT3">Lot 3</option><option value="LOT4">Lot 4</option></select></label>
+                            <select id="mixr-lot"><option value="">All lots</option><option value="LOT2">Lot 2</option><option value="LOT3">Lot 3</option><option value="LOT4">Lot 4</option><option value="LOT4A">Lot 4A</option></select></label>
                         <button type="button" class="btn btn-primary" id="btn-inspector-mix">Show mixing codes</button>
                     </div>
                     <div style="font-size: 0.78rem; color: #94a3b8;">Leave the dates empty and type a code to search every date.</div>
@@ -1099,7 +1100,8 @@
                 <div class="card sx-search">
                     <div class="sx-searchrow">
                         <label class="sx-grow">Mixing code, truck number, vendor name, sample QR, composite code or PO
-                            <input type="text" id="super-q" placeholder="e.g. 7K3 &middot; HR55K7730 &middot; Green Fuel &middot; S1-ABC12345 &middot; CMP-20261020-001" autocomplete="off"></label>
+                            <input type="text" id="super-q" placeholder="e.g. 7K3 &middot; HR55K7730 &middot; Green Fuel &middot; S1-ABC12345 &middot; CMP-20261020-001" autocomplete="off" spellcheck="false">
+                            <div id="super-suggest" class="vendor-list sx-suggest" style="display: none;" role="listbox"></div></label>
                         <label>From<input type="date" id="super-from"></label>
                         <label>To<input type="date" id="super-to"></label>
                         <button type="button" class="btn btn-primary" id="btn-super-find">&#128269; Search</button>
@@ -1121,6 +1123,7 @@
                         <button type="button" class="sx-fchip" data-lot="LOT2">Lot 2</button>
                         <button type="button" class="sx-fchip" data-lot="LOT3">Lot 3</button>
                         <button type="button" class="sx-fchip" data-lot="LOT4">Lot 4</button>
+                        <button type="button" class="sx-fchip" data-lot="LOT4A">Lot 4A</button>
                     </div>
                     <div id="super-note" class="sx-note"></div>
                 </div>
@@ -1429,6 +1432,15 @@
                         What the reader has learned stays: it is stored as small digit samples, not as photos.
                     </p>
                     <div id="rt-space" style="font-size: 0.9rem; margin-bottom: 0.8rem;">Loading...</div>
+                    <div style="background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.7rem 0.8rem; margin-bottom: 0.8rem;">
+                        <b>&#11015;&#65039; Download the training set and free the space</b>
+                        <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0.3rem 0 0.6rem;">
+                            Saves ONE zip file with the training photos (up to 200 at a time, oldest first) and a <code>labels.csv</code> with what the operators confirmed
+                            (reading type, confirmed value, how sure the reader was, date) &mdash; no supplier, vehicle or operator names. The zip is checked for damage before it is saved.
+                            Then you are asked once more; only after you say yes are exactly those photos deleted from Storage. Send the zip to be used for offline reader training.
+                        </p>
+                        <button type="button" class="btn btn-primary btn-sm" id="rt-export">&#11015;&#65039; Download the training set (zip) and free the space</button>
+                    </div>
                     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                         <button type="button" class="btn btn-primary btn-sm" id="rt-del-done">&#128465;&#65039; Delete the photos of learned and rejected samples</button>
                         <button type="button" class="btn btn-secondary btn-sm" id="rt-del-all" style="border-color:#ef4444; color:#fca5a5;">&#128465;&#65039; Delete ALL training photos (also the waiting ones)</button>
@@ -1441,10 +1453,10 @@
                 </div>
             </div>
 
-            <!-- TAB: VENDORS (Lot 2, Lot 3 and Lot 4) -->
+            <!-- TAB: VENDORS (Lot 2, Lot 3, Lot 4 and Lot 4A) -->
             <div id="tab-admin-vendors" class="tab-content">
                 <div class="card">
-                    <h3 class="card-title">&#127981; Vendors &mdash; Lot 2, Lot 3 and Lot 4</h3>
+                    <h3 class="card-title">&#127981; Vendors &mdash; Lot 2, Lot 3, Lot 4 and Lot 4A</h3>
                     <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
                         Add a vendor, change its name or PO, <b>retire</b> it (it stays for old trucks and reports but can no longer be booked at the gate) or delete it (only possible while it has no trucks).
                         A vendor that books under both lots has one entry per lot. You can also download everything as an Excel sheet, edit it there and upload it back.
@@ -1455,6 +1467,7 @@
                             <button type="button" class="sx-fchip" data-v="LOT2">Lot 2</button>
                             <button type="button" class="sx-fchip" data-v="LOT3">Lot 3</button>
                             <button type="button" class="sx-fchip" data-v="LOT4">Lot 4</button>
+                            <button type="button" class="sx-fchip" data-v="LOT4A">Lot 4A</button>
                         </div>
                         <div class="sx-chips" id="vd-status-chips" style="margin: 0;">
                             <button type="button" class="sx-fchip active" data-v="active">Active</button>
@@ -2216,8 +2229,9 @@
     <script src="moisture-ocr.js?v=20261030_v63"></script>
 
     <!-- App JavaScript files -->
-    <script src="api.js?v=20261030_v63" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261030_v63" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="lib/zip-store.js?v=20261103_v64" onerror="alert('CRITICAL: lib/zip-store.js failed to load!')"></script>
+    <script src="api.js?v=20261103_v65" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261103_v66" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

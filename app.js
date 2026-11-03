@@ -1248,10 +1248,12 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
 
-    // ================= LOTS (three: Lot 2, Lot 3, Lot 4; "LOT2/3" is the old combined value of history booked before the split) =================
-    const LOT_LABEL = { 'LOT2': 'Lot 2', 'LOT3': 'Lot 3', 'LOT4': 'Lot 4', 'LOT2/3': 'Lot 2/3' };
+    // ================= LOTS (Lot 2, Lot 3, Lot 4 and Lot 4A; "LOT2/3" is the old combined value of history booked before the split) =================
+    // Lot 4A follows exactly the same rules as Lot 4 (no moisture rejection, sulphur + VM recorded): isLot4() is true for both
+    const isLot4 = (l) => l === 'LOT4' || l === 'LOT4A';
+    const LOT_LABEL = { 'LOT2': 'Lot 2', 'LOT3': 'Lot 3', 'LOT4': 'Lot 4', 'LOT4A': 'Lot 4A', 'LOT2/3': 'Lot 2/3' };
     const lotLabel = (l) => LOT_LABEL[l] || String(l || '');
-    const lotCls = (l) => l === 'LOT4' ? 'lot-4' : l === 'LOT3' ? 'lot-3' : l === 'LOT2' ? 'lot-2' : 'lot-23';
+    const lotCls = (l) => l === 'LOT4A' ? 'lot-4a' : l === 'LOT4' ? 'lot-4' : l === 'LOT3' ? 'lot-3' : l === 'LOT2' ? 'lot-2' : 'lot-23';
     // a name without its leading "M/s" (vendor names are stored as "M/s NAME"; searching and matching must not depend on the prefix)
     const stripMs = (s) => String(s || '').replace(/\s+/g, ' ').trim().replace(/^(m\s*\/\s*s\.?\s+)+/i, '');
     // the old LOT2/3 entries (not yet split by the vendor-sheet upload) show up under both the Lot 2 and the Lot 3 filter
@@ -1419,9 +1421,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // ================= UNLOADING: DAILY SUMMARY REPORT (for seniors) =================
     // Only the unloading department's view: trucks received / approved / unloaded / rejected and the unloaded quantity (net weighbridge weight).
     // No laboratory results. Vendors are ranked by net quantity unloaded; every vendor also shows its Lot 2 / Lot 3 / Lot 4 split.
-    const SUMMARY_LOTS = ['LOT2', 'LOT3', 'LOT4', 'LOT2/3'];        // LOT2/3 = trucks booked before the split of Lot 2 and Lot 3 (shown only when present)
+    const SUMMARY_LOTS = ['LOT2', 'LOT3', 'LOT4', 'LOT4A', 'LOT2/3'];        // LOT2/3 = trucks booked before the split of Lot 2 and Lot 3 (shown only when present)
     function daySummaryData(rows) {
-        const lotOf = (r) => { const k = String(r.lot || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); return k === 'LOT4' ? 'LOT4' : k === 'LOT3' ? 'LOT3' : k === 'LOT2' ? 'LOT2' : 'LOT2/3'; };
+        const lotOf = (r) => { const k = String(r.lot || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); return k === 'LOT4A' ? 'LOT4A' : k === 'LOT4' ? 'LOT4' : k === 'LOT3' ? 'LOT3' : k === 'LOT2' ? 'LOT2' : 'LOT2/3'; };
         const kg = (r) => Number(r.net_weight) || 0;
         const isCancelled = (r) => r.acceptance_status === 'CANCELLED';
         const isRej = (r) => r.acceptance_status === 'REJECTED' || isCancelled(r);
@@ -1528,7 +1530,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const items = S.vendors.filter(v => v.kg > 0).map(v => ({ label: v.name, value: v.kg }));
         let vItems = items;
         if (items.length > 9) { const rest = items.slice(9); vItems = items.slice(0, 9).concat([{ label: 'Others (' + rest.length + ' vendors)', value: rest.reduce((a, i) => a + i.value, 0), color: '#9CA3AF' }]); }
-        const lotColor = { 'LOT2': '#0288D1', 'LOT3': '#1565C0', 'LOT4': '#6A1B9A', 'LOT2/3': '#00897B' };
+        const lotColor = { 'LOT2': '#0288D1', 'LOT3': '#1565C0', 'LOT4': '#6A1B9A', 'LOT4A': '#AD1457', 'LOT2/3': '#00897B' };
         const lotItems = lotsShown.map(l => ({ label: lotLabel(l), value: T.lots[l].kg, color: lotColor[l] })).filter(i => i.value > 0);
         d.pdf.image(drawPieImage(vItems, 'Unloaded biomass by vendor (MT share)', 700, 300, false), d.M, d.y, 450, 193);
         d.pdf.image(drawPieImage(lotItems, 'Unloaded biomass by lot', 420, 300, true), d.M + 462, d.y, 290, 193);
@@ -1649,7 +1651,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const items = S.vendors.filter(v => v.kg > 0).map(v => ({ label: v.name, value: v.kg }));
         let vItems = items;
         if (items.length > 9) { const rest = items.slice(9); vItems = items.slice(0, 9).concat([{ label: 'Others (' + rest.length + ' vendors)', value: rest.reduce((a, i) => a + i.value, 0), color: '#9CA3AF' }]); }
-        const lotColor = { 'LOT2': '#0288D1', 'LOT3': '#1565C0', 'LOT4': '#6A1B9A', 'LOT2/3': '#00897B' };
+        const lotColor = { 'LOT2': '#0288D1', 'LOT3': '#1565C0', 'LOT4': '#6A1B9A', 'LOT4A': '#AD1457', 'LOT2/3': '#00897B' };
         const lotItems = lots.map(l => ({ label: lotLabel(l), value: T.lots[l].kg, color: lotColor[l] })).filter(i => i.value > 0);
         const png = (cv) => cv.toDataURL('image/png').split(',')[1];
         const img1 = wb.addImage({ base64: png(drawPieImage(vItems, 'Unloaded biomass by vendor (MT share)', 700, 300, false)), extension: 'png' });
@@ -1715,7 +1717,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const rej = x.acceptance_status === 'REJECTED' || x.acceptance_status === 'CANCELLED';
             const na = rej ? ('N/A (' + x.acceptance_status + ')') : 'Pending';
             const w = v => Number(v) > 0 ? Number(v) : '-';
-            const l4 = x.lot === 'LOT4';
+            const l4 = isLot4(x.lot);
             const vals = [i + 1, x.truck_reg_number, x.company_name, lotLabel(x.lot) || '-', x.po_number || '-', w(x.gross_weight), w(x.tare_weight), w(x.net_weight), Number(x.net_weight) > 0 ? Number((Number(x.net_weight) / 1000).toFixed(3)) : '-',
                           numv(x.moisture_pct) ?? na, numv(x.tm) ?? na, numv(x.gcv) ?? na, numv(x.fineness_value) ?? na, numv(x.ash) ?? na, l4 ? (numv(x.sulphur) ?? na) : '-', l4 ? (numv(x.vm) ?? na) : '-', x.gcv_source || '-',
                           x.acceptance_status === 'CANCELLED' ? ('QR CANCELLED: ' + (x.cancel_reason || '')) : x.acceptance_status];
@@ -1754,7 +1756,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const body = rows.map((r, i) => {
             const rej = r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED';
             const cell = (v, n) => { const s = fx(v, n); return s !== null ? s : (rej ? { t: 'N/A', color: RED } : { t: 'Pend.', color: AMBER }); };
-            const l4 = r.lot === 'LOT4';
+            const l4 = isLot4(r.lot);
             return [String(i + 1), { t: r.truck_reg_number, bold: true }, r.company_name, lotLabel(r.lot) + ' / ' + (r.po_number || '-'),
                 wt(r.gross_weight), wt(r.tare_weight), { t: wt(r.net_weight), bold: true },
                 cell(r.moisture_pct, 2), cell(r.tm, 2), cell(r.gcv, 0), cell(r.fineness_value, 2), cell(r.ash, 2), l4 ? cell(r.sulphur, 2) : '-', l4 ? cell(r.vm, 2) : '-', r.gcv_source || '-',
@@ -2131,8 +2133,8 @@ document.addEventListener('DOMContentLoaded', function() {
         box.style.display = 'block';
         if (r.kind === 'exact' || r.kind === 'one') {
             const hasBoth = companyRecords.filter(x => normName(x.name) === normName(r.rec.name)).length > 1;
-            box.style.background = r.rec.lot === 'LOT4' ? 'rgba(59,130,246,0.18)' : 'rgba(16,185,129,0.15)';
-            box.style.border = '1px solid ' + (r.rec.lot === 'LOT4' ? '#3b82f6' : '#10b981');
+            box.style.background = isLot4(r.rec.lot) ? 'rgba(59,130,246,0.18)' : 'rgba(16,185,129,0.15)';
+            box.style.border = '1px solid ' + (isLot4(r.rec.lot) ? '#3b82f6' : '#10b981');
             box.innerHTML = `Selected: <strong>${esc(r.rec.name)}</strong> &mdash; PO <strong>${esc(r.rec.po_number || 'not set')}</strong> &mdash; <strong>${esc(lotLabel(r.rec.lot))}</strong>` +
                 (hasBoth ? '<br><span style="color:#fbbf24;">This vendor also exists under another Lot / PO &mdash; check that this is the right one.</span>' : '');
         } else if (r.kind === 'ambiguous') {
@@ -3141,7 +3143,7 @@ document.addEventListener('DOMContentLoaded', function() {
             let regLot = '', regPo = '', regName = document.getElementById('reg-company').value.trim();
             if (vend.kind === 'new') {
                 regLot = document.getElementById('reg-lot').value || vendorLotFilter;
-                if (!regLot) { alert('This is a new supplier. Please choose its Lot (Lot 2, Lot 3 or Lot 4).'); return; }
+                if (!regLot) { alert('This is a new supplier. Please choose its Lot (Lot 2, Lot 3, Lot 4 or Lot 4A).'); return; }
             } else {
                 regName = vend.rec.name; regLot = vend.rec.lot; regPo = vend.rec.po_number || '';
                 const both = companyRecords.filter(x => normName(x.name) === normName(vend.rec.name)).length > 1;
@@ -3994,7 +3996,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td style="font-weight: 500;">${row.tm !== null && row.tm !== undefined ? row.tm.toFixed(2) + '%' : '-'}</td>
                     <td style="font-weight: 500;">${gcvText}</td>
                     <td style="font-weight: 500;">${ashText}</td>
-                    ${report.summary.has_lot4 ? `<td style="font-weight: 500;">${row.lot === 'LOT4' && row.arb_sulphur !== null ? row.arb_sulphur + '%' : '-'}</td><td style="font-weight: 500;">${row.lot === 'LOT4' && row.arb_vm !== null ? row.arb_vm + '%' : '-'}</td>` : ''}
+                    ${report.summary.has_lot4 ? `<td style="font-weight: 500;">${isLot4(row.lot) && row.arb_sulphur !== null ? row.arb_sulphur + '%' : '-'}</td><td style="font-weight: 500;">${isLot4(row.lot) && row.arb_vm !== null ? row.arb_vm + '%' : '-'}</td>` : ''}
                     <td style="font-weight: 500;">${vendorGcvText}</td>
                     <td style="font-weight: 500;">${refereeGcvText}</td>
                 `;
@@ -4059,7 +4061,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <td>${r.tm !== null && r.tm !== undefined ? r.tm.toFixed(2) + '%' : '-'}</td>
                         <td>${gcvPrint}</td>
                         <td>${ashPrint}</td>
-                        ${report.summary.has_lot4 ? `<td>${r.lot === 'LOT4' && r.arb_sulphur !== null ? r.arb_sulphur + '%' : '-'}</td><td>${r.lot === 'LOT4' && r.arb_vm !== null ? r.arb_vm + '%' : '-'}</td>` : ''}
+                        ${report.summary.has_lot4 ? `<td>${isLot4(r.lot) && r.arb_sulphur !== null ? r.arb_sulphur + '%' : '-'}</td><td>${isLot4(r.lot) && r.arb_vm !== null ? r.arb_vm + '%' : '-'}</td>` : ''}
                         <td>${vendorGcvPrint}</td>
                         <td>${refereeGcvPrint}</td>
                     </tr>
@@ -4515,6 +4517,7 @@ document.addEventListener('DOMContentLoaded', function() {
             };
             rtEl('rt-del-done').onclick = () => rtDeletePhotos('done');
             rtEl('rt-del-all').onclick = () => rtDeletePhotos('all');
+            rtEl('rt-export').onclick = rtExport;
             rtEl('rt-learn').onclick = rtLearn;
             rtEl('rt-publish').onclick = rtPublish;
             rtEl('rt-reject').onclick = async () => {
@@ -4709,6 +4712,77 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // ================= ADMIN: PHOTO STORAGE SPACE (Settings tab) =================
     const STORAGE_TRIGGER_PCT = 90, STORAGE_TARGET_PCT = 75, STORAGE_KEEP_DAYS = 60;
+    // Download the training set (photos + labels) as ONE zip; only after the Admin confirms a second time, exactly those photos are deleted from Storage.
+    // The zip holds no supplier / vehicle / operator names (the Admin list shows them, the export deliberately does not).
+    const RT_ZIP_MAX = 200;
+    async function rtExport() {
+        const btn = rtEl('rt-export'), out = rtEl('rt-del-result'), all2 = [rtEl('rt-del-done'), rtEl('rt-del-all'), btn];
+        if (!window.ZipStore) { out.textContent = 'The zip builder is not loaded - reload the page (Ctrl+F5).'; return; }
+        all2.forEach(b => b.disabled = true);
+        const csv = (v) => { const t = v === null || v === undefined ? '' : String(v); return /[",\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+        const pad = (n, w) => String(n).padStart(w, '0');
+        try {
+            out.textContent = 'Listing the samples...';
+            let rows = [];
+            for (const st of ['PENDING', 'USED', 'REJECTED']) rows = rows.concat((await window.BiomassAPI.trainingList(st)).rows || []);
+            rows = rows.filter(r => r.photo && !String(r.photo).startsWith('purged:')).sort((a, b) => a.id - b.id);
+            if (!rows.length) { out.textContent = 'There are no training photos to download.'; return; }
+            const part = rows.slice(0, RT_ZIP_MAX), files = [], labels = [], failed = [], included = [];
+            const examples = {};
+            // 1. the digit samples the app cut from the ORIGINAL photo when the operator confirmed (the stored photo is a smaller copy)
+            const withEx = part.filter(r => r.examples_n > 0).map(r => r.id);
+            for (let i = 0; i < withEx.length; i += 200) {
+                try { (await window.BiomassAPI.trainingExamples(withEx.slice(i, i + 200))).forEach(x => { examples[x.id] = x.examples; }); } catch (e) { /* the photos are still exported */ }
+            }
+            // 2. the photos
+            for (let i = 0; i < part.length; i++) {
+                const r = part[i];
+                out.textContent = `Collecting photos... ${i + 1} of ${part.length}`;
+                try {
+                    const u = await window.BiomassAPI.loadStoredPhoto(r.photo);
+                    const blob = await (await fetch(u)).blob();
+                    if (String(u).startsWith('blob:')) URL.revokeObjectURL(u);
+                    if (!blob.size) throw new Error('empty photo');
+                    const ext = /png/.test(blob.type) ? 'png' : /webp/.test(blob.type) ? 'webp' : 'jpg';
+                    const name = `photos/${pad(r.id, 6)}_${r.kind}_${Number(r.value)}.${ext}`;
+                    files.push({ name: name, data: new Uint8Array(await blob.arrayBuffer()) });
+                    included.push(r.id);
+                    labels.push([r.id, name, r.kind, Number(r.value), Math.round(r.conf), r.status, r.used_version || '', String(r.created_at).slice(0, 19).replace('T', ' ') + ' UTC', examples[r.id] ? 'yes' : 'no'].map(csv).join(','));
+                } catch (e) { failed.push(r.id); console.warn('Training photo ' + r.id + ' not exported', e); }
+            }
+            if (!included.length) { out.textContent = 'None of the photos could be loaded, so nothing was downloaded and nothing was deleted.'; return; }
+            const exs = {}; included.forEach(id => { if (examples[id]) exs[id] = examples[id]; });
+            files.push({ name: 'labels.csv', data: '﻿id,file,kind,confirmed_value,reader_conf_percent,status,learned_in_version,captured_at,digit_examples\r\n' + labels.join('\r\n') + '\r\n' });
+            files.push({ name: 'examples.json', data: JSON.stringify(exs) });
+            files.push({ name: 'README.txt', data: 'Reader training set exported ' + new Date().toISOString() + '\r\n' + included.length + ' photo(s), sample ids ' + included[0] + ' to ' + included[included.length - 1] +
+                '.\r\nlabels.csv: what the operators confirmed (kind: moisture / fineness_initial / fineness_final). reader_conf_percent: how sure the reader was when it was shown.\r\n' +
+                'examples.json: digit samples cut from the original photo when the reading was confirmed (id -> list), only for samples that have them.\r\n' +
+                'No supplier, vehicle or operator names are included.\r\n' });
+            out.textContent = 'Building and checking the zip...';
+            const zip = window.ZipStore.build(files);
+            const chk = await window.ZipStore.verify(zip);
+            if (!chk.ok) { out.innerHTML = '<span style="color:#ef4444;">The zip failed its own check (' + esc(chk.error || '') + '). Nothing was downloaded and nothing was deleted.</span>'; return; }
+            const d = new Date(), stamp = `${d.getFullYear()}${pad(d.getMonth() + 1, 2)}${pad(d.getDate(), 2)}-${pad(d.getHours(), 2)}${pad(d.getMinutes(), 2)}`;
+            const fname = `reader-training-${stamp}-ids-${included[0]}-${included[included.length - 1]}.zip`;
+            const url = URL.createObjectURL(zip), a = document.createElement('a');
+            a.href = url; a.download = fname; document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 120000);
+            out.innerHTML = `&#9989; Downloaded <b>${esc(fname)}</b> (${included.length} photo(s), ${fmtMB(zip.size)}). Waiting for your confirmation before anything is deleted...`;
+            await new Promise(r => setTimeout(r, 1500));          // let the browser finish saving the file before asking
+            const more = rows.length - part.length;
+            if (!confirm(`The zip "${fname}" with ${included.length} photo(s) (${fmtMB(zip.size)}) has been downloaded and passed its check.\n\nOpen your Downloads folder and make sure the file is really there.\n\n` +
+                `Delete exactly these ${included.length} training photo(s) from Supabase Storage now, to free the space?\nThis cannot be undone` + (failed.length ? `\n(${failed.length} photo(s) could not be loaded; they are NOT deleted.)` : '') + '.\nThe confirmed values stay in the database.')) {
+                out.innerHTML = `&#9989; Downloaded <b>${esc(fname)}</b>. Nothing was deleted from Storage (you chose not to). Press the button again later to delete.`; return;
+            }
+            out.textContent = 'Deleting from Storage...';
+            const r = await window.BiomassAPI.deleteTrainingPhotos('all', (i, n) => { out.textContent = `Deleting... ${Math.round(i / n * 100)}%`; }, new Set(included));
+            try { await window.BiomassAPI.logActivity('TRAINING_SET_EXPORTED', `${included.length} training photo(s) downloaded as ${fname}; ${r.done} file(s) deleted from Storage (about ${(r.freed / 1048576).toFixed(1)} MB), ${r.detached} sample(s) detached; not removed: ${r.failed}.`); } catch (e) { /* courtesy line */ }
+            out.innerHTML = `${r.failed ? '&#9888;&#65039;' : '&#9989;'} Downloaded <b>${esc(fname)}</b> and deleted ${r.done} photo file(s) from Storage, freed about ${fmtMB(r.freed)}` + (r.failed ? `; ${r.failed} could not be removed (try again)` : '') + '.' +
+                (more > 0 ? `<br>&#8505;&#65039; ${more} more training photo(s) are waiting: press the button again for the next zip.` : '');
+        } catch (e) { out.textContent = 'Could not finish: ' + e.message; }
+        finally { all2.forEach(b => b.disabled = false); rtLoad(); }
+    }
+
     const fmtMB = (b) => { const m = (Number(b) || 0) / 1048576; return (m >= 100 ? m.toFixed(0) : m.toFixed(1)) + ' MB'; };
 
     async function refreshStorageCard() {
@@ -7113,8 +7187,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // ================= BARCODE INSPECTOR TAB (ADMIN) =================
     // ================= ADMIN: VENDORS (Lot 2/3 and Lot 4) =================
     const vdState = { rows: [], lot: 'ALL', status: 'active', q: '' };
-    const vdLotCls = (l) => l === 'LOT4' ? 'l4' : l === 'LOT3' ? 'l3' : l === 'LOT2' ? 'l2' : 'l23';
-    const vdNormLot = (t) => { const x = String(t || '').toUpperCase().replace(/[^A-Z0-9/]/g, ''); return ({ 'LOT4': 'LOT4', 'LOT04': 'LOT4', '4': 'LOT4', 'LOT3': 'LOT3', 'LOT03': 'LOT3', '3': 'LOT3', '03': 'LOT3', 'LOT2': 'LOT2', 'LOT02': 'LOT2', '2': 'LOT2', '02': 'LOT2', 'LOT2/3': 'LOT2/3', 'LOT23': 'LOT2/3', '2/3': 'LOT2/3' })[x] || x; };
+    const vdLotCls = (l) => l === 'LOT4A' ? 'l4a' : l === 'LOT4' ? 'l4' : l === 'LOT3' ? 'l3' : l === 'LOT2' ? 'l2' : 'l23';
+    const vdNormLot = (t) => { const x = String(t || '').toUpperCase().replace(/[^A-Z0-9/]/g, ''); return ({ 'LOT4A': 'LOT4A', 'LOT04A': 'LOT4A', '4A': 'LOT4A', 'LOT4': 'LOT4', 'LOT04': 'LOT4', '4': 'LOT4', 'LOT3': 'LOT3', 'LOT03': 'LOT3', '3': 'LOT3', '03': 'LOT3', 'LOT2': 'LOT2', 'LOT02': 'LOT2', '2': 'LOT2', '02': 'LOT2', 'LOT2/3': 'LOT2/3', 'LOT23': 'LOT2/3', '2/3': 'LOT2/3' })[x] || x; };
 
     function vdDialog(o) {
         const m = document.getElementById('vd-modal'), ok = document.getElementById('vd-ok'), cancel = document.getElementById('vd-cancel'), msg = document.getElementById('vd-msg');
@@ -7187,7 +7261,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     function vdFormHtml(v, canLot) {
         const legacy = v.lot === 'LOT2/3';
-        const opts = (legacy ? [['LOT2/3', 'Lot 2/3 (old - choose Lot 2 or Lot 3)']] : []).concat([['LOT2', 'Lot 2'], ['LOT3', 'Lot 3'], ['LOT4', 'Lot 4']]);
+        const opts = (legacy ? [['LOT2/3', 'Lot 2/3 (old - choose Lot 2 or Lot 3)']] : []).concat([['LOT2', 'Lot 2'], ['LOT3', 'Lot 3'], ['LOT4', 'Lot 4'], ['LOT4A', 'Lot 4A']]);
         // a vendor that has trucks cannot change its lot - except the old Lot 2/3, which may be split into Lot 2 or Lot 3 (its trucks and reports follow)
         const only23 = legacy && !canLot;
         return `<label class="vd-field">Vendor name</label><input class="vd-dlg-input" id="vdf-name" maxlength="200" value="${esc(v.name || '')}">
@@ -7196,7 +7270,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <label class="vd-field">PO number</label><input class="vd-dlg-input" id="vdf-po" maxlength="40" value="${esc(v.po_number || '')}" placeholder="optional">`;
     }
     function vdAddDialog() {
-        vdDialog({ title: '➕ Add vendor', html: vdFormHtml({ lot: ['LOT2', 'LOT3', 'LOT4'].includes(vdState.lot) ? vdState.lot : 'LOT3' }, true) +
+        vdDialog({ title: '➕ Add vendor', html: vdFormHtml({ lot: ['LOT2', 'LOT3', 'LOT4', 'LOT4A'].includes(vdState.lot) ? vdState.lot : 'LOT3' }, true) +
             '<p style="font-size:0.8rem; color:#94a3b8; margin-top:0.6rem;">A vendor that also exists under the other lot keeps the same spelling automatically.</p>', okLabel: 'Add vendor',
             onOk: async () => {
                 const name = document.getElementById('vdf-name').value.trim(); if (!name) throw new Error('Type the vendor name.');
@@ -7228,7 +7302,7 @@ document.addEventListener('DOMContentLoaded', function() {
             rows.forEach(v => sh.addRow({ id: v.id, name: v.name, lot: v.lot, po: v.po_number || '', status: v.active ? 'ACTIVE' : 'RETIRED', trucks: v.trucks, del: '' }));
             const last = rows.length + 1 + 300;                    // 300 empty lines to add new vendors
             for (let r = 2; r <= last; r++) {
-                sh.getCell(r, 3).dataValidation = { type: 'list', allowBlank: true, formulae: ['"LOT2,LOT3,LOT4"'] };
+                sh.getCell(r, 3).dataValidation = { type: 'list', allowBlank: true, formulae: ['"LOT2,LOT3,LOT4,LOT4A"'] };
                 sh.getCell(r, 5).dataValidation = { type: 'list', allowBlank: true, formulae: ['"ACTIVE,RETIRED"'] };
                 sh.getCell(r, 7).dataValidation = { type: 'list', allowBlank: true, formulae: ['"YES"'] };
                 sh.getCell(r, 4).numFmt = '@';
@@ -7240,7 +7314,7 @@ document.addEventListener('DOMContentLoaded', function() {
             ['HOW TO USE THIS SHEET', '',
              '1. Edit the sheet, save it as .xlsx, then upload it in the app: Admin > Vendors > "Upload edited sheet". You see a preview first; nothing changes until you press Apply.',
              '2. To CHANGE a vendor: edit its name, lot, PO number or Status on its row. Do NOT change the ID (grey column) - the ID is how the app recognises the row.',
-             '3. To ADD a vendor: type it in an empty row at the bottom (leave the ID empty): name, lot (LOT2, LOT3 or LOT4), PO number.',
+             '3. To ADD a vendor: type it in an empty row at the bottom (leave the ID empty): name, lot (LOT2, LOT3, LOT4 or LOT4A), PO number.',
              '4. To REMOVE a vendor: type YES in the "Delete?" column. A vendor that has trucks is RETIRED instead of deleted (kept for the history, hidden at the gate).',
              '5. Status RETIRED = no longer offered at gate entry. Status ACTIVE = offered.',
              '6. A vendor that has trucks cannot change its lot (add it again under the other lot and set the old row to RETIRED). One exception: an old "LOT2/3" vendor may be set to LOT2 or LOT3 - its trucks and reports follow.',
@@ -7333,6 +7407,79 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // ---- Super Admin search box: suggestions while typing (vendors, vehicles, mixing codes, sample QR and composite codes) ----
+    function wireSuperSuggest(q, go) {
+        const box = sx$('super-suggest');
+        if (!box) { q.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }; return; }
+        let items = [], active = -1, seq = 0, timer = null, busy = false;
+        const cache = {};
+        const norm = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const KIND = { vendor: ['🏭', 'Vendor'], vehicle: ['🚚', 'Vehicle'], code: ['🧩', 'Mixing code'], qr: ['🏷️', 'Sample QR'], comp: ['🧪', 'Composite'] };
+        const hide = () => { box.style.display = 'none'; active = -1; };
+        function paint(text) {
+            if (!items.length && busy) { box.innerHTML = '<div class="vendor-empty">Searching...</div>'; box.style.display = 'block'; return; }
+            box.innerHTML = (items.length ? items.map((it, i) =>
+                `<div class="vendor-item${i === active ? ' active' : ''}" data-i="${i}" role="option"><span class="vendor-name">${esc(it.label)}</span>` +
+                `<span class="vendor-meta"><span class="sx-sugkind">${KIND[it.kind][0]} ${KIND[it.kind][1]}</span>${it.meta}</span></div>`).join('')
+                : `<div class="vendor-empty">No match for "${esc(text)}" yet. Press Enter to search anyway.</div>`) +
+                (busy && items.length ? '<div class="sx-sug-note">Looking for more...</div>' : '');
+            box.style.display = 'block';
+        }
+        function build(text, companies, res) {
+            const tq = text.toLowerCase(), nq = norm(text), U = text.toUpperCase(), out = [], seen = {};
+            const add = (kind, value, label, meta) => { const k = kind + ':' + String(value).toUpperCase(); if (seen[k]) { seen[k].n++; return; } const it = { kind, value, label, meta, n: 1 }; seen[k] = it; out.push(it); };
+            companies.filter(c => stripMs(c.name).toLowerCase().includes(tq) || String(c.po_number || '').toLowerCase().includes(tq)).slice(0, 6)
+                .forEach(c => add('vendor', c.name, c.name, `<span class="lot-tag ${lotCls(c.lot)}">${esc(lotLabel(c.lot))}</span> &nbsp;PO ${esc(c.po_number || 'not set')}${c.active === false ? ' &nbsp;<i>(retired)</i>' : ''}`));
+            const rows = res ? (res.samples || []) : [];
+            rows.forEach(r => {
+                const where = `${esc(r.company_name || '')} &middot; ${esc(dmy(r.entry_date))}`;
+                if (nq.length >= 2 && norm(r.truck_reg_number).includes(nq)) add('vehicle', r.truck_reg_number, r.truck_reg_number, where);
+                else if (r.mixing_code && String(r.mixing_code).toUpperCase().startsWith(U)) add('code', r.mixing_code, String(r.mixing_code).toUpperCase(), where);
+                else if (r.sample1_barcode_id && String(r.sample1_barcode_id).toUpperCase().includes(U)) add('qr', r.sample1_barcode_id, r.sample1_barcode_id, `${esc(r.truck_reg_number || '')} &middot; ${where}`);
+            });
+            (res ? (res.composites || []) : []).forEach(c => {
+                const where = `${esc(c.company_name || '')} &middot; ${esc(dmy(c.date))}`;
+                if (String(c.composite_ref_id || '').toUpperCase().includes(U) || String(c.composite_barcode_id || '').toUpperCase().includes(U)) add('comp', c.composite_ref_id, c.composite_ref_id, where);
+                else if (c.mixing_code && String(c.mixing_code).toUpperCase().startsWith(U)) add('code', c.mixing_code, String(c.mixing_code).toUpperCase(), where);
+            });
+            const order = { vendor: 0, vehicle: 1, code: 2, qr: 3, comp: 4 };
+            out.forEach(it => { if (it.n > 1) it.meta += ` &nbsp;&middot;&nbsp; ${it.n} samples`; });
+            return out.sort((a, b) => order[a.kind] - order[b.kind]).slice(0, 14);
+        }
+        async function refresh() {
+            const text = q.value.trim();
+            if (text.length < 2) { hide(); return; }
+            const mine = ++seq; busy = true;
+            let companies = [];
+            try { companies = await sxLoadCompanies(); } catch (e) { companies = []; }
+            if (mine !== seq) return;
+            items = build(text, companies, cache[text]); active = -1; paint(text);          // vendors at once, the rest follows
+            if (!cache[text]) {
+                try { cache[text] = await window.BiomassAPI.superFind(text, null, null); } catch (e) { cache[text] = { samples: [], composites: [] }; }
+                if (mine !== seq) return;
+                items = build(text, companies, cache[text]);
+            }
+            busy = false; active = -1; paint(text);
+        }
+        function pick(i) { const it = items[i]; if (!it) return; q.value = it.value; hide(); go(); }
+        q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(refresh, 220); });
+        q.addEventListener('focus', () => { if (q.value.trim().length >= 2) refresh(); });
+        q.addEventListener('blur', () => setTimeout(hide, 180));
+        q.addEventListener('keydown', (e) => {
+            const open = box.style.display !== 'none';
+            if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && open && items.length) {
+                e.preventDefault();
+                active = (active + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+                [...box.querySelectorAll('.vendor-item')].forEach((el, i) => el.classList.toggle('active', i === active));
+                const a = box.querySelector('.vendor-item.active'); if (a) a.scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'Enter') {
+                e.preventDefault(); clearTimeout(timer); seq++;
+                if (open && active >= 0) pick(active); else { hide(); go(); }
+            } else if (e.key === 'Escape') { hide(); }
+        });
+        box.addEventListener('mousedown', (e) => { const it = e.target.closest('.vendor-item'); if (it) { e.preventDefault(); pick(Number(it.getAttribute('data-i'))); } });
+    }
+
     let sxTwoDays = null;
     function initSuperConsole() {
         if (sxWired) return;
@@ -7346,7 +7493,7 @@ document.addEventListener('DOMContentLoaded', function() {
         sxTwoDays = twoDays;
         { const [f0, t0] = twoDays(); if (!sx$('super-from').value) sx$('super-from').value = f0; if (!sx$('super-to').value) sx$('super-to').value = t0; sx$('super-to').max = t0; }
         sx$('btn-super-clear').onclick = () => { const [f1, t1] = twoDays(); q.value = ''; sx$('super-from').value = f1; sx$('super-to').value = t1; sx$('sx-group-panel').style.display = 'none'; superSearch(); };
-        q.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+        wireSuperSuggest(q, go);          // suggestions while typing; Enter still searches
         const setFilter = (e) => {
             const b = e.target.closest('button[data-f]'); if (!b) return;
             superState.filter = b.dataset.f;
@@ -7500,7 +7647,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const cHtml = C0.map((c, i) => {
             if (!lotOK(c) || !keepC(c)) return '';
-            const l4 = c.lot === 'LOT4', tested = c.arb_gcv !== null && c.arb_gcv !== undefined;
+            const l4 = isLot4(c.lot), tested = c.arb_gcv !== null && c.arb_gcv !== undefined;
             const vals = tested
                 ? `<div class="sx-stats"><div><small>TM</small><b>${sxF(c.tm_value, 2)}</b></div><div><small>ARB GCV</small><b>${esc(c.arb_gcv)}</b></div><div><small>ARB Ash</small><b>${sxF(c.arb_ash, 2)}</b></div></div>` +
                   `<div class="sx-meta">AD: ${sxF(c.ad_moisture, 2)}% moisture / ${sxF(c.ad_gcv, 0)} GCV / ${sxF(c.ad_ash, 2)}% ash${l4 ? ` / S ${sxF(c.ad_sulphur, 2)}% / VM ${sxF(c.ad_vm, 2)}%` : ''}${l4 ? `<br>ARB: S ${sxF(c.arb_sulphur, 2)}% / VM ${sxF(c.arb_vm, 2)}%` : ''}</div>`
@@ -7682,7 +7829,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     function superEditComposite(c) {
-        const l4 = c.lot === 'LOT4';
+        const l4 = isLot4(c.lot);
         const fields = [
             { id: 'ad_moisture', label: 'AD Moisture (%)', value: c.ad_moisture, step: '0.001' },
             { id: 'ad_gcv', label: 'AD GCV (kcal/kg)', value: c.ad_gcv, step: '0.01' },
@@ -7871,7 +8018,7 @@ document.addEventListener('DOMContentLoaded', function() {
             { id: 'driver_name', label: 'Driver name', value: t.driver_name, type: 'text' },
             { id: 'invoice_no', label: 'Invoice / challan number', value: t.invoice_no || t.challan_no, type: 'text' },
             { id: 'code', label: 'Mixing code (join another code of this vendor today)', value: '', type: 'select', options: codeOpts, hint: Object.keys(codes).length ? '' : '(this vendor has no other code today)' },
-            { id: 'lot', label: 'Lot (changes the mixing group)', value: t.lot, type: 'select', options: (t.lot === 'LOT2/3' ? [{ v: 'LOT2/3', l: 'Lot 2/3 (old)' }] : []).concat([{ v: 'LOT2', l: 'Lot 2' }, { v: 'LOT3', l: 'Lot 3' }, { v: 'LOT4', l: 'Lot 4' }]) },
+            { id: 'lot', label: 'Lot (changes the mixing group)', value: t.lot, type: 'select', options: (t.lot === 'LOT2/3' ? [{ v: 'LOT2/3', l: 'Lot 2/3 (old)' }] : []).concat([{ v: 'LOT2', l: 'Lot 2' }, { v: 'LOT3', l: 'Lot 3' }, { v: 'LOT4', l: 'Lot 4' }, { v: 'LOT4A', l: 'Lot 4A' }]) },
             { id: 'vendor', label: 'Vendor entry of that lot', value: cur, type: 'select', options: vendorOpts(t.lot) },
             { id: 'entry_date', label: 'Entry date', value: t.entry_date, type: 'date' }
         ], async (v, why) => {
@@ -7974,10 +8121,10 @@ document.addEventListener('DOMContentLoaded', function() {
           use: 'The same vendor, day, lot and PO ended up with two mixing codes (for example a Lot-3 code and a Lot-4 code), and no composite has been made yet. They must be ONE mixing code.',
           how: ['Type the date, the code that goes away (FROM) and the code that stays (TO).', 'Press <b>Preview…</b>: you see how many trucks move and how many accepted / scanned samples the code will have afterwards.', 'Confirm with a reason: the trucks take the Lot and PO of the TO code and <b>keep their Fineness scans</b>. In Lab 2 you then see one code with all samples scanned.', 'To move just ONE truck, use Inspector &rarr; Open truck &rarr; Edit registration &rarr; Mixing code.'],
           note: 'Refused when a composite exists for either code (void it first, tool 5) or when the codes belong to different vendors.', kind: 'merge' },
-        { n: 11, icon: '🔁', title: 'Convert a vendor\'s existing samples to Lot 4 (in place)',
-          use: 'A vendor already has samples, mixing codes and composites under Lot 2/3 but is to be treated as Lot 4 (it finished its Lot-3 quantity). Re-booking everything would create havoc; this changes only the lot.',
-          how: ['Type the vendor (it needs an active LOT4 entry in Admin > Vendors). Optionally limit it to a date range.', 'Press <b>Preview…</b>: you see how many trucks, mixing codes and composites are affected - nothing is changed yet.', 'Confirm with a reason: trucks, mixing codes, scans, composites and labels stay exactly as they are; only the lot becomes LOT4.', 'Composites <b>not yet tested</b>: Lab 2 now also asks for sulphur and VM. Composites <b>already tested</b>: Inspector &rarr; Edit AD values (the old values are pre-filled) &rarr; add AD sulphur and VM; GCV / ash stay the same.'],
-          note: 'A truck that was rejected under the Lot-3 rule stays rejected. The PO of the trucks is kept unless you choose to switch it. Refused when the vendor has both a Lot-3 and a LOT4 mixing code on the same day.', kind: 'convert' },
+        { n: 11, icon: '🔁', title: 'Convert a vendor\'s existing samples to Lot 4 / Lot 4A (in place)',
+          use: 'A vendor already has samples, mixing codes and composites under Lot 2/3 but is to be treated as Lot 4 (it finished its Lot-3 quantity) - or under Lot 4 but belongs to Lot 4A. Re-booking everything would create havoc; this changes only the lot.',
+          how: ['Choose the target lot (Lot 4 takes over from Lot 2/3, Lot 4A takes over from Lot 4), type the vendor (it needs an active entry under the target lot in Admin > Vendors) and optionally limit it to a date range.', 'Press <b>Preview…</b>: you see how many trucks, mixing codes and composites are affected - nothing is changed yet.', 'Confirm with a reason: trucks, mixing codes, scans, composites and labels stay exactly as they are; only the lot changes.', 'Lot 2/3 &rarr; Lot 4 only - composites <b>not yet tested</b>: Lab 2 now also asks for sulphur and VM. Composites <b>already tested</b>: Inspector &rarr; Edit AD values (the old values are pre-filled) &rarr; add AD sulphur and VM; GCV / ash stay the same. Lot 4 &rarr; Lot 4A changes nothing in the results: Lot 4 and Lot 4A follow the same rules.'],
+          note: 'A truck that was rejected under the Lot-3 rule stays rejected. The PO of the trucks is kept unless you choose to switch it. Refused when the vendor has both a Lot-3 and a LOT4 mixing code on the same day (or both a Lot-4 and a Lot-4A code when converting to Lot 4A).', kind: 'convert' },
         { n: 10, icon: '🛡️', title: 'Protection of this console',
           use: 'The Super Admin can change almost anything, so the console protects itself.',
           how: ['<b>Idle sign-out</b>: after 10 minutes without activity you are signed out.', '<b>Password re-check</b>: the first change (and then every 5 minutes) asks for your password again.', '<b>Alerts</b>: the Admin sees a red badge on the Activity Log until the Super Admin changes are acknowledged.', '<b>Export</b>: the full audit log can be downloaded as Excel.'],
@@ -7994,7 +8141,7 @@ document.addEventListener('DOMContentLoaded', function() {
             else if (t.kind === 'find') act = `<input id="sxt-find-${t.n}" placeholder="Vehicle no., QR or mixing code"><button class="btn btn-primary btn-sm" data-tool="find" data-n="${t.n}">🔍 Find the truck</button>`;
             else if (t.kind === 'void-comp') act = `<input id="sxt-void-code" placeholder="Composite code, e.g. CMP-20261021-001"><button class="btn btn-primary btn-sm" data-tool="void-comp">🗑 Void…</button>`;
             else if (t.kind === 'merge') act = `<input type="date" id="sxt-mg-date" value="${today}" style="max-width:150px; flex:0 0 auto;"><input id="sxt-mg-from" placeholder="FROM code, e.g. MRQ" maxlength="12" style="text-transform:uppercase; max-width:150px;"><input id="sxt-mg-to" placeholder="TO code, e.g. NRB" maxlength="12" style="text-transform:uppercase; max-width:150px;"><button class="btn btn-primary btn-sm" data-tool="merge">🧩 Preview…</button>`;
-            else if (t.kind === 'convert') act = `<input id="sxt-conv-name" list="sxt-conv-list" placeholder="Vendor, e.g. KARNI TRADING COMPANY"><datalist id="sxt-conv-list"></datalist><input type="date" id="sxt-conv-from" title="From (optional)" style="max-width:150px; flex:0 0 auto;"><input type="date" id="sxt-conv-to" title="To (optional)" style="max-width:150px; flex:0 0 auto;"><label style="font-size:0.78rem; color:#cbd5e1; display:flex; gap:0.35rem; align-items:center; flex-basis:100%;"><input type="checkbox" id="sxt-conv-both" style="flex:0 0 auto; min-width:0;"> If the vendor already has a LOT4 mixing code that day, keep BOTH codes (the Lot-3 code stays as it is)</label><button class="btn btn-primary btn-sm" data-tool="convert">🔁 Preview…</button>`;
+            else if (t.kind === 'convert') act = `<select id="sxt-conv-target" title="Convert to" style="max-width:140px; flex:0 0 auto;"><option value="LOT4">&rarr; Lot 4</option><option value="LOT4A">&rarr; Lot 4A</option></select><input id="sxt-conv-name" list="sxt-conv-list" placeholder="Vendor, e.g. KARNI TRADING COMPANY"><datalist id="sxt-conv-list"></datalist><input type="date" id="sxt-conv-from" title="From (optional)" style="max-width:150px; flex:0 0 auto;"><input type="date" id="sxt-conv-to" title="To (optional)" style="max-width:150px; flex:0 0 auto;"><label style="font-size:0.78rem; color:#cbd5e1; display:flex; gap:0.35rem; align-items:center; flex-basis:100%;"><input type="checkbox" id="sxt-conv-both" style="flex:0 0 auto; min-width:0;"> If the vendor already has a LOT4 mixing code that day, keep BOTH codes (the old code stays as it is)</label><button class="btn btn-primary btn-sm" data-tool="convert">🔁 Preview…</button>`;
             else if (t.kind === 'logins') act = `<button class="btn btn-primary btn-sm" data-tool="goto" data-tab="super-logins">👥 Open Logins</button>`;
             else if (t.kind === 'health') act = `<button class="btn btn-primary btn-sm" data-tool="goto" data-tab="super-health">🩺 Open Data health</button>`;
             else act = `<button class="btn btn-secondary btn-sm" data-tool="goto" data-tab="admin-activity">📜 Open the Audit log</button><button class="btn btn-secondary btn-sm" data-tool="export">⬇ Export audit log (Excel)</button>`;
@@ -8014,7 +8161,7 @@ document.addEventListener('DOMContentLoaded', function() {
         nav.innerHTML = groups.map(([g, ns]) => `<div class="sec-navhead">${esc(g)}</div>` + ns.map(n => { const t = SX_TOOLS.find(x => x.n === n); return `<button type="button" data-tool-n="${n}"><span><span class="sec-n">${n}</span>${t.icon} ${esc(t.title)}</span></button>`; }).join('')).join('');
         nav.onclick = (e) => { const b = e.target.closest('button[data-tool-n]'); if (b) showTool(b.dataset.toolN); };
         showTool(1);
-        sxLoadCompanies().then(cs => { const dl = sx$('sxt-conv-list'); if (dl) dl.innerHTML = [...new Set(cs.filter(c => c.lot === 'LOT4').map(c => c.name))].map(n => `<option value="${esc(n)}">`).join(''); }).catch(() => { });
+        sxLoadCompanies().then(cs => { const dl = sx$('sxt-conv-list'); if (dl) dl.innerHTML = [...new Set(cs.filter(c => isLot4(c.lot)).map(c => c.name))].map(n => `<option value="${esc(n)}">`).join(''); }).catch(() => { });
         box.onclick = async (e) => {
             const b = e.target.closest('button[data-tool]'); if (!b) return;
             const k = b.dataset.tool;
@@ -8029,18 +8176,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 const name = sx$('sxt-conv-name').value.trim(), from = sx$('sxt-conv-from').value, to = sx$('sxt-conv-to').value;
                 if (!name) { alert('Type the vendor first.'); return; }
                 try {
-                    const base = { company_name: name, from: from || null, to: to || null, keep_both: sx$('sxt-conv-both').checked ? 'true' : 'false' };
+                    const tl = sx$('sxt-conv-target').value === 'LOT4A' ? 'LOT4A' : 'LOT4', tlName = lotLabel(tl);
+                    const base = { company_name: name, from: from || null, to: to || null, keep_both: sx$('sxt-conv-both').checked ? 'true' : 'false', target_lot: tl };
                     const pv = await window.BiomassAPI.superConvertLot(Object.assign({ dry_run: 'true' }, base));
-                    openSuperEdit('Convert to Lot 4: ' + pv.company_name,
+                    openSuperEdit('Convert to ' + tlName + ': ' + pv.company_name,
                         `<b>${esc(pv.trucks)}</b> truck(s) (+ ${esc(pv.bottom_samples)} bottom sample(s)) in <b>${esc(pv.groups)}</b> mixing code(s) and <b>${esc(pv.composites_to_test + pv.composites_tested)}</b> composite(s) ` +
-                        `(${esc(pv.composites_to_test)} still to be tested, ${esc(pv.composites_tested)} already tested) will become <b>LOT4</b> - ${from || to ? 'in the chosen period' : 'all dates'}.<br>` +
+                        `(${esc(pv.composites_to_test)} still to be tested, ${esc(pv.composites_tested)} already tested) will become <b>${esc(tl)}</b> - ${from || to ? 'in the chosen period' : 'all dates'}.<br>` +
                         `Mixing codes, scans, composites and labels stay exactly the same. ${pv.kept_rejected ? `<b>${esc(pv.kept_rejected)}</b> truck(s) rejected under the Lot-3 rule stay rejected. ` : ''}` +
-                        `${(pv.both_codes_days || []).length ? `<b>On ${esc(pv.both_codes_days.map(d => dmy(d)).join(', '))} the vendor already has a LOT4 mixing code: both codes stay (the Lot-3 code keeps its number, both are Lot 4).</b> ` : ''}${pv.composites_tested ? 'For the already tested composite(s) add sulphur and VM afterwards in the Inspector (Edit AD values). ' : ''}${pv.composites_to_test ? 'Lab 2 will ask for sulphur and VM on the untested composite(s).' : ''}`,
-                        [{ id: 'switch_po', label: 'PO number of these trucks', type: 'select', value: 'keep', options: [{ v: 'keep', l: 'Keep the PO each truck already has' }, { v: 'switch', l: 'Switch to the Lot-4 PO (' + (pv.lot4_po || 'none') + ')' }] }],
+                        `${(pv.both_codes_days || []).length ? `<b>On ${esc(pv.both_codes_days.map(d => dmy(d)).join(', '))} the vendor already has a ${esc(tlName)} mixing code: both codes stay (the old code keeps its number, both are ${esc(tlName)}).</b> ` : ''}${tl === 'LOT4' && pv.composites_tested ? 'For the already tested composite(s) add sulphur and VM afterwards in the Inspector (Edit AD values). ' : ''}${tl === 'LOT4' && pv.composites_to_test ? 'Lab 2 will ask for sulphur and VM on the untested composite(s).' : ''}`,
+                        [{ id: 'switch_po', label: 'PO number of these trucks', type: 'select', value: 'keep', options: [{ v: 'keep', l: 'Keep the PO each truck already has' }, { v: 'switch', l: 'Switch to the ' + tlName + ' PO (' + (pv.lot4_po || 'none') + ')' }] }],
                         async (v, why) => {
                             const r = await window.BiomassAPI.superConvertLot(Object.assign({ switch_po: v.switch_po === 'switch' ? 'true' : 'false', reason: why }, base));
-                            alert(`Done: ${r.trucks} truck(s), ${r.groups} mixing code(s) and ${r.composites_to_test + r.composites_tested} composite(s) are Lot 4 now.`);
-                        }, { saveLabel: 'Convert to Lot 4' });
+                            alert(`Done: ${r.trucks} truck(s), ${r.groups} mixing code(s) and ${r.composites_to_test + r.composites_tested} composite(s) are ${tlName} now.`);
+                        }, { saveLabel: 'Convert to ' + tlName });
                 } catch (err) { alert(err.message); }
                 return;
             }
@@ -8753,7 +8901,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const truckTable = (g) => {
             const rows = g.rows || [];
-            const lot4 = g.lot === 'LOT4';
+            const lot4 = isLot4(g.lot);
             return `<div class="table-responsive"><table class="mixsearch-table" style="min-width:0; font-size:0.8rem;"><thead><tr><th>Vehicle / Truck ID</th><th>Time</th><th>Sample QR</th><th>Sample type</th><th>Gross / Tare / Net (kg)</th><th>Moisture %</th><th>Fineness %</th><th>Result</th><th>In mixture?</th><th>Scanned</th></tr></thead><tbody>` +
                 rows.map(r => {
                     const lk = r.linked_group_code ? ` (code ${esc(r.linked_group_code)})` : '';
@@ -8774,7 +8922,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 facts.push(['Composite', c.composite_ref_id], ['Test / Referee / Vendor lot', [c.test_lot, c.referee_lot, c.vendor_lot].filter(Boolean).join(' / ') || '-']);
                 if (c.tested) {
                     facts.push(['TM %', f(g.tm, 2)], ['ARB GCV', f(g.gcv, 0)], ['ARB Ash %', f(g.ash, 2)]);
-                    if (g.lot === 'LOT4') facts.push(['ARB Sulphur / VM %', `${f(g.sulphur, 2)} / ${f(g.vm, 2)}`]);
+                    if (isLot4(g.lot)) facts.push(['ARB Sulphur / VM %', `${f(g.sulphur, 2)} / ${f(g.vm, 2)}`]);
                 } else facts.push(['Lab 2 result', 'not tested yet']);
             } else facts.push(['Composite', 'not made yet']);
             return `<div class="mixr-facts">${facts.map(x => `<div><small>${x[0]}</small>${esc(x[1])}</div>`).join('')}</div>` + truckTable(g);
@@ -8929,7 +9077,7 @@ document.addEventListener('DOMContentLoaded', function() {
     window.adminCorrectAd = async function() {
         const b = inspectorLastBatch;
         if (!b) return;
-        const isL4 = b.lot === 'LOT4';
+        const isL4 = isLot4(b.lot);
         const ask = (label, cur) => { const v = prompt(`${label}\n(current: ${cur === null || cur === undefined ? 'none' : cur})`, cur === null || cur === undefined ? '' : String(cur)); return v === null ? null : v.trim(); };
         const vals = {};
         for (const [k, label] of [['ad_moisture', 'AD Moisture (%)'], ['ad_gcv', 'AD GCV (kcal/kg)'], ['ad_ash', 'AD Ash (%)']].concat(isL4 ? [['ad_sulphur', 'AD Sulphur (%)'], ['ad_vm', 'AD VM (%)']] : [])) {
@@ -9055,7 +9203,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     let lab2ResultsHtml = '';
                     inspectorLastBatch = res.batch;
                     if (res.batch.gcv_value !== null && res.batch.gcv_value !== "") {
-                        const b = res.batch, isL4 = b.lot === 'LOT4', has = (v) => v !== null && v !== undefined;
+                        const b = res.batch, isL4 = isLot4(b.lot), has = (v) => v !== null && v !== undefined;
                         const fx = (v, d) => has(v) ? Number(v).toFixed(d) : '-';
                         lab2ResultsHtml = `
                             <div class="lab-meta-display" style="background: #ecfdf5; border-color: #a7f3d0; margin-top: 1rem; color: #065f46;">
@@ -9804,13 +9952,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 isRejected ? ('N/A (' + rec.acceptance_status + ')') : (rec.ad_moisture !== null && rec.ad_moisture !== undefined ? rec.ad_moisture : '-'),
                 isRejected ? ('N/A (' + rec.acceptance_status + ')') : (rec.ad_gcv !== null && rec.ad_gcv !== undefined ? rec.ad_gcv : '-'),
                 isRejected ? ('N/A (' + rec.acceptance_status + ')') : (rec.ad_ash !== null && rec.ad_ash !== undefined ? rec.ad_ash : '-'),
-                rec.lot === 'LOT4' ? (rec.ad_sulphur !== null && rec.ad_sulphur !== undefined ? rec.ad_sulphur : 'Pending') : '-',
-                rec.lot === 'LOT4' ? (rec.ad_vm !== null && rec.ad_vm !== undefined ? rec.ad_vm : 'Pending') : '-',
+                isLot4(rec.lot) ? (rec.ad_sulphur !== null && rec.ad_sulphur !== undefined ? rec.ad_sulphur : 'Pending') : '-',
+                isLot4(rec.lot) ? (rec.ad_vm !== null && rec.ad_vm !== undefined ? rec.ad_vm : 'Pending') : '-',
                 isRejected ? ('N/A (' + rec.acceptance_status + ')') : (rec.x_factor !== null && rec.x_factor !== undefined ? Number(rec.x_factor.toFixed(6)) : '-'),
                 isRejected ? ('N/A (' + rec.acceptance_status + ')') : (rec.gcv_value !== null ? rec.gcv_value : 'Pending'),
                 isRejected ? ('N/A (' + rec.acceptance_status + ')') : (rec.ash_pct !== null ? rec.ash_pct : 'Pending'),
-                rec.lot === 'LOT4' ? (rec.arb_sulphur !== null && rec.arb_sulphur !== undefined ? rec.arb_sulphur : 'Pending') : '-',
-                rec.lot === 'LOT4' ? (rec.arb_vm !== null && rec.arb_vm !== undefined ? rec.arb_vm : 'Pending') : '-',
+                isLot4(rec.lot) ? (rec.arb_sulphur !== null && rec.arb_sulphur !== undefined ? rec.arb_sulphur : 'Pending') : '-',
+                isLot4(rec.lot) ? (rec.arb_vm !== null && rec.arb_vm !== undefined ? rec.arb_vm : 'Pending') : '-',
                 isRejected ? ('N/A (' + rec.acceptance_status + ')') : formatVendorGcvDisplay(rec),
                 isRejected ? ('N/A (' + rec.acceptance_status + ')') : formatRefereeGcvDisplay(rec),
                 rec.acceptance_status || 'PENDING',

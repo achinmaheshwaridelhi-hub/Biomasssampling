@@ -1619,6 +1619,7 @@ header { padding-top: calc(0.75rem + env(safe-area-inset-top)); }
 .vendor-empty { padding: 0.8rem 0.9rem; color: #94a3b8; font-size: 0.88rem; }
 .lot-tag { display: inline-block; padding: 0 0.5rem; border-radius: 999px; font-size: 0.74rem; font-weight: 800; color: #fff; }
 .lot-tag.lot-4 { background: #3b82f6; }
+.lot-tag.lot-4a { background: #db2777; }
 .lot-tag.lot-23 { background: #10b981; }
 .lot-tag.lot-3 { background: #10b981; }
 .lot-tag.lot-2 { background: #d97706; }
@@ -1654,7 +1655,8 @@ header { padding-top: calc(0.75rem + env(safe-area-inset-top)); }
 .sx-search { margin-bottom: 1rem; }
 .sx-searchrow { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: flex-end; }
 .sx-searchrow label { display: flex; flex-direction: column; font-size: 0.75rem; gap: 2px; color: #cbd5e1; }
-.sx-searchrow label.sx-grow { flex: 1; min-width: 240px; }
+.sx-searchrow label.sx-grow { flex: 2 1 460px; min-width: 300px; position: relative; }
+.sx-searchrow label.sx-grow input { font-size: 1.05rem; padding: 0.75rem 0.9rem; }
 .sx-searchrow input { padding: 0.55rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: #fff; border-radius: 8px; }
 .sx-chips { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.8rem; }
 .sx-fchip { border: 1px solid var(--border-color); background: rgba(255,255,255,0.04); color: #cbd5e1; border-radius: 20px; padding: 4px 12px; font-size: 0.78rem; cursor: pointer; }
@@ -1744,7 +1746,7 @@ button.sx-tile.active { border-color: #ef4444; background: rgba(239,68,68,0.16);
 /* Admin > Vendors */
 .vd-toolbar { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
 .vd-lot { font-weight: 800; font-size: 0.75rem; padding: 2px 9px; border-radius: 20px; }
-.vd-lot.l23 { background: rgba(59,130,246,0.2); color: #93c5fd; } .vd-lot.l4 { background: rgba(168,85,247,0.22); color: #d8b4fe; }
+.vd-lot.l23 { background: rgba(59,130,246,0.2); color: #93c5fd; } .vd-lot.l4 { background: rgba(168,85,247,0.22); color: #d8b4fe; } .vd-lot.l4a { background: rgba(236,72,153,0.22); color: #f9a8d4; }
 .vd-lot.l3 { background: rgba(16,185,129,0.22); color: #6ee7b7; } .vd-lot.l2 { background: rgba(245,158,11,0.22); color: #fcd34d; }
 .vd-field { display: block; font-size: 0.8rem; margin: 0.55rem 0 0.15rem; }
 .vd-dlg-input { width: 100%; padding: 0.55rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: #fff; border-radius: 8px; }
@@ -1876,3 +1878,20 @@ tr.ip-unknown td { background: rgba(239,68,68,0.10); }
 .rc-crop { max-height: 38px; max-width: 150px; border-radius: 4px; display: block; margin-top: 4px; background: #111; }
 .rc-val { font-size: 1.15rem; font-weight: 800; }
 .rc-exp { width: 7.5rem; padding: 0.35rem; }
+
+/* --- Super Admin search box: suggestions while typing (same look as the supplier list at gate entry, a little larger) --- */
+.sx-suggest { top: 100%; max-height: 440px; }
+.sx-suggest .vendor-item { font-size: 0.95rem; color: #e2e8f0; padding: 0.65rem 0.95rem; }
+.sx-suggest .vendor-name { font-size: 1rem; }
+.sx-suggest .vendor-meta { font-size: 0.82rem; }
+.sx-sugkind { display: inline-block; min-width: 5.2rem; margin-right: 0.45rem; padding: 0 0.45rem; border-radius: 999px; background: rgba(148,163,184,0.18); color: #cbd5e1; font-size: 0.7rem; font-weight: 800; text-align: center; letter-spacing: 0.02em; }
+.sx-sug-note { padding: 0.55rem 0.95rem; font-size: 0.8rem; color: #94a3b8; border-top: 1px solid rgba(255,255,255,0.06); }
+
+/* --- Drop-downs look the same in every browser (Safari draws its own grey gradient + up/down arrows unless the native look is switched off) --- */
+select:not([multiple]):not([size]) {
+    -webkit-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%2394a3b8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 0.8rem center; background-size: 12px 8px;
+    padding-right: 2.2rem;
+}
+select:disabled { opacity: 0.6; cursor: not-allowed; }

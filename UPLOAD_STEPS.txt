@@ -1,0 +1,19 @@
+GITHUB UPLOAD 01  -  2026-11-03
+Upload the CONTENTS of this folder (everything except this UPLOAD_STEPS.txt) into the main folder of your GitHub repo.
+Keep the folder structure: GitHub's "Add file > Upload files" accepts whole folders by drag and drop; same-name files are replaced.
+The hidden file tools/reader-eval/.gitignore may not show in Finder (press Cmd+Shift+. to show hidden files); it keeps training photos out of GitHub.
+
+ORDER (important):
+  1. FIRST run db/migrations/2026-11-03_lot4a.sql once in Supabase > SQL Editor (it adds Lot 4A; one transaction, nothing changes if it fails).
+  2. THEN upload these files to GitHub.
+
+WHAT CHANGED
+  Website files (replace the old ones):
+    index.html, app.js, api.js, style.css   - Lot 4A everywhere; "Download the training set (zip)" button (Admin > Reader training);
+                                              suggestions while typing in the Super Admin search box; drop-downs look the same in every browser.
+  New files:
+    lib/zip-store.js                        - builds the training-set zip (used by the new button)
+    tools/reader-eval/*                     - offline reader evaluation (not used by the website itself)
+    db/*                                    - the Supabase structure exported from the live project (backup / rebuild); NOT used by the website
+    db_export_queries.sql                   - the queries used to export it
+  NOT included on purpose: "weighment photos" (private photos), tools/reader-eval/data (training data), README.md (unchanged).

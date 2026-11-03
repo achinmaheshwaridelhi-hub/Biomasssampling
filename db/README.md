@@ -11,11 +11,13 @@ Reconstructed from the live project `jarfhyraxjvtimradvbp` (schema only, no reco
 6. `04_bm_triggers_rls.sql`      - row level security + triggers
 7. `06` ... `10_public_functions_*.sql` - the `public.bm_*` functions the website calls
 8. `11_grants_storage.sql`       - who may call what, plus the private `evidence` bucket
+9. `12_passwords.sql`           - recoverable action passwords (Vault key), the Admin edit password, viewing passwords
 
 ## Migrations (changes made after the first export)
 `migrations/` holds one SQL file per change, named by date. Files 00-11 above already include every migration, so a **new** project needs only 00-11.
 An **existing** project (the live one) runs just the migration files it has not run yet, in date order, each in the Supabase SQL Editor:
 * `migrations/2026-11-03_lot4a.sql` - adds the lot **Lot 4A** (same rules as Lot 4). Run it BEFORE publishing the website files that offer Lot 4A.
+* `migrations/2026-11-04_admin_edit_password.sql` - Lot 4 <-> Lot 4A vendor switch with history, the **Admin edit password** for lab-value corrections, and password viewing for the Super Admin. Run it AFTER the Lot 4A migration.
 
 `90_legacy_public_tables.sql` is the old v1 schema in `public` (kept for reference; the site does not use it).
 

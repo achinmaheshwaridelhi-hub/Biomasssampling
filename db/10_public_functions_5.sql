@@ -155,7 +155,7 @@ begin
     perform bm.require_super();
     return jsonb_build_object(
         'changes', coalesce((select jsonb_agg(jsonb_build_object('timestamp', a.timestamp, 'username', a.username, 'action', a.action, 'details', a.details, 'ip', a.ip, 'device', a.device, 'device_name', coalesce((select dd.name from bm.trusted_devices dd where dd.id = a.device_id), a.device_name)) order by a.id desc)
-                               from (select * from bm.activity_logs where action like 'SUPERADMIN\_%' order by id desc limit 3000) a), '[]'::jsonb),
+                               from (select * from bm.activity_logs where action like 'SUPERADMIN\_%' or action in ('ADMIN_VALUE_EDIT', 'ADMIN_EDIT_PASSWORD_WRONG') order by id desc limit 3000) a), '[]'::jsonb),
         'submissions', coalesce((select jsonb_agg(jsonb_build_object('timestamp', q.timestamp, 'username', q.username, 'role', q.role, 'action', q.action, 'ref', q.ref, 'summary', q.summary) order by q.id desc)
                                from (select a.id, a.timestamp, a.username, a.action, pr.role, r.ref,
                                             case a.action
@@ -384,7 +384,7 @@ begin
     if length(v_pw) < 6 then raise exception 'The unloading actions password must have at least 6 characters'; end if;
     if length(v_pw) > 100 then raise exception 'The unloading actions password is too long'; end if;
     v_salt := bm.rand_hex(16);
-    insert into bm.settings(key, value) values ('bottom_pw_salt', v_salt), ('bottom_pw_hash', bm.bottom_pw_hash(v_salt, v_pw))
+    insert into bm.settings(key, value) values ('bottom_pw_salt', v_salt), ('bottom_pw_hash', bm.bottom_pw_hash(v_salt, v_pw)), ('bottom_pw_enc', bm.pw_enc(v_pw))
     on conflict (key) do update set value = excluded.value, updated_at = now();
     delete from bm.bottom_pw_fails;                                  -- a new password also lifts any lock-out
     perform bm.super_log('ACTION_PASSWORD_SET', 'Unloading actions password (bottom sample, cancel QR, day report) was set / changed. Reason: ' || v_reason);

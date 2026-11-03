@@ -320,7 +320,7 @@ begin
                         if v_new_name = c.name and v_new_lot = c.lot and v_new_po is not distinct from c.po_number and v_new_act = c.active then
                             act := 'UNCHANGED'; msg := format('%s (%s)', c.name, c.lot);
                         else
-                            if v_new_lot <> c.lot and v_n > 0 and not (c.lot = 'LOT2/3' and v_new_lot in ('LOT2', 'LOT3')) then
+                            if v_new_lot <> c.lot and v_n > 0 and not (c.lot = 'LOT2/3' and v_new_lot in ('LOT2', 'LOT3')) and not (bm.is_lot4(c.lot) and bm.is_lot4(v_new_lot)) then
                                 raise exception '% has % truck(s), so its lot cannot be changed. Add it under % and retire this entry instead', c.name, v_n, v_new_lot; end if;
                             if (v_new_name <> c.name or v_new_lot <> c.lot)
                                and exists (select 1 from bm.companies x where x.vid <> v_vid and x.lot = v_new_lot and bm.norm_vendor(x.name) = bm.norm_vendor(v_new_name)) then
@@ -330,7 +330,7 @@ begin
                                 update bm.composite_batches set company_name = v_new_name where company_name = c.name and lot = c.lot;
                                 update bm.mixing_groups set company_name = v_new_name where company_name = c.name and lot = c.lot;
                             end if;
-                            if v_new_lot <> c.lot and v_n > 0 then              -- LOT2/3 -> LOT2 / LOT3: all the history of the vendor takes the new lot (same rules, nothing is re-evaluated)
+                            if v_new_lot <> c.lot and v_n > 0 then              -- LOT2/3 -> LOT2 / LOT3, or LOT4 <-> LOT4A: all the history of the vendor takes the new lot (same rules, nothing is re-evaluated)
                                 update bm.trucks set lot = v_new_lot where company_name = v_new_name and lot = c.lot;
                                 update bm.composite_batches set lot = v_new_lot where company_name = v_new_name and lot = c.lot;
                                 update bm.mixing_groups set lot = v_new_lot where company_name = v_new_name and lot = c.lot;

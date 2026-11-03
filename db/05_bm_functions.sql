@@ -347,7 +347,7 @@ CREATE OR REPLACE FUNCTION bm.is_exception_log(p_action text, p_details text)
  LANGUAGE sql
  IMMUTABLE
 AS $function$ select lower(coalesce(p_action, '')) like '%exception%' or lower(coalesce(p_action, '')) like '%reissue%' or lower(coalesce(p_action, '')) like '%lockout%'
-          or coalesce(p_action, '') like 'SUPERADMIN%' or coalesce(p_action, '') in ('BOTTOM_PASSWORD_WRONG', 'QR_CANCELLED')
+          or coalesce(p_action, '') like 'SUPERADMIN%' or coalesce(p_action, '') in ('BOTTOM_PASSWORD_WRONG', 'QR_CANCELLED', 'ADMIN_EDIT_PASSWORD_WRONG')
           or lower(coalesce(p_details, '')) like '%fail%' or lower(coalesce(p_details, '')) like '%expired%' or lower(coalesce(p_details, '')) like '%tampered%' $function$
 ;
 

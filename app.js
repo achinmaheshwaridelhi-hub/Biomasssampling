@@ -4396,6 +4396,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     async function actFetch() {
         const res = await window.BiomassAPI.exceptionsRange({ from: actEl('act-from').value, to: actEl('act-to').value, status: actEl('act-status').value, q: actEl('act-q').value });
+            actSugRows = (res && res.rows) || actSugRows;
         actState.rows = res.rows || [];
         const dmyS = (d) => { const p = String(d).slice(0, 10).split('-'); return p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : String(d); };
         const range = String(res.from).slice(0, 10) === String(res.to).slice(0, 10) ? dmyS(res.from) : dmyS(res.from) + ' to ' + dmyS(res.to);
@@ -7264,9 +7265,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const opts = (legacy ? [['LOT2/3', 'Lot 2/3 (old - choose Lot 2 or Lot 3)']] : []).concat([['LOT2', 'Lot 2'], ['LOT3', 'Lot 3'], ['LOT4', 'Lot 4'], ['LOT4A', 'Lot 4A']]);
         // a vendor that has trucks cannot change its lot - except the old Lot 2/3, which may be split into Lot 2 or Lot 3 (its trucks and reports follow)
         const only23 = legacy && !canLot;
+        const only4 = isLot4(v.lot) && !canLot;        // Lot 4 <-> Lot 4A follow the same rules: the vendor's trucks, mixing codes and composites move along
         return `<label class="vd-field">Vendor name</label><input class="vd-dlg-input" id="vdf-name" maxlength="200" value="${esc(v.name || '')}">
-                <label class="vd-field">Lot</label><select class="vd-dlg-input" id="vdf-lot" ${(canLot || only23) ? '' : 'disabled'}>${opts.filter(o => !only23 || o[0] === 'LOT2/3' || o[0] === 'LOT2' || o[0] === 'LOT3').map(o => `<option value="${o[0]}"${v.lot === o[0] ? ' selected' : ''}>${o[1]}</option>`).join('')}</select>
-                ${(canLot || only23) ? '' : '<small style="color:#94a3b8;">This vendor has trucks, so its lot cannot be changed: add it under the other lot and retire this entry.</small>'}
+                <label class="vd-field">Lot</label><select class="vd-dlg-input" id="vdf-lot" ${(canLot || only23 || only4) ? '' : 'disabled'}>${opts.filter(o => (!only23 || o[0] === 'LOT2/3' || o[0] === 'LOT2' || o[0] === 'LOT3') && (!only4 || isLot4(o[0]))).map(o => `<option value="${o[0]}"${v.lot === o[0] ? ' selected' : ''}>${o[1]}</option>`).join('')}</select>
+                ${only4 ? '<small style="color:#94a3b8;">Lot 4 and Lot 4A follow the same rules, so you may switch between them: this vendor\'s trucks, mixing codes and composites move along (QR codes and results stay exactly as they are).</small>' : (canLot || only23) ? '' : '<small style="color:#94a3b8;">This vendor has trucks, so its lot cannot be changed (except Lot 4 &harr; Lot 4A): add it under the other lot and retire this entry.</small>'}
                 <label class="vd-field">PO number</label><input class="vd-dlg-input" id="vdf-po" maxlength="40" value="${esc(v.po_number || '')}" placeholder="optional">`;
     }
     function vdAddDialog() {
@@ -7282,7 +7284,7 @@ document.addEventListener('DOMContentLoaded', function() {
             onOk: async () => {
                 const name = document.getElementById('vdf-name').value.trim(); if (!name) throw new Error('Type the vendor name.');
                 const row = { id: v.id, name, po_number: document.getElementById('vdf-po').value.trim() };
-                if (v.trucks === 0 || v.lot === 'LOT2/3') row.lot = document.getElementById('vdf-lot').value;
+                if (v.trucks === 0 || v.lot === 'LOT2/3' || isLot4(v.lot)) row.lot = document.getElementById('vdf-lot').value;
                 const r = await vdApply([row]);
                 if (r.results[0].action === 'UNCHANGED') throw new Error('Nothing was changed.');
             } });
@@ -7407,78 +7409,186 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // ---- Super Admin search box: suggestions while typing (vendors, vehicles, mixing codes, sample QR and composite codes) ----
-    function wireSuperSuggest(q, go) {
-        const box = sx$('super-suggest');
-        if (!box) { q.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }; return; }
-        let items = [], active = -1, seq = 0, timer = null, busy = false;
-        const cache = {};
-        const norm = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-        const KIND = { vendor: ['🏭', 'Vendor'], vehicle: ['🚚', 'Vehicle'], code: ['🧩', 'Mixing code'], qr: ['🏷️', 'Sample QR'], comp: ['🧪', 'Composite'] };
-        const hide = () => { box.style.display = 'none'; active = -1; };
-        function paint(text) {
-            if (!items.length && busy) { box.innerHTML = '<div class="vendor-empty">Searching...</div>'; box.style.display = 'block'; return; }
-            box.innerHTML = (items.length ? items.map((it, i) =>
-                `<div class="vendor-item${i === active ? ' active' : ''}" data-i="${i}" role="option"><span class="vendor-name">${esc(it.label)}</span>` +
-                `<span class="vendor-meta"><span class="sx-sugkind">${KIND[it.kind][0]} ${KIND[it.kind][1]}</span>${it.meta}</span></div>`).join('')
-                : `<div class="vendor-empty">No match for "${esc(text)}" yet. Press Enter to search anyway.</div>`) +
-                (busy && items.length ? '<div class="sx-sug-note">Looking for more...</div>' : '');
-            box.style.display = 'block';
-        }
-        function build(text, companies, res) {
-            const tq = text.toLowerCase(), nq = norm(text), U = text.toUpperCase(), out = [], seen = {};
-            const add = (kind, value, label, meta) => { const k = kind + ':' + String(value).toUpperCase(); if (seen[k]) { seen[k].n++; return; } const it = { kind, value, label, meta, n: 1 }; seen[k] = it; out.push(it); };
-            companies.filter(c => stripMs(c.name).toLowerCase().includes(tq) || String(c.po_number || '').toLowerCase().includes(tq)).slice(0, 6)
-                .forEach(c => add('vendor', c.name, c.name, `<span class="lot-tag ${lotCls(c.lot)}">${esc(lotLabel(c.lot))}</span> &nbsp;PO ${esc(c.po_number || 'not set')}${c.active === false ? ' &nbsp;<i>(retired)</i>' : ''}`));
-            const rows = res ? (res.samples || []) : [];
-            rows.forEach(r => {
-                const where = `${esc(r.company_name || '')} &middot; ${esc(dmy(r.entry_date))}`;
-                if (nq.length >= 2 && norm(r.truck_reg_number).includes(nq)) add('vehicle', r.truck_reg_number, r.truck_reg_number, where);
-                else if (r.mixing_code && String(r.mixing_code).toUpperCase().startsWith(U)) add('code', r.mixing_code, String(r.mixing_code).toUpperCase(), where);
-                else if (r.sample1_barcode_id && String(r.sample1_barcode_id).toUpperCase().includes(U)) add('qr', r.sample1_barcode_id, r.sample1_barcode_id, `${esc(r.truck_reg_number || '')} &middot; ${where}`);
-            });
-            (res ? (res.composites || []) : []).forEach(c => {
-                const where = `${esc(c.company_name || '')} &middot; ${esc(dmy(c.date))}`;
-                if (String(c.composite_ref_id || '').toUpperCase().includes(U) || String(c.composite_barcode_id || '').toUpperCase().includes(U)) add('comp', c.composite_ref_id, c.composite_ref_id, where);
-                else if (c.mixing_code && String(c.mixing_code).toUpperCase().startsWith(U)) add('code', c.mixing_code, String(c.mixing_code).toUpperCase(), where);
-            });
-            const order = { vendor: 0, vehicle: 1, code: 2, qr: 3, comp: 4 };
-            out.forEach(it => { if (it.n > 1) it.meta += ` &nbsp;&middot;&nbsp; ${it.n} samples`; });
-            return out.sort((a, b) => order[a.kind] - order[b.kind]).slice(0, 14);
-        }
-        async function refresh() {
-            const text = q.value.trim();
-            if (text.length < 2) { hide(); return; }
-            const mine = ++seq; busy = true;
-            let companies = [];
-            try { companies = await sxLoadCompanies(); } catch (e) { companies = []; }
-            if (mine !== seq) return;
-            items = build(text, companies, cache[text]); active = -1; paint(text);          // vendors at once, the rest follows
-            if (!cache[text]) {
-                try { cache[text] = await window.BiomassAPI.superFind(text, null, null); } catch (e) { cache[text] = { samples: [], composites: [] }; }
-                if (mine !== seq) return;
-                items = build(text, companies, cache[text]);
-            }
-            busy = false; active = -1; paint(text);
-        }
-        function pick(i) { const it = items[i]; if (!it) return; q.value = it.value; hide(); go(); }
-        q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(refresh, 220); });
-        q.addEventListener('focus', () => { if (q.value.trim().length >= 2) refresh(); });
-        q.addEventListener('blur', () => setTimeout(hide, 180));
-        q.addEventListener('keydown', (e) => {
-            const open = box.style.display !== 'none';
-            if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && open && items.length) {
-                e.preventDefault();
-                active = (active + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-                [...box.querySelectorAll('.vendor-item')].forEach((el, i) => el.classList.toggle('active', i === active));
-                const a = box.querySelector('.vendor-item.active'); if (a) a.scrollIntoView({ block: 'nearest' });
-            } else if (e.key === 'Enter') {
-                e.preventDefault(); clearTimeout(timer); seq++;
-                if (open && active >= 0) pick(active); else { hide(); go(); }
-            } else if (e.key === 'Escape') { hide(); }
-        });
-        box.addEventListener('mousedown', (e) => { const it = e.target.closest('.vendor-item'); if (it) { e.preventDefault(); pick(Number(it.getAttribute('data-i'))); } });
+    // ===================== SEARCH SUGGESTIONS: one reusable "type to search" drop-down for every search box =====================
+    // A box is registered in SUG_REG by its id; the drop-down is attached the first time it is focused (so boxes that are drawn later work too).
+    // Each provider only offers what that login can already see on its own screen (blind testing: no supplier next to a sample QR where it is not shown).
+    const SUG_KIND = { vendor: ['🏭', 'Vendor'], vehicle: ['🚚', 'Vehicle'], truckid: ['🆔', 'Truck ID'], driver: ['👤', 'Driver'], invoice: ['🧾', 'Invoice'], code: ['🧩', 'Mixing code'],
+        qr: ['🏷️', 'Sample QR'], comp: ['🧪', 'Composite'], po: ['📄', 'PO'], user: ['👤', 'Login'], action: ['⚙️', 'Action'], date: ['📅', 'Date'], opt: ['', ''] };
+    const sugS = { box: null, input: null, entry: null, items: [], active: -1, seq: 0, timer: null, busy: false };
+    const sugNorm = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const sugCache = {};
+    async function sugCached(key, loader, ttl) {
+        const c = sugCache[key];
+        if (c && Date.now() - c.t < (ttl || 60000)) return c.v;
+        const v = await loader(); sugCache[key] = { t: Date.now(), v }; return v;
     }
+    const sugTrucks = () => sugCached('trucks', () => window.BiomassAPI.getTrucks({ days: 30 }));
+    const sugCompanies = () => sugCached('companies', () => window.BiomassAPI.getCompaniesDetailed());
+    const sugComposites = () => sugCached('composites', () => window.BiomassAPI.getCompositeBatches());
+    const sugMeta = (...parts) => parts.filter(x => x !== null && x !== undefined && x !== '').map(x => esc(x)).join(' &middot; ');
+
+    // rows + specs [{key, kind, meta(r)}] -> matching, distinct suggestions (starting-with first)
+    function sugFromRows(text, rows, specs, limit) {
+        const tq = String(text || '').trim().toLowerCase(), nq = sugNorm(text), seen = {}, hits = [];
+        (rows || []).forEach(r => specs.forEach(sp => {
+            const raw = sp.get ? sp.get(r) : r[sp.key];
+            if (raw === null || raw === undefined || String(raw).trim() === '') return;
+            const val = String(raw).trim(), low = val.toLowerCase();
+            const ok = !tq || low.includes(tq) || (nq.length >= 2 && sugNorm(val).includes(nq));
+            if (!ok) return;
+            const k = sp.kind + ':' + low;
+            if (seen[k]) { seen[k].n++; return; }
+            const it = { value: val, label: sp.label ? sp.label(r, val) : val, meta: sp.meta ? sp.meta(r) : '', kind: sp.kind, n: 1, rank: (!tq || low.startsWith(tq) || sugNorm(val).startsWith(nq)) ? 0 : 1 };
+            seen[k] = it; hits.push(it);
+        }));
+        const order = Object.keys(SUG_KIND);
+        return hits.sort((a, b) => a.rank - b.rank || order.indexOf(a.kind) - order.indexOf(b.kind)).slice(0, limit || 14);
+    }
+
+    function sugElBox() {
+        if (!sugS.box) {
+            const b = document.createElement('div');
+            b.className = 'vendor-list sx-suggest sx-sug-float'; b.style.display = 'none'; b.setAttribute('role', 'listbox');
+            b.addEventListener('mousedown', (e) => { const it = e.target.closest('.vendor-item'); if (it) { e.preventDefault(); sugPick(Number(it.getAttribute('data-i'))); } });
+            document.body.appendChild(b); sugS.box = b;
+            window.addEventListener('resize', sugPlace); window.addEventListener('scroll', sugPlace, true);
+        }
+        return sugS.box;
+    }
+    function sugPlace() {
+        const b = sugS.box, el = sugS.input; if (!b || !el || b.style.display === 'none') return;
+        const r = el.getBoundingClientRect(), below = window.innerHeight - r.bottom - 10, above = r.top - 10, up = below < 200 && above > below;
+        b.style.left = Math.max(4, r.left) + 'px'; b.style.width = Math.max(r.width, 300) + 'px'; b.style.maxHeight = Math.max(140, Math.min(440, up ? above : below)) + 'px';
+        if (up) { b.style.top = 'auto'; b.style.bottom = (window.innerHeight - r.top + 2) + 'px'; } else { b.style.bottom = 'auto'; b.style.top = (r.bottom + 2) + 'px'; }
+    }
+    function sugHide() { if (sugS.box) sugS.box.style.display = 'none'; sugS.active = -1; }
+    function sugPaint(text) {
+        const b = sugElBox(), items = sugS.items;
+        if (!items.length && sugS.busy) b.innerHTML = '<div class="vendor-empty">Searching...</div>';
+        else b.innerHTML = (items.length ? items.map((it, i) => {
+                const k = SUG_KIND[it.kind] || SUG_KIND.opt;
+                return `<div class="vendor-item${i === sugS.active ? ' active' : ''}" data-i="${i}" role="option"><span class="vendor-name">${esc(it.label)}</span>` +
+                    `<span class="vendor-meta">${k[1] ? `<span class="sx-sugkind">${k[0]} ${k[1]}</span>` : ''}${it.meta || ''}${it.n > 1 ? ` &nbsp;&middot;&nbsp; ${it.n}x` : ''}</span></div>`;
+            }).join('') : `<div class="vendor-empty">No match for "${esc(text)}". ${sugS.entry && sugS.entry.noMatchHint || 'Press Enter to search anyway.'}</div>`) +
+            (sugS.busy && items.length ? '<div class="sx-sug-note">Looking for more...</div>' : '');
+        b.style.display = 'block'; sugPlace();
+    }
+    async function sugRefresh(input, entry, fromFocus) {
+        const text = input.value.trim(), min = entry.minLen === undefined ? 1 : entry.minLen;
+        if (text.length < min && !(fromFocus && entry.showAllOnFocus)) { sugHide(); return; }
+        sugS.input = input; sugS.entry = entry;
+        const mine = ++sugS.seq; sugS.busy = true;
+        const q = (fromFocus && entry.showAllOnFocus) ? '' : text;
+        try {
+            const first = await entry.get(q, (partial) => { if (mine === sugS.seq) { sugS.items = partial; sugS.active = -1; sugPaint(text); } });
+            if (mine !== sugS.seq) return;
+            sugS.items = first || [];
+        } catch (e) { if (mine !== sugS.seq) return; sugS.items = []; }
+        sugS.busy = false; sugS.active = -1; sugPaint(text);
+    }
+    function sugPick(i) {
+        const it = sugS.items[i], input = sugS.input, entry = sugS.entry; if (!it || !input) return;
+        sugHide(); sugS.seq++;
+        if (entry.pick) entry.pick(it, input);
+        else { input.value = it.value; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); }
+        if (entry.afterPick) entry.afterPick(it, input);
+    }
+    function attachSug(el, entry) {
+        if (el._sug) return; el._sug = true;
+        el.setAttribute('autocomplete', 'off');
+        el.addEventListener('input', () => { clearTimeout(sugS.timer); sugS.timer = setTimeout(() => sugRefresh(el, entry, false), entry.delay || 200); });
+        el.addEventListener('focus', () => { if (entry.showAllOnFocus) sugRefresh(el, entry, true); else if (el.value.trim().length >= (entry.minLen === undefined ? 1 : entry.minLen)) sugRefresh(el, entry, false); });
+        el.addEventListener('blur', () => setTimeout(() => { if (sugS.input === el) sugHide(); }, 180));
+        el.addEventListener('keydown', (e) => {
+            const open = sugS.box && sugS.box.style.display !== 'none' && sugS.input === el;
+            if ((e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                if (!open) { sugRefresh(el, entry, false); return; }
+                if (!sugS.items.length) return;
+                e.preventDefault();
+                sugS.active = (sugS.active + (e.key === 'ArrowDown' ? 1 : -1) + sugS.items.length) % sugS.items.length;
+                [...sugS.box.querySelectorAll('.vendor-item')].forEach((n, i) => n.classList.toggle('active', i === sugS.active));
+                const a = sugS.box.querySelector('.vendor-item.active'); if (a) a.scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'Enter' && open && sugS.active >= 0) {
+                e.preventDefault(); e.stopImmediatePropagation(); sugPick(sugS.active);
+            } else if (e.key === 'Escape' && open) { sugHide(); }
+        }, true);
+    }
+
+    // ---- what each search box offers ----
+    const SUG_S = {
+        vehicle: (o) => ({ key: 'truck_reg_number', kind: 'vehicle', meta: (r) => o && o.company ? sugMeta(r.company_name, r.entry_date && dmy(r.entry_date)) : sugMeta(r.truck_id, r.entry_date && dmy(r.entry_date)) }),
+        truckid: { key: 'truck_id', kind: 'truckid', meta: (r) => sugMeta(r.truck_reg_number) },
+        driver: { key: 'driver_name', kind: 'driver', meta: (r) => sugMeta(r.truck_reg_number) },
+        invoice: { get: (r) => r.invoice_no || r.challan_no, kind: 'invoice', meta: (r) => sugMeta(r.truck_reg_number) }
+    };
+    const sugVendorSpecs = (r) => [{ key: 'name', kind: 'vendor', label: (x, v) => v, meta: (x) => `<span class="lot-tag ${lotCls(x.lot)}">${esc(lotLabel(x.lot))}</span> &nbsp;PO ${esc(x.po_number || 'not set')}${x.active === false ? ' &nbsp;<i>(retired)</i>' : ''}` },
+        { key: 'po_number', kind: 'po', meta: (x) => sugMeta(x.name, lotLabel(x.lot)) }];
+    function superSuggestFind(text, paint) {
+        return (async () => {
+            const comps = await sxLoadCompanies().catch(() => []);
+            const vend = sugFromRows(text, comps, sugVendorSpecs(), 6);
+            const build = (res) => {
+                const rows = res ? (res.samples || []) : [], out = [], seen = {}, U = text.toUpperCase(), nq = sugNorm(text);
+                const add = (kind, value, label, meta) => { const k = kind + ':' + String(value).toUpperCase(); if (seen[k]) { seen[k].n++; return; } const it = { kind, value, label, meta, n: 1, rank: 0 }; seen[k] = it; out.push(it); };
+                rows.forEach(r => {
+                    const where = sugMeta(r.company_name, dmy(r.entry_date));
+                    if (nq.length >= 2 && sugNorm(r.truck_reg_number).includes(nq)) add('vehicle', r.truck_reg_number, r.truck_reg_number, where);
+                    else if (r.mixing_code && String(r.mixing_code).toUpperCase().startsWith(U)) add('code', r.mixing_code, String(r.mixing_code).toUpperCase(), where);
+                    else if (r.sample1_barcode_id && String(r.sample1_barcode_id).toUpperCase().includes(U)) add('qr', r.sample1_barcode_id, r.sample1_barcode_id, sugMeta(r.truck_reg_number, r.company_name, dmy(r.entry_date)));
+                });
+                (res ? (res.composites || []) : []).forEach(c => {
+                    const where = sugMeta(c.company_name, dmy(c.date));
+                    if (String(c.composite_ref_id || '').toUpperCase().includes(U) || String(c.composite_barcode_id || '').toUpperCase().includes(U)) add('comp', c.composite_ref_id, c.composite_ref_id, where);
+                    else if (c.mixing_code && String(c.mixing_code).toUpperCase().startsWith(U)) add('code', c.mixing_code, String(c.mixing_code).toUpperCase(), where);
+                });
+                const order = { vehicle: 0, code: 1, qr: 2, comp: 3 };
+                return vend.concat(out.sort((a, b) => order[a.kind] - order[b.kind])).slice(0, 14);
+            };
+            if (paint) paint(vend);                                         // vendors at once, the rest follows
+            let res = null;
+            const key = 'sf:' + text.toLowerCase();
+            try { res = await sugCached(key, () => window.BiomassAPI.superFind(text, null, null), 30000); } catch (e) { res = null; }
+            return build(res);
+        })();
+    }
+    const SUG_REG = {
+        'super-q': { minLen: 2, delay: 220, get: (t, paint) => superSuggestFind(t, paint), afterPick: () => superSearch() },
+        'sxt-find-*': { minLen: 2, delay: 220, get: (t, paint) => superSuggestFind(t, paint) },
+        'sxt-void-code': { minLen: 2, get: async (t) => { const r = await sugCached('sf:' + t.toLowerCase(), () => window.BiomassAPI.superFind(t, null, null), 30000);
+            return sugFromRows(t, r.composites || [], [{ key: 'composite_ref_id', kind: 'comp', meta: (c) => sugMeta(c.company_name, dmy(c.date), c.mixing_code) }]); } },
+        'sxt-mg-from': { minLen: 0, showAllOnFocus: true, get: (t) => sugCodesOfDate(t, 'sxt-mg-date') },
+        'sxt-mg-to': { minLen: 0, showAllOnFocus: true, get: (t) => sugCodesOfDate(t, 'sxt-mg-date') },
+        'weigh-search': { get: async (t) => sugFromRows(t, await sugTrucks(), [SUG_S.truckid, SUG_S.vehicle()]) },
+        'search-unloading-input': { get: async (t) => sugFromRows(t, await sugTrucks(), [SUG_S.vehicle(), SUG_S.truckid, SUG_S.driver, SUG_S.invoice]) },
+        'inspector-manual-input': { minLen: 2, afterPick: () => { const b = document.getElementById('btn-inspector-lookup'); if (b) b.click(); },
+            get: async (t) => { const [tr, cm] = await Promise.all([sugTrucks(), sugComposites().catch(() => [])]);
+                return sugFromRows(t, tr, [{ key: 'sample1_barcode_id', kind: 'qr', meta: (r) => sugMeta(r.truck_reg_number, r.company_name, r.entry_date && dmy(r.entry_date)) }, SUG_S.vehicle({ company: true }), SUG_S.truckid], 8)
+                    .concat(sugFromRows(t, cm, [{ key: 'composite_ref_id', kind: 'comp', meta: (c) => sugMeta(c.company_name, dmy(c.date)) }, { key: 'composite_barcode_id', kind: 'comp', meta: (c) => sugMeta(c.company_name, dmy(c.date)) }], 6)); } },
+        'inspector-mix-input': { minLen: 1, afterPick: () => { const b = document.getElementById('btn-inspector-mix'); if (b) b.click(); },
+            get: async (t) => { const [tr, co] = await Promise.all([sugTrucks(), sugCompanies().catch(() => [])]);
+                return sugFromRows(t, co, sugVendorSpecs(), 6).concat(sugFromRows(t, tr, [{ key: 'daily_group_code', kind: 'code', meta: (r) => sugMeta(r.company_name, r.entry_date && dmy(r.entry_date)) }, SUG_S.vehicle({ company: true })], 8)); } },
+        'referee-search-input': { get: async (t) => sugFromRows(t, await sugComposites(), [{ key: 'company_name', kind: 'vendor', meta: (c) => sugMeta(dmy(c.date), c.daily_group_code) }, { key: 'daily_group_code', kind: 'code', meta: (c) => sugMeta(c.company_name, dmy(c.date)) }, { key: 'composite_ref_id', kind: 'comp', meta: (c) => sugMeta(c.company_name) }]) },
+        'exec-filter-search': { get: async (t) => sugFromRows(t, await sugTrucks(), [SUG_S.vehicle({ company: true }), SUG_S.truckid, SUG_S.invoice]) },
+        'rt-filter': { get: async (t) => sugFromRows(t, rt.rows || [], [{ key: 'truck_reg_number', kind: 'vehicle', meta: (r) => sugMeta(r.company_name) }, { key: 'company_name', kind: 'vendor' }, { key: 'operator', kind: 'user' }]) },
+        'vd-q': { get: async (t) => sugFromRows(t, vdState.rows || [], [{ key: 'name', kind: 'vendor', meta: (x) => `<span class="lot-tag ${lotCls(x.lot)}">${esc(lotLabel(x.lot))}</span> &nbsp;PO ${esc(x.po_number || 'not set')}` }, { key: 'po_number', kind: 'po', meta: (x) => sugMeta(x.name)}]) },
+        'act-q': { get: async (t) => sugFromRows(t, actSugRows, [{ key: 'username', kind: 'user' }, { key: 'action', kind: 'action' }, { key: 'ip', kind: 'opt' }]) },
+        'sx-ipl-q': { get: async (t) => sugFromRows(t, actSugRows, [{ key: 'username', kind: 'user' }, { key: 'action', kind: 'action' }]) },
+        'lab2-code-input': { minLen: 0, showAllOnFocus: true, get: async (t) => sugFromRows(t, lab2State.groups || [], [{ key: 'group_code', kind: 'code', meta: (g) => sugMeta(g.is_batch_created ? 'composite made' : g.all_scanned ? 'all scanned' : 'waiting', g.date && dmy(g.date)) }]) },
+        'lab2-filter-q': { minLen: 0, showAllOnFocus: true, get: async (t) => sugFromRows(t, lab2State.groups || [], [{ key: 'group_code', kind: 'code', meta: (g) => sugMeta(g.is_batch_created ? 'composite made' : 'open', g.date && dmy(g.date)) }, { key: 'batch_ref_id', kind: 'comp' }]) },
+        'mixreset-code': { minLen: 0, showAllOnFocus: true, get: (t) => sugCodesOfDate(t, 'mixreset-date') }
+    };
+    let actSugRows = [];                                                     // lines of the audit-log / exception lists loaded last (set by their loaders)
+    async function sugCodesOfDate(text, dateId) {
+        const d = (document.getElementById(dateId) || {}).value; if (!d) return [];
+        const r = await sugCached('codes:' + d, () => window.BiomassAPI.superFind('', d, d).catch(() => ({ samples: [] })), 30000);
+        const seen = {}, rows = (r.samples || []).filter(x => x.mixing_code && !seen[x.mixing_code] && (seen[x.mixing_code] = 1));
+        return sugFromRows(text, rows, [{ key: 'mixing_code', kind: 'code', label: (x, v) => String(v).toUpperCase(), meta: (x) => sugMeta(x.company_name, x.lot && lotLabel(x.lot)) }], 40);
+    }
+    document.addEventListener('focusin', (e) => {
+        const el = e.target; if (!el || !el.id || el.tagName !== 'INPUT') return;
+        const entry = SUG_REG[el.id] || (el.id.indexOf('sxt-find-') === 0 ? SUG_REG['sxt-find-*'] : null);
+        if (entry && !el._sug) attachSug(el, entry);
+    }, true);
 
     let sxTwoDays = null;
     function initSuperConsole() {
@@ -7493,7 +7603,7 @@ document.addEventListener('DOMContentLoaded', function() {
         sxTwoDays = twoDays;
         { const [f0, t0] = twoDays(); if (!sx$('super-from').value) sx$('super-from').value = f0; if (!sx$('super-to').value) sx$('super-to').value = t0; sx$('super-to').max = t0; }
         sx$('btn-super-clear').onclick = () => { const [f1, t1] = twoDays(); q.value = ''; sx$('super-from').value = f1; sx$('super-to').value = t1; sx$('sx-group-panel').style.display = 'none'; superSearch(); };
-        wireSuperSuggest(q, go);          // suggestions while typing; Enter still searches
+        q.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };          // suggestions (SUG_REG) are attached on focus; Enter on a highlighted suggestion picks it
         const setFilter = (e) => {
             const b = e.target.closest('button[data-f]'); if (!b) return;
             superState.filter = b.dataset.f;
@@ -7537,7 +7647,7 @@ document.addEventListener('DOMContentLoaded', function() {
         sx$('btn-sx-health-run').onclick = renderSuperHealth;
         sx$('btn-sx-logins-refresh').onclick = renderSuperLogins;
         sx$('btn-sx-pw-refresh').onclick = renderSuperPasswords;
-        sx$('btn-sx-pw-set').onclick = superSetActionPassword;
+        sx$('sx-pw-list').onclick = (e) => { const b = e.target.closest('button[data-pw]'); if (!b) return; if (b.dataset.act === 'show') superRevealPassword(b.dataset.pw, b.dataset.name); else superSetPassword(b.dataset.pw, b.dataset.name); };
         sx$('btn-sx-sec-refresh').onclick = renderSuperSecurity;
         sx$('btn-sx-mfa-required').onclick = superMfaSwitch;
         sx$('sx-sec-nav').onclick = (e) => { const b = e.target.closest('button[data-sec]'); if (b) secShowPane(b.dataset.sec); };
@@ -7772,12 +7882,21 @@ document.addEventListener('DOMContentLoaded', function() {
             const lab = `<label style="display:block; font-size:0.8rem; margin:0.4rem 0 0.15rem;">${esc(f.label)}${f.hint ? ` <small style="color:#94a3b8;">${esc(f.hint)}</small>` : ''}</label>`;
             let inp;
             if (f.type === 'select') inp = `<select id="se-${f.id}" style="width:100%; padding:0.5rem;">${(f.options || []).map(o => `<option value="${esc(o.v)}"${String(o.v) === val ? ' selected' : ''}>${esc(o.l)}</option>`).join('')}</select>`;
+            else if (f.type === 'combo') inp = `<input type="text" id="se-${f.id}" data-val="${esc(val)}" data-label="${esc(f.display || '')}" value="${esc(f.display || '')}" autocomplete="off" placeholder="${esc(f.placeholder || 'Type to search...')}" style="width:100%; padding:0.5rem;">`;
             else if (f.type === 'textarea') inp = `<textarea id="se-${f.id}" rows="2" style="width:100%; padding:0.5rem;">${esc(val)}</textarea>`;
             else if (f.type === 'password') inp = `<input type="password" id="se-${f.id}" autocomplete="new-password" maxlength="100" style="width:100%; padding:0.5rem;">`;
             else if (f.type === 'text' || f.type === 'date') inp = `<input type="${f.type}" id="se-${f.id}" value="${esc(val)}" style="width:100%; padding:0.5rem;">`;
             else inp = `<input type="number" step="${f.step || 'any'}" id="se-${f.id}" value="${esc(val)}" style="width:100%; padding:0.5rem;">`;
             return lab + inp;
         }).join('');
+        fields.filter(f => f.type === 'combo').forEach(f => {            // type-to-search list: every option is offered, the text only filters
+            const el = sx$('se-' + f.id), tokens = (x) => String(x || '').toLowerCase().split(/\s+/).filter(Boolean);
+            attachSug(el, { minLen: 0, showAllOnFocus: true, delay: 80, noMatchHint: 'Clear the box to see the whole list.',
+                get: async (t) => { const tk = tokens(t); return (f.options || []).filter(o => !tk.length || tk.every(w => (String(o.l) + ' ' + String(o.m || '').replace(/<[^>]+>/g, ' ')).toLowerCase().includes(w)))
+                    .slice(0, 400).map(o => ({ value: o.v, label: o.l, meta: o.m || '', kind: 'opt', n: 1 })); },
+                pick: (it, input) => { input.value = it.label; input.dataset.val = String(it.value); input.dataset.label = it.label; } });
+            el.addEventListener('input', () => { if (el.value !== el.dataset.label) el.dataset.val = ''; });      // typing again clears the choice until one is picked
+        });
         if (opts.onRender) opts.onRender(box);
         const reason = sx$('super-edit-reason'), msg = sx$('super-edit-msg'), save = sx$('btn-super-edit-save');
         reason.value = ''; msg.textContent = ''; save.disabled = false;
@@ -7786,7 +7905,7 @@ document.addEventListener('DOMContentLoaded', function() {
         modal.style.display = 'flex';
         sx$('btn-super-edit-cancel').onclick = () => { modal.style.display = 'none'; };
         save.onclick = async () => {
-            const vals = {}; fields.forEach(f => { vals[f.id] = f.type === 'password' ? sx$('se-' + f.id).value : sx$('se-' + f.id).value.trim(); });
+            const vals = {}; fields.forEach(f => { const el = sx$('se-' + f.id); vals[f.id] = f.type === 'password' ? el.value : f.type === 'combo' ? (el.dataset.val || '') : el.value.trim(); });
             const why = reason.value.trim();
             if (why.length < 5) { msg.style.color = '#ef4444'; msg.textContent = 'Please type a reason (at least 5 characters).'; return; }
             save.disabled = true;
@@ -8009,8 +8128,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 .forEach(x => { const c = codes[x.mixing_code] || (codes[x.mixing_code] = { lot: x.lot, po: x.po_number, n: 0 }); c.n++; });
         } catch (e) { alert(e.message); return; }
         const cur = comps.findIndex(c => c.name === t.company_name && c.lot === t.lot);
-        const vendorOpts = (lot) => comps.map((c, i) => ({ c, i })).filter(x => x.c.lot === lot && (x.c.active || x.i === cur))
-            .map(x => ({ v: x.i, l: `${x.c.name}${x.c.po_number ? ' - PO ' + x.c.po_number : ''}${x.c.active ? '' : ' (retired - this truck\'s present entry)'}` }));
+        const vendorOpts = () => comps.map((c, i) => ({ c, i })).filter(x => x.c.active || x.i === cur)
+            .map(x => ({ v: x.i, l: `${x.c.name} - ${lotLabel(x.c.lot)}${x.c.po_number ? ' - PO ' + x.c.po_number : ''}${x.c.active ? '' : ' (retired - this truck\'s present entry)'}`, m: `<span class="lot-tag ${lotCls(x.c.lot)}">${esc(lotLabel(x.c.lot))}</span> &nbsp;PO ${esc(x.c.po_number || 'not set')}` }));
         const codeOpts = [{ v: '', l: `Keep the present mixing code (${t.daily_group_code}) - automatic` }].concat(Object.entries(codes).map(([k, c]) =>
             ({ v: k, l: `${k} - ${c.lot}, ${c.n} truck(s) of this vendor today, PO ${c.po || '-'}` })));
         openSuperEdit('Edit registration details', `Truck <b>${esc(t.truck_reg_number)}</b> &bull; mixing code <b>${esc(t.daily_group_code)}</b> &bull; ${esc(t.lot)}.<br>Vehicle number, driver and invoice can be corrected freely - the mixing group stays. <b>Changing the Lot / vendor / date</b> moves the truck to the mixing group of that vendor (the container must be scanned again). Or <b>choose the mixing code yourself</b> below: the truck joins that code with its Lot and PO and <b>keeps its scan</b>. Not possible while a composite exists for the old or the new code.`, [
@@ -8018,8 +8137,7 @@ document.addEventListener('DOMContentLoaded', function() {
             { id: 'driver_name', label: 'Driver name', value: t.driver_name, type: 'text' },
             { id: 'invoice_no', label: 'Invoice / challan number', value: t.invoice_no || t.challan_no, type: 'text' },
             { id: 'code', label: 'Mixing code (join another code of this vendor today)', value: '', type: 'select', options: codeOpts, hint: Object.keys(codes).length ? '' : '(this vendor has no other code today)' },
-            { id: 'lot', label: 'Lot (changes the mixing group)', value: t.lot, type: 'select', options: (t.lot === 'LOT2/3' ? [{ v: 'LOT2/3', l: 'Lot 2/3 (old)' }] : []).concat([{ v: 'LOT2', l: 'Lot 2' }, { v: 'LOT3', l: 'Lot 3' }, { v: 'LOT4', l: 'Lot 4' }, { v: 'LOT4A', l: 'Lot 4A' }]) },
-            { id: 'vendor', label: 'Vendor entry of that lot', value: cur, type: 'select', options: vendorOpts(t.lot) },
+            { id: 'vendor', label: 'Vendor and lot (type to search - every vendor of every lot is listed)', type: 'combo', value: cur, display: cur >= 0 ? vendorOpts()[vendorOpts().findIndex(x => x.v === cur)].l : '', options: vendorOpts(), hint: 'the truck takes the lot and PO of the entry you pick' },
             { id: 'entry_date', label: 'Entry date', value: t.entry_date, type: 'date' }
         ], async (v, why) => {
             const p = { truck_id: t.truck_id, reason: why };
@@ -8035,6 +8153,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert(`The truck is now in mixing code ${r.to_code} (${r.target_lot}, PO ${r.target_po || '-'}).\nThat code now has ${r.target_after.accepted_total} accepted sample(s), ${r.target_after.accepted_scanned} of them scanned.`);
                 return;
             }
+            if (v.vendor === '') throw new Error('Pick the vendor from the list (type to search), or press Cancel.');
             const c = comps[Number(v.vendor)];
             if (c && (c.name !== t.company_name || c.lot !== t.lot)) { p.company_name = c.name; p.lot = c.lot; }
             if (v.entry_date && v.entry_date !== t.entry_date) p.entry_date = v.entry_date;
@@ -8042,13 +8161,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const res = await window.BiomassAPI.superEditTruck(p);
             alert(res.regrouped ? `Saved. The truck moved to mixing code ${res.daily_group_code}. It must be scanned again in the Fineness login for that group.` : 'Saved and recorded. The mixing group is unchanged.');
         }, { onRender: (box) => {
-            const lotSel = box.querySelector('#se-lot'), venSel = box.querySelector('#se-vendor'), codeSel = box.querySelector('#se-code'), dateIn = box.querySelector('#se-entry_date');
-            lotSel.onchange = () => {                                      // vendor list follows the Lot; the same vendor is preselected
-                const o = vendorOpts(lotSel.value), same = o.find(x => comps[x.v].name === t.company_name);
-                venSel.innerHTML = o.map(x => `<option value="${x.v}">${esc(x.l)}</option>`).join('');
-                if (same) venSel.value = String(same.v);
-            };
-            const lockOthers = () => { const on = !!codeSel.value; [lotSel, venSel, dateIn].forEach(x => { x.disabled = on; x.style.opacity = on ? 0.45 : 1; }); };
+            const venIn = box.querySelector('#se-vendor'), codeSel = box.querySelector('#se-code'), dateIn = box.querySelector('#se-entry_date');
+            const lockOthers = () => { const on = !!codeSel.value; [venIn, dateIn].forEach(x => { x.disabled = on; x.style.opacity = on ? 0.45 : 1; }); };
             codeSel.onchange = lockOthers; lockOthers();
         } });
     }
@@ -8305,23 +8419,61 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // ---------- Passwords (Super Admin): the unloading actions password ----------
     async function renderSuperPasswords() {
-        const box = sx$('sx-pw-status');
+        const box = sx$('sx-pw-list');
         try {
-            const st = await window.BiomassAPI.superActionPasswordStatus();
-            box.innerHTML = (st.password_set ? '\u2705 A password is set' + (st.changed_at ? ' (last changed ' + esc(String(st.changed_at).replace('T', ' ').slice(0, 16)) + ' UTC)' : '') + '.' : '\u26A0\uFE0F <strong>No password is set yet</strong> - the Unloading team cannot request bottom samples, cancel QRs or download the report.') +
-                ` Bottom-sample requests waiting: <strong>${st.pending_requests}</strong> &bull; generated so far: <strong>${st.generated}</strong>.`;
-        } catch (e) { box.innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; }
+            const [st, un] = await Promise.all([window.BiomassAPI.superPasswordStatus(), window.BiomassAPI.superActionPasswordStatus().catch(() => null)]);
+            box.innerHTML = (st.passwords || []).map(p => {
+                const when = p.changed_at ? ' (last changed ' + esc(String(p.changed_at).replace('T', ' ').slice(0, 16)) + ' UTC)' : '';
+                const status = !p.is_set ? '⚠️ <strong>Not set yet</strong>.' : p.viewable ? '✅ Set' + when + '. It can be shown.' : '✅ Set' + when + '. <span style="color:#fbbf24;">Not viewable yet: set it once again and it can be shown.</span>';
+                const extra = p.id === 'unloading' && un ? `<br><small style="color:#94a3b8;">Bottom-sample requests waiting: <b>${esc(un.pending_requests)}</b> &bull; generated so far: <b>${esc(un.generated)}</b>.</small>` : '';
+                return `<div class="card" style="margin-bottom:1rem;"><h3 class="card-title">${p.id === 'admin_edit' ? '&#9999;&#65039;' : '&#129514;'} ${esc(p.name)}</h3>` +
+                    `<p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.8rem;">Used for: ${esc(p.used_for)}.</p>` +
+                    `<div style="font-size:0.9rem; margin-bottom:0.8rem;">${status}${extra}</div>` +
+                    `<div style="display:flex; gap:0.5rem; flex-wrap:wrap;"><button type="button" class="btn btn-primary" data-pw="${esc(p.id)}" data-name="${esc(p.name)}" data-act="set">&#128273; Set / change&hellip;</button>` +
+                    `<button type="button" class="btn btn-secondary" data-pw="${esc(p.id)}" data-name="${esc(p.name)}" data-act="show" ${p.viewable && st.mfa_ready ? '' : 'disabled'} title="${p.viewable ? (st.mfa_ready ? '' : 'Set up the authenticator app first (Security tab)') : 'Set the password once again to make it viewable'}">&#128065; Show current password&hellip;</button></div></div>`;
+            }).join('');
+        } catch (e) { box.innerHTML = `<div class="card"><span style="color:#ef4444;">${esc(e.message)}</span></div>`; }
     }
-    function superSetActionPassword() {
-        openSuperEdit('Set / change the unloading actions password',
-            'Used by the Unloading team for <b>bottom-sample requests</b>, <b>Cancel QR</b> and the <b>daily report PDF</b>. Tell it only to the people who may do these things. Minimum 6 characters.',
+    function superSetPassword(which, name) {
+        const isEdit = which === 'admin_edit';
+        openSuperEdit('Set / change the ' + name.toLowerCase(),
+            isEdit ? 'The Admin must type this password <b>every time</b> they correct a moisture, fineness, GCV, ash, sulphur or VM value in the Barcode Inspector. Tell it only to the Admin. Minimum 6 characters.'
+                   : 'Used by the Unloading team for <b>bottom-sample requests</b>, <b>Cancel QR</b> and the <b>daily report PDF</b>. Tell it only to the people who may do these things. Minimum 6 characters.',
             [{ id: 'pw1', label: 'New password', type: 'password' }, { id: 'pw2', label: 'Type it again', type: 'password' }],
             async (v, why) => {
                 if (v.pw1.length < 6) throw new Error('Use at least 6 characters.');
                 if (v.pw1 !== v.pw2) throw new Error('The two passwords are not the same.');
-                await window.BiomassAPI.superSetActionPassword({ password: v.pw1, reason: why });
-                alert('The unloading actions password was saved.');
+                if (isEdit) await window.BiomassAPI.superSetEditPassword({ password: v.pw1, reason: why });
+                else await window.BiomassAPI.superSetActionPassword({ password: v.pw1, reason: why });
+                alert('The ' + name.toLowerCase() + ' was saved.');
             }, { saveLabel: 'Save password', danger: false, after: renderSuperPasswords });
+    }
+    // Show a stored password: login password + a fresh authenticator code, checked again inside the database. The password is shown for 30 seconds only.
+    function superRevealPassword(which, name) {
+        const modal = sx$('sx-reveal-modal'), loginIn = sx$('sx-reveal-login'), codeIn = sx$('sx-reveal-code'), msg = sx$('sx-reveal-msg'), res = sx$('sx-reveal-result'), go = sx$('btn-sx-reveal-go');
+        let timer = null;
+        const close = () => { clearInterval(timer); res.innerHTML = ''; res.style.display = 'none'; loginIn.value = ''; codeIn.value = ''; modal.style.display = 'none'; };
+        sx$('sx-reveal-title').textContent = 'Show: ' + name;
+        loginIn.value = ''; codeIn.value = ''; msg.textContent = ''; msg.style.color = ''; res.innerHTML = ''; res.style.display = 'none'; sx$('sx-reveal-form').style.display = ''; go.style.display = ''; go.disabled = false;
+        modal.style.display = 'flex'; loginIn.focus();
+        sx$('btn-sx-reveal-cancel').onclick = close;
+        const run = async () => {
+            if (!loginIn.value) { msg.style.color = '#ef4444'; msg.textContent = 'Type your login password.'; return; }
+            if (!/^\d{6,8}$/.test(codeIn.value.replace(/\s/g, ''))) { msg.style.color = '#ef4444'; msg.textContent = 'Type the 6-digit code from your authenticator app.'; return; }
+            go.disabled = true; msg.style.color = ''; msg.textContent = 'Checking...';
+            try {
+                const r = await window.BiomassAPI.superRevealPassword(which, loginIn.value, codeIn.value);
+                loginIn.value = ''; codeIn.value = '';
+                if (!r || !r.success) { msg.style.color = '#ef4444'; msg.textContent = (r && r.message) || 'Not confirmed.'; go.disabled = false; return; }
+                sx$('sx-reveal-form').style.display = 'none'; go.style.display = 'none'; msg.textContent = '';
+                let left = 30;
+                const paint = () => { res.innerHTML = `<div style="font-size:0.8rem; color:#94a3b8;">${esc(name)}</div><div style="font-family:monospace; font-size:1.5rem; font-weight:800; margin:0.4rem 0; word-break:break-all;">${esc(r.password)}</div><div style="font-size:0.78rem; color:#fbbf24;">Hidden automatically in ${left} s</div>`; };
+                res.style.display = 'block'; paint();
+                timer = setInterval(() => { left--; if (left <= 0) { close(); } else paint(); }, 1000);
+            } catch (e) { msg.style.color = '#ef4444'; msg.textContent = e.message || String(e); go.disabled = false; codeIn.value = ''; }
+        };
+        go.onclick = run;
+        codeIn.onkeydown = loginIn.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } };
     }
 
     // ---------- Security: second step (authenticator app) and trusted computers ----------
@@ -8693,6 +8845,7 @@ document.addEventListener('DOMContentLoaded', function() {
         body.innerHTML = '<tr><td colspan="4" class="sx-loading">Loading...</td></tr>';
         try {
             const lines = await window.BiomassAPI.superIpLogs(sx$('sx-ipl-ip').value, sx$('sx-ipl-q').value.trim(), 500);
+            actSugRows = lines || actSugRows;
             body.innerHTML = lines.map(l => {
                 const unk = ipUnknown(l);
                 return `<tr class="${unk ? 'ip-unknown' : ''}"><td style="font-family:monospace; font-size:0.82rem; white-space:nowrap;">${esc(l.timestamp)}</td>
@@ -9059,40 +9212,69 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    // Admin corrections (always with a reason, written to the audit log). A moisture correction recalculates every composite that contains the truck.
+    // Admin corrections of lab values (Barcode Inspector). EVERY save needs a reason AND the Admin edit password (kept by the Super Admin); the server checks both
+    // and writes the old -> new values to the Admin and the Super Admin audit log. A moisture / AD correction recalculates every composite that contains the truck.
     let inspectorLastBatch = null;
-    window.adminCorrectMoisture = async function(barcode, current) {
-        const v = prompt(`Current moisture: ${current} %\n\nEnter the CORRECTED moisture (%):`);
-        if (v === null || v.trim() === '') return;
-        const n = Number(v);
-        if (!(n > 0 && n < 100)) { alert('The moisture must be above 0 and below 100.'); return; }
-        const reason = prompt('Reason for the correction (required - it goes into the audit log):');
-        if (!reason || !reason.trim()) { alert('A reason is required.'); return; }
-        try {
-            await window.BiomassAPI.submitSample1Result(barcode, String(n), '', { override_reason: reason.trim() });
-            alert('Moisture corrected. Any composite that contains this truck has been recalculated.');
-            lookupInspectorBarcode(barcode);
-        } catch (e) { alert('Could not correct the moisture: ' + e.message); }
+    function openAdminEdit(title, info, fields, onSave) {
+        const modal = document.getElementById('admin-edit-modal'), box = document.getElementById('admin-edit-fields'), reason = document.getElementById('admin-edit-reason');
+        const pw = document.getElementById('admin-edit-pw'), msg = document.getElementById('admin-edit-msg'), save = document.getElementById('btn-admin-edit-save');
+        const needPw = ((window.BiomassAPI.getCurrentUser() || {}).role) !== 'superadmin';        // the Super Admin has no edit password (the server agrees)
+        document.getElementById('admin-edit-title').textContent = title;
+        document.getElementById('admin-edit-info').innerHTML = info;
+        document.getElementById('admin-edit-pw-wrap').style.display = needPw ? '' : 'none';
+        box.innerHTML = fields.map(f => `<label style="display:block; font-size:0.8rem; margin:0.4rem 0 0.15rem;">${esc(f.label)}${f.cur !== undefined ? ` <small style="color:#94a3b8;">(current: ${f.cur === null || f.cur === undefined || f.cur === '' ? 'none' : esc(f.cur)})</small>` : ''}</label>` +
+            `<input type="number" step="any" id="ae-${f.id}" value="${f.cur === null || f.cur === undefined ? '' : esc(f.cur)}" style="width:100%; padding:0.5rem;">`).join('');
+        reason.value = ''; pw.value = ''; msg.textContent = ''; msg.style.color = ''; save.disabled = false;
+        modal.style.display = 'flex';
+        const close = () => { pw.value = ''; modal.style.display = 'none'; };
+        document.getElementById('btn-admin-edit-cancel').onclick = close;
+        save.onclick = async () => {
+            const vals = {}; fields.forEach(f => { vals[f.id] = document.getElementById('ae-' + f.id).value.trim(); });
+            const why = reason.value.trim();
+            const bad = fields.find(f => vals[f.id] === '' && f.required !== false);
+            if (bad) { msg.style.color = '#ef4444'; msg.textContent = 'Enter ' + bad.label + '.'; return; }
+            if (why.length < 5) { msg.style.color = '#ef4444'; msg.textContent = 'Please type a reason (at least 5 characters).'; return; }
+            if (needPw && !pw.value) { msg.style.color = '#ef4444'; msg.textContent = 'Type the Admin edit password.'; return; }
+            save.disabled = true; msg.style.color = ''; msg.textContent = 'Saving...';
+            try { await onSave(vals, why, pw.value); close(); }
+            catch (e) { msg.style.color = '#ef4444'; msg.textContent = e.message || String(e); pw.value = ''; save.disabled = false; }
+        };
+    }
+    window.adminCorrectMoisture = function(barcode, current) {
+        openAdminEdit('Correct the moisture', `Sample <b>${esc(barcode)}</b>. The corrected value replaces the locked result; any composite that contains this truck is recalculated. The change is logged (old &rarr; new).`,
+            [{ id: 'm', label: 'Corrected moisture (%)', cur: current }],
+            async (v, why, pw) => {
+                const n = Number(v.m);
+                if (!(n > 0 && n < 100)) throw new Error('The moisture must be above 0 and below 100.');
+                await window.BiomassAPI.submitSample1Result(barcode, String(n), '', { override_reason: why, edit_password: pw });
+                alert('Moisture corrected. Any composite that contains this truck has been recalculated.');
+                lookupInspectorBarcode(barcode);
+            });
     };
-    window.adminCorrectAd = async function() {
+    window.adminCorrectFineness = function(barcode, initial, final) {
+        openAdminEdit('Correct the fineness weights', `Sample <b>${esc(barcode)}</b>. Fineness % = final weight &divide; initial weight &times; 100 is recalculated by the system. The change is logged (old &rarr; new).`,
+            [{ id: 'iw', label: 'Initial weight (kg)', cur: initial }, { id: 'fw', label: 'Final (retained) weight (kg)', cur: final }],
+            async (v, why, pw) => {
+                const iw = Number(v.iw), fw = Number(v.fw);
+                if (!(iw > 0) || !(fw >= 0)) throw new Error('Enter valid weights.');
+                if (fw > iw) throw new Error('The final weight cannot be more than the initial weight.');
+                await window.BiomassAPI.submitSample1Result(barcode, '', '', { fineness_initial_weight: String(iw), fineness_final_weight: String(fw), override_reason: why, edit_password: pw });
+                alert('Fineness corrected: ' + (fw / iw * 100).toFixed(2) + ' %.');
+                lookupInspectorBarcode(barcode);
+            });
+    };
+    window.adminCorrectAd = function() {
         const b = inspectorLastBatch;
         if (!b) return;
-        const isL4 = isLot4(b.lot);
-        const ask = (label, cur) => { const v = prompt(`${label}\n(current: ${cur === null || cur === undefined ? 'none' : cur})`, cur === null || cur === undefined ? '' : String(cur)); return v === null ? null : v.trim(); };
-        const vals = {};
-        for (const [k, label] of [['ad_moisture', 'AD Moisture (%)'], ['ad_gcv', 'AD GCV (kcal/kg)'], ['ad_ash', 'AD Ash (%)']].concat(isL4 ? [['ad_sulphur', 'AD Sulphur (%)'], ['ad_vm', 'AD VM (%)']] : [])) {
-            const v = ask(label, b[k]);
-            if (v === null) return;
-            vals[k] = v;
-        }
-        const reason = prompt('Reason for the correction (required - it goes into the audit log):');
-        if (!reason || !reason.trim()) { alert('A reason is required.'); return; }
-        try {
-            const r = await window.BiomassAPI.submitCompositeResult(b.test_lot || b.composite_barcode_id, vals, reason.trim());
-            alert(`Saved and recalculated.\nTM ${Number(r.tm).toFixed(2)} %  |  X ${Number(r.x).toFixed(6)}\nARB GCV ${r.arb_gcv}  |  ARB Ash ${Number(r.arb_ash).toFixed(2)} %` +
-                  (r.arb_sulphur !== null && r.arb_sulphur !== undefined ? `\nARB Sulphur ${Number(r.arb_sulphur).toFixed(2)} %  |  ARB VM ${Number(r.arb_vm).toFixed(2)} %` : ''));
-            lookupInspectorBarcode(b.composite_barcode_id || b.test_lot);
-        } catch (e) { alert('Could not save: ' + e.message); }
+        const l4 = isLot4(b.lot);
+        const fields = [['ad_moisture', 'AD Moisture (%)'], ['ad_gcv', 'AD GCV (kcal/kg)'], ['ad_ash', 'AD Ash (%)']].concat(l4 ? [['ad_sulphur', 'AD Sulphur (%)'], ['ad_vm', 'AD VM (%)']] : []).map(([id, label]) => ({ id, label, cur: b[id] }));
+        openAdminEdit('Correct the air-dried (AD) values', `Composite <b>${esc(b.composite_ref_id)}</b> (${esc(lotLabel(b.lot))}). TM, X and the ARB GCV / ash${l4 ? ' / sulphur / VM' : ''} are recalculated from these values. The change is logged (old &rarr; new).`, fields,
+            async (v, why, pw) => {
+                const r = await window.BiomassAPI.submitCompositeResult(b.test_lot || b.composite_barcode_id, v, why, pw);
+                alert(`Saved and recalculated.\nTM ${Number(r.tm).toFixed(2)} %  |  X ${Number(r.x).toFixed(6)}\nARB GCV ${r.arb_gcv}  |  ARB Ash ${Number(r.arb_ash).toFixed(2)} %` +
+                      (r.arb_sulphur !== null && r.arb_sulphur !== undefined ? `\nARB Sulphur ${Number(r.arb_sulphur).toFixed(2)} %  |  ARB VM ${Number(r.arb_vm).toFixed(2)} %` : ''));
+                lookupInspectorBarcode(b.composite_barcode_id || b.test_lot);
+            });
     };
 
     async function lookupInspectorBarcode(barcode) {
@@ -9120,6 +9302,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         // Photos are NOT bulk-loaded any more: the admin fetches each one on demand.
                         const photoBtnStyle = 'background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; color: #065f46; font-weight: bold;';
                         const sampleKey = esc(res.lab1.sample1_barcode_id);
+                        const editBtnStyle = 'background:#fffbeb; border:1px solid #d97706; color:#92400e; font-weight:700; flex:1 1 200px; min-width:200px; justify-content:center; text-align:center;';
                         const fmtKg = (w) => (w !== undefined && w !== null && w !== '') ? w + ' kg' : 'Captured';
                         const photoBtn = (kind, caption, label) =>
                             `<button type="button" class="btn btn-secondary btn-sm" onclick="window.viewEvidencePhoto('${kind}', '${sampleKey}', '${esc(caption).replace(/'/g, '')}')" style="${photoBtnStyle}">${label}</button>`;
@@ -9139,13 +9322,17 @@ document.addEventListener('DOMContentLoaded', function() {
                         const finenessDetails = (initW !== '-' || finalW !== '-') ? ` (i: ${initW}, f: ${finalW})` : '';
 
                         lab1Html = `
-                            <div class="lab-meta-display" style="background: #ecfdf5; border-color: #a7f3d0; margin-top: 1rem; color: #065f46;">
+                            <div class="lab-meta-display" style="display:block; background: #ecfdf5; border-color: #a7f3d0; margin-top: 1rem; color: #065f46;">
                                 <strong>Lab Station 1 Results &amp; Photo Audit:</strong><br>
                                 • Moisture: ${res.lab1.moisture_pct !== null && res.lab1.moisture_pct !== undefined ? res.lab1.moisture_pct + '%' : 'Pending'}<br>
                                 • Fineness: ${res.lab1.fineness_value !== null && res.lab1.fineness_value !== undefined ? res.lab1.fineness_value + '%' + finenessDetails : 'Pending'}<br>
                                 • Tested By: ${esc(res.lab1.tested_by || '-')}<br>
                                 • Tested At: ${res.lab1.tested_at || '-'}
-                                ${res.lab1.moisture_pct !== null && res.lab1.moisture_pct !== undefined ? `<br><button type="button" class="btn btn-secondary btn-sm" style="margin-top:0.4rem;" onclick="window.adminCorrectMoisture('${sampleKey}', ${Number(res.lab1.moisture_pct)})">✏️ Correct moisture (Admin, needs a reason)</button>` : ''}
+                                ${(res.lab1.moisture_pct !== null && res.lab1.moisture_pct !== undefined) || (initW !== '-' && finalW !== '-') ? `<div style="margin-top:0.8rem; padding-top:0.6rem; border-top:1px dashed rgba(6,95,70,0.3);">` +
+                                    `<div style="display:flex; gap:0.5rem; flex-wrap:wrap;">` +
+                                    `${res.lab1.moisture_pct !== null && res.lab1.moisture_pct !== undefined ? `<button type="button" class="btn btn-secondary btn-sm" style="${editBtnStyle}" onclick="window.adminCorrectMoisture('${sampleKey}', ${Number(res.lab1.moisture_pct)})">✏️ Correct moisture</button>` : ''}` +
+                                    `${initW !== '-' && finalW !== '-' ? `<button type="button" class="btn btn-secondary btn-sm" style="${editBtnStyle}" onclick="window.adminCorrectFineness('${sampleKey}', ${Number(initW)}, ${Number(finalW)})">✏️ Correct fineness weights</button>` : ''}` +
+                                    `</div><div style="font-size:0.75rem; margin-top:0.35rem; color:#92400e; font-family:system-ui,sans-serif;">Each correction needs the Admin edit password and a reason; it is logged.</div></div>` : ''}
                                 ${scalePhotosHtml}
                             </div>
                         `;
@@ -9206,7 +9393,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         const b = res.batch, isL4 = isLot4(b.lot), has = (v) => v !== null && v !== undefined;
                         const fx = (v, d) => has(v) ? Number(v).toFixed(d) : '-';
                         lab2ResultsHtml = `
-                            <div class="lab-meta-display" style="background: #ecfdf5; border-color: #a7f3d0; margin-top: 1rem; color: #065f46;">
+                            <div class="lab-meta-display" style="display:block; background: #ecfdf5; border-color: #a7f3d0; margin-top: 1rem; color: #065f46;">
                                 <strong>Lab Station 2 Results</strong> (${esc(b.lot || 'LOT2/3')}):<br>
                                 ${has(b.ad_gcv) ? `• Air-dried (AD): Moisture ${fx(b.ad_moisture, 3)} % | GCV ${fx(b.ad_gcv, 2)} | Ash ${fx(b.ad_ash, 3)} %${isL4 ? ` | Sulphur ${fx(b.ad_sulphur, 3)} % | VM ${fx(b.ad_vm, 3)} %` : ''}<br>
                                 • TM (mean moisture of the mixed trucks): <strong>${fx(b.tm_value, 4)} %</strong> &nbsp; X = <strong>${fx(b.x_factor, 6)}</strong><br>`
@@ -9216,7 +9403,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                 ${isL4 ? `• <strong>ARB Sulphur: ${fx(b.arb_sulphur, 2)}%</strong><br>• <strong>ARB VM: ${fx(b.arb_vm, 2)}%</strong><br>` : ''}
                                 • Tested By: ${esc(b.tested_by)}<br>
                                 • Tested At: ${b.tested_at}<br>
-                                <button type="button" class="btn btn-secondary btn-sm" style="margin-top:0.5rem;" onclick="window.adminCorrectAd()">✏️ Correct AD values (Admin, needs a reason)</button>
+                                <div style="margin-top:0.8rem; padding-top:0.6rem; border-top:1px dashed rgba(6,95,70,0.3);"><button type="button" class="btn btn-secondary btn-sm" style="background:#fffbeb; border:1px solid #d97706; color:#92400e; font-weight:700; min-width:200px; justify-content:center;" onclick="window.adminCorrectAd()">✏️ Correct AD values</button>
+                                <div style="font-size:0.75rem; margin-top:0.35rem; color:#92400e; font-family:system-ui,sans-serif;">Needs the Admin edit password and a reason; it is logged.</div></div>
                             </div>
                         `;
                     } else {

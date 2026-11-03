@@ -382,6 +382,7 @@
                 p.fineness_final_photo = extra.fineness_final_photo || '';
             }
             if (extra.override_reason) p.override_reason = extra.override_reason;    // admin only (server checks)
+            if (extra.edit_password) p.edit_password = extra.edit_password;           // the Admin edit password (kept by the Super Admin): the server checks it for every Admin correction
             if (Array.isArray(extra.low_conf) && extra.low_conf.length) p.low_conf = extra.low_conf;    // photos the reader was <50% sure about and the operator confirmed (kept for reader training)
             // reader training: a low-confidence photo gets its OWN copy (folder tr/), so the training photos can be deleted later without touching the lab record's photo
             if (p.low_conf) {
@@ -395,7 +396,9 @@
             for (const k of ['moisture_photo', 'fineness_initial_photo', 'fineness_final_photo']) {
                 if (p[k]) p[k] = await uploadEvidence(p[k]);
             }
-            return rpc('bm_submit_lab1_result', p);       // fineness % is computed by the server from the two weights
+            const res = await rpc('bm_submit_lab1_result', p);       // fineness % is computed by the server from the two weights
+            if (extra.override_reason && res && res.success === false) throw new Error(res.message || 'The correction was not saved.');
+            return res;
         },
 
         evaluateAcceptance(moisturePct) {
@@ -430,6 +433,16 @@
         async reprintBottomSample(truckId) { return rpc('bm_entry_bottom_reprint', { truck_id: truckId }); },
         async superSetActionPassword(v) { return rpc('bm_super_set_action_password', v); },
         async superActionPasswordStatus() { return rpc('bm_super_action_password_status', {}); },
+        async superPasswordStatus() { return rpc('bm_super_password_status', {}); },
+        async superSetEditPassword(v) { return rpc('bm_super_set_edit_password', v); },
+        /** Show a stored action password: needs the Super Admin's login password AND a fresh authenticator code. The code is checked by the Auth service (the session gets a fresh second-step
+         *  stamp), the login password and the stamp are checked again inside the database. which = 'unloading' | 'admin_edit' */
+        async superRevealPassword(which, loginPassword, code) {
+            const factors = (await this.mfaFactors()).filter(f => f.status === 'verified');
+            if (!factors.length) throw new Error('No authenticator app is set up for this login (Security tab).');
+            await this.mfaConfirm(factors[0].id, code);
+            return rpc('bm_super_reveal_password', { which: which, login_password: String(loginPassword || '') });
+        },
         async getBottomStatus() { return rpc('bm_admin_bottom_status', {}); },
         async mixingRange(opts) { opts = opts || {}; return rpc('bm_admin_mixing_range', { from: opts.from || '', to: opts.to || '', q: String(opts.q || '').trim(), lot: opts.lot || '' }); },
         async searchMixingCode(code) { return rpc('bm_admin_mixing_search', { code: String(code || '').trim() }); },
@@ -514,10 +527,13 @@
         async getCompositeBatchByGroupCode(groupCode, date) { return rpc('bm_lab2_get_batch', { group_code: groupCode, date: date || null }); },
         async getCompositeDetails(code) { return rpc('bm_get_composite_details', { code }); },
         /** Lab 2 enters the AIR-DRIED values; the database calculates TM, X and the ARB values. v = {ad_moisture, ad_gcv, ad_ash, ad_sulphur?, ad_vm?} */
-        async submitCompositeResult(code, v, overrideReason) {
+        async submitCompositeResult(code, v, overrideReason, editPassword) {
             const p = { code, override_reason: overrideReason || '' };
+            if (editPassword) p.edit_password = editPassword;        // Admin corrections need the Admin edit password (checked by the server)
             ['ad_moisture', 'ad_gcv', 'ad_ash', 'ad_sulphur', 'ad_vm'].forEach(k => { if (v && v[k] !== undefined && v[k] !== null && v[k] !== '') p[k] = String(v[k]); });
-            return rpc('bm_submit_composite_result', p);
+            const res = await rpc('bm_submit_composite_result', p);
+            if (overrideReason && res && res.success === false) throw new Error(res.message || 'The correction was not saved.');
+            return res;
         },
         async getLab2History() { return (await rpc('bm_get_lab2_history', {})) || []; },
 

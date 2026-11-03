@@ -29,7 +29,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20261103_v66">
+    <link rel="stylesheet" href="style.css?v=20261104_v67">
     <!-- Chart.js 4.4.4 for the Executive Management Dashboard: the app's own copy (no outside server is trusted) -->
     <script src="lib/chart.umd.min.js"></script>
 </head>
@@ -1100,8 +1100,7 @@
                 <div class="card sx-search">
                     <div class="sx-searchrow">
                         <label class="sx-grow">Mixing code, truck number, vendor name, sample QR, composite code or PO
-                            <input type="text" id="super-q" placeholder="e.g. 7K3 &middot; HR55K7730 &middot; Green Fuel &middot; S1-ABC12345 &middot; CMP-20261020-001" autocomplete="off" spellcheck="false">
-                            <div id="super-suggest" class="vendor-list sx-suggest" style="display: none;" role="listbox"></div></label>
+                            <input type="text" id="super-q" placeholder="e.g. 7K3 &middot; HR55K7730 &middot; Green Fuel &middot; S1-ABC12345 &middot; CMP-20261020-001" autocomplete="off" spellcheck="false"></label>
                         <label>From<input type="date" id="super-from"></label>
                         <label>To<input type="date" id="super-to"></label>
                         <button type="button" class="btn btn-primary" id="btn-super-find">&#128269; Search</button>
@@ -1184,18 +1183,14 @@
                 <div class="sx-hero">
                     <div>
                         <div class="sx-hero-title">&#128273; Passwords</div>
-                        <div class="sx-hero-sub">Passwords that protect sensitive actions of the Unloading team. Only the Super Admin can set or change them (the Admin cannot). They are stored scrambled and never readable; every change is logged with a reason, your IP address and device.</div>
+                        <div class="sx-hero-sub">Passwords that protect sensitive actions (Unloading team, Admin value corrections). Only the Super Admin can set, change or view them (the Admin cannot); every change is logged with a reason, your IP address and device.</div>
                     </div>
                     <div><button type="button" class="btn btn-secondary" id="btn-sx-pw-refresh">&#8635; Refresh</button></div>
                 </div>
-                <div class="card">
-                    <h3 class="card-title">&#129514; Unloading actions password</h3>
-                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-                        The Unloading team types this password <b>every time</b> for: <b>requesting a bottom sample</b>, <b>cancelling a QR</b> and <b>downloading the daily report PDF</b> (the PDF is locked with the same password).
-                        Five wrong attempts lock the Unloading login out for 10 minutes; setting a new password lifts that lock.
-                    </p>
-                    <div id="sx-pw-status" style="font-size: 0.9rem; margin-bottom: 0.9rem;">Loading...</div>
-                    <button type="button" class="btn btn-primary" id="btn-sx-pw-set">&#128273; Set / change the password&hellip;</button>
+                <div id="sx-pw-list"><div class="card">Loading...</div></div>
+                <div class="card" style="font-size: 0.82rem; color: var(--text-muted);">
+                    <b>Seeing a password.</b> The passwords above are kept encrypted (the key lives in Supabase Vault). To show one you must type your login password and the current authenticator code; each viewing is logged.
+                    A password that was set before this feature existed cannot be shown until you set it once again. Login passwords of the users are never shown anywhere.
                 </div>
             </div>
 
@@ -2089,6 +2084,46 @@
         </div>
     </div>
 
+    <!-- Admin: correct a lab value (Barcode Inspector). Needs the Admin edit password (kept by the Super Admin) and a reason, at every save -->
+    <div id="admin-edit-modal" style="display: none; position: fixed; inset: 0; z-index: 99994; background: rgba(2,6,23,0.82); align-items: center; justify-content: center; padding: 1rem; overflow-y: auto;">
+        <div class="card" style="max-width: 540px; width: 100%; margin: auto; border: 2px solid #f59e0b;">
+            <h3 class="card-title" id="admin-edit-title" style="margin-bottom: 0.3rem;">Correct a value</h3>
+            <p id="admin-edit-info" style="font-size: 0.85rem; margin-bottom: 0.8rem;"></p>
+            <div id="admin-edit-fields"></div>
+            <label style="display: block; font-size: 0.8rem; margin: 0.6rem 0 0.2rem;">Reason (required &mdash; recorded in the audit log)</label>
+            <textarea id="admin-edit-reason" rows="2" maxlength="300" style="width: 100%; padding: 0.5rem;"></textarea>
+            <div id="admin-edit-pw-wrap">
+                <label style="display: block; font-size: 0.8rem; margin: 0.6rem 0 0.2rem;">Admin edit password (asked at every save &mdash; kept by the Super Admin)</label>
+                <input type="password" id="admin-edit-pw" autocomplete="new-password" maxlength="100" style="width: 100%; padding: 0.5rem;">
+            </div>
+            <div id="admin-edit-msg" style="font-size: 0.88rem; margin: 0.5rem 0; min-height: 1.2em;"></div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" id="btn-admin-edit-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btn-admin-edit-save" style="background: #d97706; border-color: #d97706;">Save correction</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Super Admin: show a stored password (login password + authenticator code) -->
+    <div id="sx-reveal-modal" style="display: none; position: fixed; inset: 0; z-index: 99995; background: rgba(2,6,23,0.85); align-items: center; justify-content: center; padding: 1rem; overflow-y: auto;">
+        <div class="card" style="max-width: 480px; width: 100%; margin: auto; border: 2px solid #ef4444;">
+            <h3 class="card-title" id="sx-reveal-title" style="margin-bottom: 0.3rem;">Show the password</h3>
+            <p style="font-size: 0.85rem; margin-bottom: 0.8rem;">To protect it, confirm that it is really you: your <b>login password</b> and the <b>current 6-digit code</b> of your authenticator app. Every viewing is written to the audit log (the Admin sees it).</p>
+            <div id="sx-reveal-form">
+                <label style="display: block; font-size: 0.8rem; margin: 0.4rem 0 0.15rem;">Your Super Admin login password</label>
+                <input type="password" id="sx-reveal-login" autocomplete="current-password" maxlength="100" style="width: 100%; padding: 0.5rem;">
+                <label style="display: block; font-size: 0.8rem; margin: 0.6rem 0 0.15rem;">Authenticator code (6 digits)</label>
+                <input type="text" id="sx-reveal-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="123456" style="width: 100%; padding: 0.5rem; letter-spacing: 0.25em; font-size: 1.1rem;">
+            </div>
+            <div id="sx-reveal-result" style="display: none; margin: 0.8rem 0; padding: 0.8rem; border: 1px dashed #f59e0b; border-radius: 8px; text-align: center;"></div>
+            <div id="sx-reveal-msg" style="font-size: 0.88rem; margin: 0.5rem 0; min-height: 1.2em;"></div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" id="btn-sx-reveal-cancel">Close</button>
+                <button type="button" class="btn btn-primary" id="btn-sx-reveal-go" style="background: #dc2626; border-color: #dc2626;">Show password</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Cancel the QR of a truck (Unloading): needs the action password and a reason -->
     <div id="cancel-qr-modal" style="display: none; position: fixed; inset: 0; z-index: 99990; background: rgba(2,6,23,0.8); align-items: center; justify-content: center; padding: 1rem;">
         <div class="card" style="max-width: 460px; width: 100%; margin: 0; border: 2px solid #ef4444;">
@@ -2230,8 +2265,8 @@
 
     <!-- App JavaScript files -->
     <script src="lib/zip-store.js?v=20261103_v64" onerror="alert('CRITICAL: lib/zip-store.js failed to load!')"></script>
-    <script src="api.js?v=20261103_v65" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261103_v66" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="api.js?v=20261104_v67" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261104_v68" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

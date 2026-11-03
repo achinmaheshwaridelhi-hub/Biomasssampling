@@ -22,10 +22,14 @@ declare
     v_ash numeric := nullif(p->>'ad_ash', '')::numeric;       v_sul numeric := nullif(p->>'ad_sulphur', '')::numeric;
     v_vm  numeric := nullif(p->>'ad_vm', '')::numeric;
     v_ov text := case when v_role = 'admin' then nullif(btrim(coalesce(p->>'override_reason', '')), '') end;
-    b bm.composite_batches; calc jsonb;
+    b bm.composite_batches; calc jsonb; v_pwmsg text;
 begin
     select * into b from bm.composite_batches where composite_barcode_id = v_code or test_lot = v_code for update;
     if not found then raise exception 'Invalid composite barcode (only the Test Lot -T code can be submitted).'; end if;
+    if v_ov is not null and bm.real_role() = 'admin' then          -- the Admin needs the Admin edit password (kept by the Super Admin) for EVERY correction
+        v_pwmsg := bm.check_edit_password(p->>'edit_password', 'correction of composite ' || b.composite_ref_id);
+        if v_pwmsg is not null then return jsonb_build_object('success', false, 'message', v_pwmsg); end if;
+    end if;
     if v_adm is null or v_gcv is null or v_ash is null then raise exception 'AD Moisture, AD GCV and AD Ash are required'; end if;
     if v_adm <= 0 or v_adm >= 100 then raise exception 'AD Moisture must be above 0 and below 100 %%'; end if;
     if v_gcv <= 0 or v_gcv > 15000 then raise exception 'AD GCV must be between 0 and 15000 kcal/kg'; end if;
@@ -50,6 +54,11 @@ begin
     perform bm.log(case when v_ov is null then 'COMPOSITE_RESULT' else 'COMPOSITE_OVERRIDE' end,
                    format('Composite %s result recorded (TM %s, X %s)%s', b.composite_ref_id, round((calc->>'tm')::numeric, 3), round((calc->>'x')::numeric, 6),
                           coalesce('. Reason: ' || v_ov, '')));
+    if v_ov is not null and bm.real_role() = 'admin' then
+        perform bm.log('ADMIN_VALUE_EDIT', format('Admin corrected composite %s: AD moisture %s -> %s, AD GCV %s -> %s, AD ash %s -> %s, AD sulphur %s -> %s, AD VM %s -> %s (ARB GCV %s -> %s, ARB ash %s -> %s). Reason: %s',
+            b.composite_ref_id, coalesce(b.ad_moisture::text, '-'), v_adm, coalesce(b.ad_gcv::text, '-'), v_gcv, coalesce(b.ad_ash::text, '-'), v_ash, coalesce(b.ad_sulphur::text, '-'), coalesce(v_sul::text, '-'), coalesce(b.ad_vm::text, '-'), coalesce(v_vm::text, '-'),
+            coalesce(b.gcv_value::text, '-'), calc->>'arb_gcv', coalesce(b.ash_pct::text, '-'), calc->>'arb_ash', v_ov));      -- shown in the Admin AND the Super Admin audit log
+    end if;
     return jsonb_build_object('success', true) || calc;
 end $function$
 ;
@@ -72,7 +81,7 @@ declare
     v_mph   text := coalesce(p->>'moisture_photo', '');
     v_iph   text := coalesce(p->>'fineness_initial_photo', '');
     v_fph   text := coalesce(p->>'fineness_final_photo', '');
-    l bm.lab1_results; ts text := bm.ist_now(); v_fin numeric; wrote boolean := false; v_status text; v_lot text; v_tid text; v_cs text; v_cr text; v_kind text; v_conf numeric; i int; v_own text; v_exs jsonb;
+    l bm.lab1_results; ts text := bm.ist_now(); v_fin numeric; wrote boolean := false; v_status text; v_lot text; v_tid text; v_cs text; v_cr text; v_kind text; v_conf numeric; i int; v_own text; v_exs jsonb; v_pwmsg text; l0 bm.lab1_results; v_chg text := '';
 begin
     select lot, truck_id, cancel_status, cancel_reason into v_lot, v_tid, v_cs, v_cr from bm.trucks where sample1_barcode_id = v_bar;
     if not found then return jsonb_build_object('success', false, 'message', 'Invalid barcode. Truck entry not found.'); end if;
@@ -81,10 +90,15 @@ begin
             'message', format('This QR was %s%s. Nothing was saved - set the container aside.', case when v_cs = 'VOIDED' then 'voided (registration cancelled)' else 'CANCELLED' end, coalesce(' - reason: ' || v_cr, '')));
     end if;
     if v_m is null and v_iw is null and v_fw is null then raise exception 'Nothing to submit'; end if;
+    if v_ov is not null and bm.real_role() = 'admin' then          -- the Admin needs the Admin edit password (kept by the Super Admin) for EVERY correction
+        v_pwmsg := bm.check_edit_password(p->>'edit_password', 'correction of sample ' || v_bar);
+        if v_pwmsg is not null then return jsonb_build_object('success', false, 'message', v_pwmsg); end if;
+    end if;
     if greatest(length(v_mph), length(v_iph), length(v_fph)) > 2500000 then raise exception 'Photo is too large'; end if;
 
     insert into bm.lab1_results(sample1_barcode_id) values (v_bar) on conflict do nothing;
     select * into l from bm.lab1_results where sample1_barcode_id = v_bar for update;
+    l0 := l;
 
     if v_ov is not null then perform set_config('bm.allow_override', 'on', true); end if;
 
@@ -129,6 +143,11 @@ begin
     update bm.trucks set acceptance_status = v_status where sample1_barcode_id = v_bar;
     if v_ov is not null then
         perform bm.log('LAB1_OVERRIDE', format('Sample %s corrected by admin. Reason: %s', v_bar, v_ov));
+        if bm.real_role() = 'admin' then
+            if v_m is not null then v_chg := v_chg || format('moisture %s -> %s %%; ', coalesce(l0.moisture_pct::text, 'none'), l.moisture_pct); end if;
+            if v_iw is not null or v_fw is not null then v_chg := v_chg || format('fineness weights initial %s / final %s -> %s / %s kg (fineness %s -> %s %%); ', coalesce(l0.fineness_initial_weight::text, '-'), coalesce(l0.fineness_final_weight::text, '-'), l.fineness_initial_weight, l.fineness_final_weight, coalesce(l0.fineness_value::text, '-'), l.fineness_value); end if;
+            perform bm.log('ADMIN_VALUE_EDIT', format('Admin corrected sample %s: %sReason: %s', v_bar, v_chg, v_ov));      -- shown in the Admin AND the Super Admin audit log
+        end if;
     else
         perform bm.log('LAB1_RESULT', format('Sample %s result recorded (%s): moisture %s, fineness %s (initial %s / final %s)', v_bar, v_role,
             coalesce(l.moisture_pct::text, '-'), coalesce(l.fineness_value::text, '-'), coalesce(l.fineness_initial_weight::text, '-'), coalesce(l.fineness_final_weight::text, '-')));

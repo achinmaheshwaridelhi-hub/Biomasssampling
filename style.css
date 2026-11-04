@@ -1896,3 +1896,106 @@ select:not([multiple]):not([size]) {
     padding-right: 2.2rem;
 }
 select:disabled { opacity: 0.6; cursor: not-allowed; }
+
+
+/* =====================================================================================================================
+   UI POLISH (Nov 2026) - presentation only, no behaviour:  visible edges, bigger touch targets, press / focus feedback,
+   status pills with an icon, form hints, toast messages, search-suggestion extras, grouped Admin tabs ("More")
+   ===================================================================================================================== */
+:root { --edge: rgba(255,255,255,0.34); --edge-soft: rgba(255,255,255,0.20); --focus-ring: #60a5fa; }
+
+/* 1 - an edge you can see (controls and cards; dividers inside tables keep the soft --border-color) */
+.card { border-color: var(--edge-soft); }
+input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=hidden]), select, textarea { border-color: var(--edge); }
+.btn-secondary { border-color: var(--edge); }
+.lot-filter button, .sx-fchip { border-color: var(--edge); }
+
+/* 2 - touch targets: 48 px main buttons / fields, 40 px (44 on touch screens) small buttons and chips */
+.btn { min-height: 48px; }
+.btn-sm { min-height: 44px; }
+.form-group input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]), .form-group select { min-height: 48px; }
+.lot-filter button { min-height: 40px; }
+.sx-fchip { min-height: 40px; }
+.tab-btn { min-height: 44px; }
+@media (pointer: coarse), (max-width: 768px) { .lot-filter button, .sx-fchip { min-height: 44px; } }
+
+/* 3 - one loud button: the main submit button is the biggest thing in its form; secondary buttons are outlines */
+form .btn-primary[type=submit] { min-height: 54px; font-size: 1.05rem; font-weight: 700; }
+.btn-secondary { background-color: transparent; }
+.btn-secondary:hover { background-color: rgba(255,255,255,0.08); }
+
+/* 4 - feedback: a visible press, a clear keyboard-focus ring, no motion for people who switch it off */
+.btn, .tab-btn, .lot-filter button, .sx-fchip { transition: transform .1s ease, background-color .15s ease, box-shadow .15s ease, border-color .15s ease, color .15s ease; }
+.btn:active:not(:disabled), .tab-btn:active, .lot-filter button:active, .sx-fchip:active { transform: scale(0.97); }
+.btn-primary:active:not(:disabled) { background-color: #047857; box-shadow: inset 0 2px 6px rgba(0,0,0,0.35); }
+.btn:focus-visible, .tab-btn:focus-visible, .lot-filter button:focus-visible, .sx-fchip:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { .btn, .tab-btn, .lot-filter button, .sx-fchip { transition-duration: .01ms !important; } .btn:active:not(:disabled), .tab-btn:active { transform: none; } }
+
+/* 10 - status you can read at a glance: icon + word + rim, not colour alone */
+.badge { padding: .28rem .7rem; border-radius: 999px; font-size: .76rem; gap: .35rem; border: 1px solid currentColor; }
+.badge::before { font-weight: 900; }
+.badge-success::before, .badge-complete::before { content: "\2713"; }
+.badge-danger::before { content: "\2715"; }
+.badge-pending::before { content: "\2026"; }
+.badge-warning::before { content: "!"; }
+.badge-referee::before { content: "\2696"; }
+.sx-pill, .mixr-pill { border: 1px solid currentColor; }
+.sx-ok::before, .mixr-pill.ok::before { content: "\2713\00a0"; font-weight: 900; }
+.sx-rej::before, .mixr-pill.bad::before { content: "\2715\00a0"; font-weight: 900; }
+.sx-pen::before, .mixr-pill.wait::before { content: "\2026\00a0"; font-weight: 900; }
+.sx-cancel::before, .mixr-pill.mute::before { content: "\2212\00a0"; font-weight: 900; }
+
+/* 6 / 7 - labels stay above, rules are written before the mistake; long forms are split into small headed groups */
+.field-hint { display: block; margin-top: -0.1rem; font-size: 0.8rem; line-height: 1.35; color: var(--text-muted); font-weight: 400; }
+.form-group:has(> input[required]) > label::after, .form-group:has(> select[required]) > label::after { content: " *"; color: #f87171; font-weight: 700; }
+.form-section-title { display: flex; align-items: center; gap: 10px; margin: 1.6rem 0 0.8rem; font-size: 0.76rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #34d399; }
+.form-section-title::after { content: ""; flex: 1; height: 1px; background: rgba(52,211,153,0.3); }
+.form-section-title.first { margin-top: 0.2rem; }
+
+/* 5 - messages that do not freeze the screen (replace the pop-up alert boxes) */
+#toast-host { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 200000; display: flex; flex-direction: column; gap: 10px; width: min(560px, calc(100vw - 24px)); pointer-events: none; }
+.toast { pointer-events: auto; display: flex; gap: 12px; align-items: flex-start; background: #0f172a; color: #f3f4f6; border: 1px solid rgba(255,255,255,0.35); border-left-width: 6px; border-radius: 14px; padding: .8rem .9rem; box-shadow: 0 14px 34px rgba(0,0,0,0.6); font-size: 0.95rem; line-height: 1.4; animation: toastIn .18s ease-out; }
+.toast.ok { border-color: rgba(16,185,129,0.8); } .toast.bad { border-color: rgba(239,68,68,0.85); } .toast.info { border-color: rgba(96,165,250,0.85); }
+.toast .t-ic { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 900; color: #0b1220; }
+.toast.ok .t-ic { background: #34d399; } .toast.bad .t-ic { background: #f87171; } .toast.info .t-ic { background: #93c5fd; }
+.toast .t-msg { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; }
+.toast .t-x { flex: 0 0 auto; background: transparent; border: 1px solid rgba(255,255,255,0.35); color: #e2e8f0; border-radius: 8px; min-width: 34px; min-height: 34px; cursor: pointer; font-size: 1rem; }
+@keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* 8 - search suggestions: matched letters, group headings, key hints */
+.vendor-item mark { background: transparent; color: #34d399; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+.sx-sug-head { padding: .35rem .9rem; font-size: .68rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #64748b; background: rgba(255,255,255,0.03); }
+.vendor-item.active { box-shadow: inset 3px 0 0 #10b981; }
+.sx-sug-foot { display: flex; gap: 14px; padding: .5rem .9rem; font-size: .72rem; color: #94a3b8; border-top: 1px solid rgba(255,255,255,0.08); position: sticky; bottom: 0; background: #0f172a; }
+.sx-sug-foot kbd { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.25); border-radius: 4px; padding: 0 5px; font: 600 .7rem system-ui; color: #e2e8f0; }
+.sx-sug-foot .n { margin-left: auto; }
+
+/* 9 - Admin tabs: the daily ones stay in the bar, the rest sit under "More" */
+.tabs-more { border: 1px solid var(--edge) !important; margin-left: auto; }
+@media (max-width: 768px) { .tabs-more { order: -1; margin-left: 0; } }          /* in the swipe strip, "More" is the first button (never hidden behind other tabs) */
+.tabs-more .more-dot { width: 9px; height: 9px; border-radius: 50%; background: #ef4444; display: inline-block; }
+.tabs-more-panel { position: fixed; z-index: 99000; min-width: 230px; max-width: calc(100vw - 16px); display: none; flex-direction: column; gap: 2px; padding: 8px; background: #0f172a; border: 1px solid var(--edge); border-radius: 12px; box-shadow: 0 14px 34px rgba(0,0,0,0.6); }
+.tabs-more-panel.open { display: flex; }
+.tabs-more-panel .tab-btn { width: 100%; justify-content: flex-start; flex: 0 0 auto; }
+
+
+/* ===== CLEAN-UP (Nov 2026): fewer icons and notes, bigger readable text ===== */
+[hidden] { display: none !important; }
+.sx-hero-sub, .sx-hero-chips, .field-hint { display: none !important; }
+/* labels and field captions must be readable at a glance */
+.form-group label, label.label-fmt, .card label, .modal label, form label { font-size: 1rem !important; font-weight: 600; }
+label[style*="font-size: 0.7"], label[style*="font-size:0.7"], label[style*="font-size: 0.8"], label[style*="font-size:0.8"] { font-size: 1rem !important; }
+small[style*="font-size"], .form-group small { font-size: 0.85rem; }
+/* the typed code / weight values the user must read */
+.group-code-badge { font-size: 1.5rem !important; font-weight: 800; letter-spacing: 0.1em; padding: 0.35rem 0.9rem !important; }
+#lab2-code-input, #lab2-code-date { color: #fff; }
+/* search boxes: tall, clear, readable */
+#search-unloading-input, #weigh-search, #search-unloading-input, input[id^="search-"], input[id$="-search-input"] { min-height: 54px !important; font-size: 1.1rem !important; padding: 0.7rem 1rem !important; border-radius: 12px !important; }
+#search-unloading-input { flex: 1 1 260px !important; }
+/* picture-only buttons (print, camera, edit, delete): large and bold */
+.btn.icon-only, button.icon-only { font-size: 1.6rem !important; line-height: 1 !important; min-width: 52px; min-height: 52px; padding: 0.4rem 0.7rem !important; font-weight: 800; }
+.scan-icon { font-size: 4rem !important; }
+.scan-trigger-section h4 { font-size: 1.15rem !important; margin: 0 !important; }
+#lab2-code-input { font-size: 1.5rem !important; font-weight: 800 !important; letter-spacing: 0.12em; }
+#lab2-code-date { font-size: 1.15rem !important; }

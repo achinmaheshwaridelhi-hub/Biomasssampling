@@ -20,6 +20,40 @@ document.addEventListener('DOMContentLoaded', function() {
         return m ? `${m[3]}-${m[2]}-${m[1]}` : String(d || '');
     }
 
+    // ================= MESSAGES WITHOUT BLOCKING POP-UPS =================
+    // Every alert(...) in the app now shows a message at the bottom of the screen instead of freezing the page behind an OK box.
+    // Errors stay until they are closed (never missed); confirmations fade by themselves. confirm() (a question that needs an answer) is unchanged.
+    (function installToasts() {
+        const nativeAlert = window.alert.bind(window);
+        window.__nativeAlert = nativeAlert;
+        let host = null;
+        const STARTS_OK = /^(saved|done\b|success|✅|the .{0,40} was saved|all set)/i;
+        const BAD = /(error|fail|could not|couldn't|cannot|can't|unable|not allowed|not saved|not found|not confirmed|wrong|invalid|incorrect|refus|denied|expired|unauthori[sz]ed|forbidden|too (many|large|long)|already|must |required|please|nothing|no (record|result|vendor|truck|composite|photo|consignment)|only the|not set|missing|locked)/i;
+        const OK = /(saved|success|corrected|recorded|created|generated|updated|deleted|removed|sent\b|downloaded|copied|issued|registered|recalculated|learned|published|applied|converted|restored|trusted)/i;
+        function ensureHost() {
+            if (host && document.body.contains(host)) return host;
+            host = document.createElement('div'); host.id = 'toast-host'; host.setAttribute('role', 'status'); host.setAttribute('aria-live', 'polite');
+            document.body.appendChild(host); return host;
+        }
+        function show(text) {
+            const msg = String(text === null || text === undefined ? '' : text).trim();
+            if (!msg) return;
+            const kind = STARTS_OK.test(msg) ? 'ok' : BAD.test(msg) ? 'bad' : OK.test(msg) ? 'ok' : 'info';
+            const h = ensureHost(), t = document.createElement('div');
+            t.className = 'toast ' + kind;
+            const ic = document.createElement('div'); ic.className = 't-ic'; ic.textContent = kind === 'ok' ? '✓' : kind === 'bad' ? '!' : 'i';
+            const m = document.createElement('div'); m.className = 't-msg';
+            msg.split('\n').forEach((line, i) => { if (i) m.appendChild(document.createElement('br')); m.appendChild(document.createTextNode(line)); });
+            const x = document.createElement('button'); x.type = 'button'; x.className = 't-x'; x.setAttribute('aria-label', 'Close message'); x.textContent = '✕';
+            const close = () => { if (t.parentNode) t.parentNode.removeChild(t); };
+            x.onclick = close; t.onclick = (e) => { if (e.target === t) close(); };
+            t.append(ic, m, x); h.appendChild(t);
+            while (h.children.length > 5) { const old = [...h.children].find(c => !c.classList.contains('bad')) || h.firstChild; h.removeChild(old); }
+            if (kind !== 'bad') setTimeout(close, Math.min(20000, (kind === 'ok' ? 6000 : 9000) + msg.length * 40));
+        }
+        window.alert = function (m) { try { show(m); } catch (e) { nativeAlert(m); } };
+    })();
+
     // ================= UNIFIED, ISOLATED PDF/PRINT ENGINE =================
     // Every "Print" / "Export PDF" button in the app builds its document HTML, then calls this.
     // It shows the document ON-SCREEN in its own overlay (an iframe with a self-contained
@@ -27,7 +61,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // "Close" buttons. The system print dialog is only ever opened when the operator explicitly
     // clicks "Print" here — never automatically — because on some locked-down/kiosk browsers the
     // native print dialog has no visible Cancel, which previously left the operator stuck with no
-    // way back. Our own "✕ Close" button always exists and always works, regardless of what the
+    // way back. Our own "Close" button always exists and always works, regardless of what the
     // browser's own print UI looks like on a given device.
     // `title` also becomes the suggested filename when the user chooses "Save as PDF".
     function printDocumentInFrame({ title, bodyHtml, css }) {
@@ -46,8 +80,8 @@ document.addEventListener('DOMContentLoaded', function() {
             toolbar.innerHTML =
                 '<div style="color:#fff !important; font-weight:700 !important; font-size:14px !important; overflow:hidden !important; text-overflow:ellipsis !important; white-space:nowrap !important;">' + esc(title || 'Print Preview') + '</div>' +
                 '<div style="display:flex !important; gap:8px !important; flex-shrink:0 !important;">' +
-                    '<button type="button" id="print-preview-print-btn" style="background:#10b981 !important; color:#fff !important; border:none !important; border-radius:6px !important; padding:10px 18px !important; font-weight:700 !important; font-size:14px !important; cursor:pointer !important;">🖨️ Print / Save PDF</button>' +
-                    '<button type="button" id="print-preview-close-btn" style="background:#dc2626 !important; color:#fff !important; border:none !important; border-radius:6px !important; padding:10px 18px !important; font-weight:700 !important; font-size:14px !important; cursor:pointer !important;">✕ Close</button>' +
+                    '<button type="button" id="print-preview-print-btn" style="background:#10b981 !important; color:#fff !important; border:none !important; border-radius:6px !important; padding:10px 18px !important; font-weight:700 !important; font-size:14px !important; cursor:pointer !important;">Print / Save PDF</button>' +
+                    '<button type="button" id="print-preview-close-btn" style="background:#dc2626 !important; color:#fff !important; border:none !important; border-radius:6px !important; padding:10px 18px !important; font-weight:700 !important; font-size:14px !important; cursor:pointer !important;">Close</button>' +
                 '</div>';
 
             // IMPORTANT: give the iframe a REAL page-sized layout box (Letter @ 96dpi). A 0x0 iframe
@@ -783,7 +817,7 @@ document.addEventListener('DOMContentLoaded', function() {
             btnCapture.style.width = '100%';
             btnCapture.style.marginTop = '0.5rem';
             btnCapture.style.display = 'none';
-            btnCapture.textContent = '📸 Capture & Scan Static Frame';
+            btnCapture.textContent = 'Capture & Scan Static Frame';
             if (btnStop) {
                 container.insertBefore(btnCapture, btnStop);
             } else {
@@ -808,7 +842,7 @@ document.addEventListener('DOMContentLoaded', function() {
             btnUpload.style.padding = '0.5rem';
             btnUpload.style.fontSize = '0.9rem';
             btnUpload.style.fontWeight = 'bold';
-            btnUpload.textContent = '📷 Snap Photo / Upload Image to Scan';
+            btnUpload.textContent = 'Snap Photo / Upload Image to Scan';
             
             // Insert it right after trigger
             trigger.parentNode.insertBefore(btnUpload, trigger.nextSibling);
@@ -829,12 +863,12 @@ document.addEventListener('DOMContentLoaded', function() {
             const file = e.target.files[0];
             if (!file) return;
             try {
-                btnUpload.textContent = '⏳ Processing Image...';
+                btnUpload.textContent = 'Processing Image...';
                 const decodedText = await decodeQrImage(file, cfg.readerId);
-                btnUpload.textContent = '📷 Snap Photo / Upload Image to Scan';
+                btnUpload.textContent = 'Snap Photo / Upload Image to Scan';
                 await cfg.onDecode(decodedText);
             } catch (err) {
-                btnUpload.textContent = '📷 Snap Photo / Upload Image to Scan';
+                btnUpload.textContent = 'Snap Photo / Upload Image to Scan';
                 alert('Barcode scan failed: Could not detect barcode from the uploaded photo. Please make sure the QR code/barcode is clear, close-up, and well-lit, then try again.');
             }
             fileInput.value = '';
@@ -1117,28 +1151,28 @@ document.addEventListener('DOMContentLoaded', function() {
             const plainId = await processScannedCode(code);
             const res = await window.BiomassAPI.mixingScan(plainId);
             if (!res || !res.success) {
-                showMixFeedback('error', `<div style="font-weight:800;">⚠️ ${esc((res && res.message) || 'Scan could not be recorded')}</div>` +
+                showMixFeedback('error', `<div style="font-weight:800;">${esc((res && res.message) || 'Scan could not be recorded')}</div>` +
                     (res && res.daily_group_code ? `<div>Mixing Code: <span class="scan-group-code-pill">${esc(res.daily_group_code)}</span></div>` : ''));
                 return;
             }
             const pr = res.progress || {};
             const pill = `<span class="scan-group-code-pill" style="font-size:1.35rem;">${esc(res.daily_group_code)}</span>`;
             const prog = `<div style="margin-top:0.4rem; font-size:0.88rem;">Accepted containers of <strong>${esc(res.daily_group_code)}</strong> scanned: <strong>${esc(pr.accepted_scanned)} / ${esc(pr.accepted_total)}</strong>` +
-                (pr.accepted_total > 0 && pr.accepted_scanned >= pr.accepted_total ? ' &mdash; <strong>all done, Lab 2 can now generate this composite ✅</strong>' : '') + '</div>';
+                (pr.accepted_total > 0 && pr.accepted_scanned >= pr.accepted_total ? ' &mdash; <strong>all done, Lab 2 can now generate this composite</strong>' : '') + '</div>';
             if (res.duplicate) {
-                showMixFeedback('dup', `<div style="font-weight:800; font-size:1.1rem;">⚠️ ALREADY SCANNED at ${fmtMixTime(res.scanned_time)}</div>` +
+                showMixFeedback('dup', `<div style="font-weight:800; font-size:1.1rem;">ALREADY SCANNED at ${fmtMixTime(res.scanned_time)}</div>` +
                     `<div>${esc(res.sample1_barcode_id)} &rarr; Mixing Code ${pill} &mdash; <strong>${res.include ? 'INCLUDE' : 'EXCLUDE'}</strong>. This scan was not counted again.</div>${prog}`);
-                alert(`⚠️ This container (${res.sample1_barcode_id}) was already scanned at ${res.scanned_time}.`);
+                alert(`This container (${res.sample1_barcode_id}) was already scanned at ${res.scanned_time}.`);
             } else if (res.cancelled) {
-                showMixFeedback('exclude', `<div style="font-weight:800; font-size:1.25rem;">🚫 QR CANCELLED &mdash; set this container aside</div>` +
+                showMixFeedback('exclude', `<div style="font-weight:800; font-size:1.25rem;">QR CANCELLED &mdash; set this container aside</div>` +
                     `<div style="margin-top:0.25rem;">Mixing Code: ${pill}</div>` +
                     `<div style="font-size:0.85rem;">${esc(res.sample1_barcode_id)} &bull; <strong>Do NOT add it to the mixture.</strong> It is not counted and does not hold up the composite.${res.cancel_reason ? '<br>Reason: ' + esc(res.cancel_reason) : ''}</div>${prog}`);
             } else if (res.include) {
-                showMixFeedback('include', `<div style="font-weight:800; font-size:1.25rem;">✅ INCLUDE in the mix</div>` +
+                showMixFeedback('include', `<div style="font-weight:800; font-size:1.25rem;">INCLUDE in the mix</div>` +
                     `<div style="margin-top:0.25rem;">Mixing Code: ${pill}</div>` +
                     `<div style="font-size:0.85rem;">${esc(res.sample1_barcode_id)} &bull; scanned ${fmtMixTime(res.scanned_time)}</div>${prog}`);
             } else {
-                showMixFeedback('exclude', `<div style="font-weight:800; font-size:1.25rem;">⛔ EXCLUDE &mdash; set this container aside</div>` +
+                showMixFeedback('exclude', `<div style="font-weight:800; font-size:1.25rem;">EXCLUDE &mdash; set this container aside</div>` +
                     `<div style="margin-top:0.25rem;">Mixing Code: ${pill}</div>` +
                     `<div style="font-size:0.85rem;">${esc(res.sample1_barcode_id)} &bull; scanned ${fmtMixTime(res.scanned_time)} &bull; <strong>Do NOT add it to the mixture.</strong></div>`);
             }
@@ -1146,7 +1180,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (dateEl && res.entry_date) dateEl.value = res.entry_date;     // show the day this container belongs to
             await renderMixScanSummary();
         } catch (err) {
-            showMixFeedback('error', `<div style="font-weight:800;">⚠️ ${esc(err.message || err)}</div>`);
+            showMixFeedback('error', `<div style="font-weight:800;">${esc(err.message || err)}</div>`);
         }
     }
 
@@ -1167,8 +1201,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     : g.accepted_total === 0 ? '<span class="badge badge-pending">nothing to mix</span>'
                     : complete ? '<span class="badge badge-success">ALL SCANNED</span>' : '<span class="badge badge-pending">IN PROGRESS</span>';
                 const rows = g.scanned.map(x => `<tr><td>${esc(x.id)}</td><td style="font-weight:700; color:${x.include ? '#10b981' : '#ef4444'};">${x.include ? 'INCLUDE' : 'EXCLUDE'}</td><td>${esc(x.time)}</td></tr>`).join('');
-                const toScan = g.to_scan.length ? `<div style="margin-top:0.4rem; font-size:0.9rem; color:#fde68a;">⏳ Still to scan: <strong>${g.to_scan.length}</strong> truck${g.to_scan.length > 1 ? 's' : ''}</div>` : '';
-                const aside = g.rejected_to_set_aside.length ? `<div style="margin-top:0.3rem; font-size:0.9rem; color:#fca5a5;">⛔ Rejected / cancelled, not scanned yet: <strong>${g.rejected_to_set_aside.length}</strong> truck${g.rejected_to_set_aside.length > 1 ? 's' : ''} - keep out of the mix</div>` : '';
+                const toScan = g.to_scan.length ? `<div style="margin-top:0.4rem; font-size:0.9rem; color:#fde68a;">Still to scan: <strong>${g.to_scan.length}</strong> truck${g.to_scan.length > 1 ? 's' : ''}</div>` : '';
+                const aside = g.rejected_to_set_aside.length ? `<div style="margin-top:0.3rem; font-size:0.9rem; color:#fca5a5;">Rejected / cancelled, not scanned yet: <strong>${g.rejected_to_set_aside.length}</strong> truck${g.rejected_to_set_aside.length > 1 ? 's' : ''} - keep out of the mix</div>` : '';
                 return `<div style="border:1px solid var(--border-color); border-radius:8px; padding:0.6rem 0.75rem; margin-bottom:0.6rem; background:rgba(15,23,42,0.6);">
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap;">
                         <div><span class="group-code-badge">${esc(g.group_code)}</span>
@@ -1212,10 +1246,10 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.disabled = true;
             try {
                 const r = await window.BiomassAPI.resetMixingScans(date, code);
-                out.textContent = `✅ ${r.removed} scan(s) removed for ${code} (${date}).`;
+                out.textContent = `${r.removed} scan(s) removed for ${code} (${date}).`;
                 codeEl.value = '';
             } catch (e) {
-                out.textContent = '⚠️ ' + e.message;
+                out.textContent = e.message;
             } finally { btn.disabled = false; }
         };
     }
@@ -1857,16 +1891,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 const isUnloaded = res.tare_weight !== null && res.tare_weight !== undefined && Number(res.tare_weight) > 0;
                 if (isUnloaded) {
                     banner.innerHTML = `
-                        <strong>✅ MATERIAL UNLOADED & TARE WEIGHED</strong><br>
+                        <strong>MATERIAL UNLOADED & TARE WEIGHED</strong><br>
                         Tare weight: <strong>${Number(res.tare_weight).toLocaleString()} kg</strong> | Net Delivered: <strong>${Number(res.net_weight).toLocaleString()} kg</strong>.<br>
-                        <button type="button" class="btn btn-primary btn-sm mt-2" onclick="window.openTruckWeighmentSlip('${res.truck_id}')" style="background:#10b981; border:none; font-weight:bold;">🖨️ View & Print Weighment Slip</button>
+                        <button type="button" class="btn btn-primary btn-sm mt-2" onclick="window.openTruckWeighmentSlip('${res.truck_id}')" style="background:#10b981; border:none; font-weight:bold;">View & Print Weighment Slip</button>
                     `;
                 } else {
                     banner.innerHTML = `
-                        <strong>🚚 UNLOADING PERMITTED</strong><br>
+                        <strong>UNLOADING PERMITTED</strong><br>
                         ${res.moisture_limit === null || res.moisture_limit === undefined ? 'No moisture rejection applies to this consignment.' : `Moisture passed (<strong>${res.moisture_pct}%</strong> is below the ${res.moisture_limit}% limit).`} Proceed with biomass unloading.<br>
                         <small style="color:#cbd5e1;">Final tare weight will automatically confirm unloading when captured at exit weighbridge.</small><br>
-                        <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="window.openTruckWeighmentSlip('${res.truck_id}')">🖨️ View Inbound Weighment Slip</button>
+                        <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="window.openTruckWeighmentSlip('${res.truck_id}')">View Inbound Weighment Slip</button>
                     `;
                 }
                 
@@ -1880,19 +1914,19 @@ document.addEventListener('DOMContentLoaded', function() {
                     banner.style.boxShadow = '0 0 12px #ef4444';
                     banner.innerHTML = `
                         <div style="font-size: 1.25rem; font-weight: 800; color: #ef4444; margin-bottom: 0.5rem; text-align: center; text-transform: uppercase;">
-                            ⚠️ REJECTED CONSIGNMENT ⚠️
+                            REJECTED CONSIGNMENT
                         </div>
                         <div style="font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem; text-align: center;">
                             TRUCK NO: <span style="background: #ef4444; color: white; padding: 0.2rem 0.6rem; border-radius: 4px; border: 1px solid #ffffff; font-size: 1.2rem; display: inline-block; margin-top: 0.25rem;">${esc(res.truck_reg_number)}</span>
                         </div>
                         <strong>UNLOADING STRICTLY FORBIDDEN</strong><br>
                         Moisture level is <strong>${res.moisture_pct}%</strong> (Maximum allowed: ${res.moisture_limit}%). Do not unload this truck. Weights are recorded exactly as weighed (Net: <strong>${Number(res.net_weight || 0).toLocaleString()} kg</strong>).<br>
-                        <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="window.openTruckWeighmentSlip('${res.truck_id}')" style="background:#dc2626; color:white; border:none;">🖨️ Print Rejection Slip</button>
+                        <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="window.openTruckWeighmentSlip('${res.truck_id}')" style="background:#dc2626; color:white; border:none;">Print Rejection Slip</button>
                     `;
                 } else if (status === 'CANCELLED') {
                     banner.className = 'alert alert-danger';
                     banner.style.border = '2px solid #6b7280';
-                    banner.innerHTML = `<strong>🚫 QR CANCELLED — DO NOT UNLOAD</strong><br>${esc(res.cancel_reason || '')}`;
+                    banner.innerHTML = `<strong>QR CANCELLED — DO NOT UNLOAD</strong><br>${esc(res.cancel_reason || '')}`;
                 } else {
                     banner.className = 'alert alert-warning';
                     banner.style.border = '2px solid #ca8a04';
@@ -2139,10 +2173,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 (hasBoth ? '<br><span style="color:#fbbf24;">This vendor also exists under another Lot / PO &mdash; check that this is the right one.</span>' : '');
         } else if (r.kind === 'ambiguous') {
             box.style.background = 'rgba(245,158,11,0.18)'; box.style.border = '1px solid #f59e0b';
-            box.innerHTML = '⚠️ This vendor exists under more than one Lot / PO. <strong>Pick the right one from the list</strong> or press the Lot buttons above the box.';
+            box.innerHTML = 'This vendor exists under more than one Lot / PO. <strong>Pick the right one from the list</strong> or press the Lot buttons above the box.';
         } else if (r.kind === 'otherlot') {
             box.style.background = 'rgba(245,158,11,0.18)'; box.style.border = '1px solid #f59e0b';
-            box.innerHTML = `⚠️ This vendor is <strong>not under ${esc(lotLabel(vendorLotFilter))}</strong>. It exists as: ` + r.recs.map(x => `<strong>${esc(lotLabel(x.lot))}</strong> (PO ${esc(x.po_number || 'not set')})`).join(', ') +
+            box.innerHTML = `This vendor is <strong>not under ${esc(lotLabel(vendorLotFilter))}</strong>. It exists as: ` + r.recs.map(x => `<strong>${esc(lotLabel(x.lot))}</strong> (PO ${esc(x.po_number || 'not set')})`).join(', ') +
                 '. Press <strong>All</strong> or the right lot above the box.';
         } else {
             box.style.background = 'rgba(148,163,184,0.15)'; box.style.border = '1px solid #94a3b8';
@@ -2209,6 +2243,52 @@ document.addEventListener('DOMContentLoaded', function() {
             input.focus();
         });
     })();
+
+    // ---- Admin tab bar: the daily tabs stay in the bar, the rest are grouped under "More" ----
+    // The buttons themselves are only MOVED (ids, badges and click handlers stay), so every existing "open this tab" call keeps working.
+    function organizeAdminTabs(role, isSuper) {
+        const bar = document.querySelector('#screen-admin .tabs');
+        if (!bar) return;
+        const show = role === 'admin' && !isSuper;
+        let more = bar.querySelector('.tabs-more');
+        if (!more) {
+            if (!show) return;
+            const keep = new Set(['admin-dashboard', 'admin-register', 'admin-bottom', 'admin-weighment', 'admin-reports', 'admin-inspector', 'admin-activity']);
+            const rest = [...bar.querySelectorAll(':scope > .tab-btn')].filter(b => !keep.has(b.dataset.tab) && !String(b.dataset.tab).startsWith('super-'));
+            if (rest.length < 2) return;
+            more = document.createElement('button');
+            more.type = 'button'; more.className = 'tab-btn tabs-more'; more.setAttribute('aria-haspopup', 'true'); more.setAttribute('aria-expanded', 'false');
+            more.innerHTML = '<span class="more-label">More &#9662;</span> <span class="more-dot" style="display:none" title="Something in this menu needs attention"></span>';
+            const panel = document.createElement('div');
+            panel.className = 'tabs-more-panel'; panel.setAttribute('role', 'menu');
+            rest.forEach(b => panel.appendChild(b));
+            bar.append(more, panel);
+            const label = more.querySelector('.more-label'), dot = more.querySelector('.more-dot');
+            const close = () => { panel.classList.remove('open'); more.setAttribute('aria-expanded', 'false'); };
+            const open = () => {
+                panel.classList.add('open'); more.setAttribute('aria-expanded', 'true');
+                const r = more.getBoundingClientRect(), w = panel.offsetWidth;
+                panel.style.top = (r.bottom + 6) + 'px';
+                panel.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+            };
+            more.addEventListener('click', (e) => { e.stopPropagation(); panel.classList.contains('open') ? close() : open(); });
+            panel.addEventListener('click', (e) => { if (e.target.closest('.tab-btn')) close(); });
+            document.addEventListener('click', (e) => { if (!e.target.closest('.tabs-more-panel')) close(); });
+            document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+            window.addEventListener('resize', close);
+            const sync = () => {
+                const act = panel.querySelector('.tab-btn.active');
+                more.classList.toggle('active', !!act);
+                label.innerHTML = act ? 'More: ' + esc(act.textContent.replace(/\s+/g, ' ').replace(/\d+\s*$/, '').trim()) + ' &#9662;' : 'More &#9662;';
+                const alert = [...panel.querySelectorAll('.bottom-badge')].some(bd => getComputedStyle(bd).display !== 'none' && bd.textContent.trim() !== '0') || !!panel.querySelector('.tab-btn.bottom-alert');
+                dot.style.display = alert ? 'inline-block' : 'none';
+            };
+            new MutationObserver(sync).observe(panel, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'style'] });
+            sync();
+        }
+        more.style.display = show ? 'flex' : 'none';
+    }
+    window.__organizeAdminTabs = organizeAdminTabs;
 
     function initAdminDashboard(role) {
         const tabs = document.querySelectorAll('#screen-admin .tab-btn');
@@ -2292,7 +2372,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (first) first.classList.add('active');
             document.getElementById('tab-super-inspector').classList.add('active');
             const lbl = document.getElementById('activity-tab-label');
-            if (lbl) lbl.textContent = '📜 Audit Log';
+            if (lbl) lbl.textContent = 'Audit Log';
             initSuperConsole();
         }
 
@@ -2320,6 +2400,7 @@ document.addEventListener('DOMContentLoaded', function() {
             tab.removeEventListener('click', handleTabClick);
             tab.addEventListener('click', handleTabClick);
         });
+        organizeAdminTabs(role, isSuper);
 
         function handleTabClick(e) {
             // SECURITY: Weighment never switches tabs; Entry may only switch between Truck Registration and Bottom Samples
@@ -2496,7 +2577,7 @@ document.addEventListener('DOMContentLoaded', function() {
             } else if (!isChallenged) {
                 challengeBtnHtml = `
                     <button class="btn btn-warning btn-sm btn-trigger-challenge" data-ref-id="${refId}" style="background: #ea580c; border: none; color: white; font-weight: bold; padding: 0.4rem 0.75rem;">
-                        ⚖️ Challenge Referee
+                        Challenge Referee
                     </button>
                 `;
             } else {
@@ -2590,7 +2671,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 } catch (err) {
                     alert('Failed to trigger Referee Challenge: ' + err.message);
                     btn.disabled = false;
-                    btn.textContent = '⚖️ Challenge Referee';
+                    btn.textContent = 'Challenge Referee';
                 }
             };
         });
@@ -3043,7 +3124,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const lotTxt = esc(lotLabel(data.lot)) + (isNewSupplier ? ' <span style="color:#fbbf24; font-weight:600;">(new supplier)</span>' : '');
             rows.innerHTML = line('Supplier', esc(data.company_name)) + line('Lot', lotTxt) + line('PO number', esc(data.po_number || '-')) +
                 line('Truck number', esc(data.truck_reg_number), true) + line('Driver', esc(data.driver_name)) + line('Invoice / Challan', esc(data.invoice_no)) +
-                line('Photo', data.photo_url ? '<span style="color:#10b981;">&#10003; attached</span>' : '<span style="color:#fbbf24;">no photo attached</span>');
+                line('Photo', data.photo_url ? '<span style="color:#10b981;">attached</span>' : '<span style="color:#fbbf24;">no photo attached</span>');
             const notes = [];
             if (isNewSupplier) notes.push('This supplier is not in the vendor list and will be created under ' + lotLabel(data.lot) + '. Check the spelling.');
             if (!data.photo_url) notes.push('No driver / truck photo is attached.');
@@ -3124,7 +3205,7 @@ document.addEventListener('DOMContentLoaded', function() {
             try {
                 const dup = await window.BiomassAPI.checkDuplicateVehicle(vehicle);
                 if (dup && dup.duplicate) {
-                    const confirmDup = confirm(`⚠️ DUPLICATE VEHICLE DETECTED:\nVehicle "${vehicle}" is already recorded in the yard today (Truck ID: ${dup.truck_id}) without outbound tare weight.\n\nDo you want to proceed and register another entry for this vehicle?`);
+                    const confirmDup = confirm(`DUPLICATE VEHICLE DETECTED:\nVehicle "${vehicle}" is already recorded in the yard today (Truck ID: ${dup.truck_id}) without outbound tare weight.\n\nDo you want to proceed and register another entry for this vehicle?`);
                     if (!confirmDup) return;
                 }
             } catch (dupErr) {
@@ -3329,7 +3410,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (window.showGlobalLoader) window.showGlobalLoader('Fetching Weighment Log...');
         
         try {
-            const trucks = await window.BiomassAPI.getTrucks(currentWeighFilter);
+            // Today + Yesterday means exactly those two dates (older pending trucks only appear under All Records)
+            const trucks = await window.BiomassAPI.getTrucks(currentWeighFilter === 'recent' ? { days: 1 } : currentWeighFilter);
             const filter = searchWeighInput ? searchWeighInput.value.toLowerCase().trim() : '';
             tbody.innerHTML = '';
 
@@ -3355,7 +3437,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 const hasPhoto = truck.has_photo || !!truck.photo_url;
                 const photoHtml = hasPhoto 
-                    ? `<span style="font-size:0.75rem; color:#10b981; font-weight:bold;">📸 Attached</span>`
+                    ? `<span style="font-size:0.75rem; color:#10b981; font-weight:bold;">Attached</span>`
                     : '<span style="font-size: 0.75rem; color: #f87171;">No Photo</span>';
 
                 const dateStr = window.BiomassAPI.formatLocalYYYYMMDD(truck.entry_date);
@@ -3381,34 +3463,34 @@ document.addEventListener('DOMContentLoaded', function() {
                     // done it is COMPLETE like any other truck; it must not keep offering "Record Exit Tare".
                     if (!hasGross) {
                         weighActionBtn = `
-                            <button class="btn btn-secondary btn-sm" onclick="window.triggerWeighmentEdit('${truck.truck_id}', ${truck.gross_weight}, ${truck.tare_weight})">⚖️ Record Gross</button>
+                            <button class="btn btn-secondary btn-sm" onclick="window.triggerWeighmentEdit('${truck.truck_id}', ${truck.gross_weight}, ${truck.tare_weight})">Record Gross</button>
                         `;
                     } else if (hasTare) {
                         weighActionBtn = `
-                            <button class="btn btn-secondary btn-sm" onclick="window.openTruckWeighmentSlip('${truck.truck_id}')" title="View & Print Rejection Slip">🖨️ Print Slip</button>
+                            <button class="btn btn-secondary btn-sm" onclick="window.openTruckWeighmentSlip('${truck.truck_id}')" title="View & Print Rejection Slip">Print Slip</button>
                         `;
                     } else {
                         weighActionBtn = `
-                            <button class="btn btn-danger btn-sm" onclick="window.triggerWeighmentEdit('${truck.truck_id}', ${truck.gross_weight}, ${truck.tare_weight})">⛔ Record Exit Tare</button>
+                            <button class="btn btn-danger btn-sm" onclick="window.triggerWeighmentEdit('${truck.truck_id}', ${truck.gross_weight}, ${truck.tare_weight})">Record Exit Tare</button>
                             <button class="btn btn-secondary btn-sm" onclick="window.openTruckWeighmentSlip('${truck.truck_id}')" title="Print Rejection Slip" style="margin-left:4px;">🖨️</button>
                         `;
                     }
                 } else if (!hasGross) {
                     weighActionBtn = `
-                        <button class="btn btn-secondary btn-sm" onclick="window.triggerWeighmentEdit('${truck.truck_id}', ${truck.gross_weight}, ${truck.tare_weight})">⚖️ Record Gross</button>
+                        <button class="btn btn-secondary btn-sm" onclick="window.triggerWeighmentEdit('${truck.truck_id}', ${truck.gross_weight}, ${truck.tare_weight})">Record Gross</button>
                     `;
                 } else if (!hasMoisture) {
                     weighActionBtn = `
-                        <button class="btn btn-secondary btn-sm" disabled title="Waiting for Lab 1 moisture result" style="opacity:0.55; cursor:not-allowed;">⏳ Lab 1 Pending</button>
+                        <button class="btn btn-secondary btn-sm" disabled title="Waiting for Lab 1 moisture result" style="opacity:0.55; cursor:not-allowed;">Lab 1 Pending</button>
                         <button class="btn btn-secondary btn-sm" onclick="window.openTruckWeighmentSlip('${truck.truck_id}')" title="Print Inbound Slip" style="margin-left:4px;">🖨️</button>
                     `;
                 } else if (hasTare) {
                     weighActionBtn = `
-                        <button class="btn btn-secondary btn-sm" onclick="window.openTruckWeighmentSlip('${truck.truck_id}')" title="View & Print Final Weighment Slip">🖨️ Print Slip</button>
+                        <button class="btn btn-secondary btn-sm" onclick="window.openTruckWeighmentSlip('${truck.truck_id}')" title="View & Print Final Weighment Slip">Print Slip</button>
                     `;
                 } else {
                     weighActionBtn = `
-                        <button class="btn btn-primary btn-sm" onclick="window.triggerWeighmentEdit('${truck.truck_id}', ${truck.gross_weight}, ${truck.tare_weight})">⚖️ Record Final Tare</button>
+                        <button class="btn btn-primary btn-sm" onclick="window.triggerWeighmentEdit('${truck.truck_id}', ${truck.gross_weight}, ${truck.tare_weight})">Record Final Tare</button>
                         <button class="btn btn-secondary btn-sm" onclick="window.openTruckWeighmentSlip('${truck.truck_id}')" title="Print Slip" style="margin-left:4px;">🖨️</button>
                     `;
                 }
@@ -3444,10 +3526,10 @@ document.addEventListener('DOMContentLoaded', function() {
     function bottomButtonHtml(truck) {
         if (truck.acceptance_status === 'CANCELLED') return `<small style="color:#94a3b8;">Reason: ${esc(truck.cancel_reason || '')}</small>`;
         if (truck.acceptance_status === 'REJECTED') return '';
-        if (truck.bottom_request === 'REQUESTED') return ' <span class="badge badge-warning" style="background:#f59e0b; color:#fff; padding:4px 8px; border-radius:4px;">🧪 Bottom sample requested</span>';
-        if (truck.bottom_request === 'GENERATED') return ' <span class="badge badge-success" style="background:#0ea5e9; color:#fff; padding:4px 8px; border-radius:4px;">🧪 Bottom sample taken</span>';
-        const cancelBtn = ` <button type="button" class="btn btn-secondary btn-sm" style="margin-left:4px; border-color:#ef4444; color:#fca5a5;" onclick="window.openCancelQr('${esc(truck.truck_id)}', '${String(truck.truck_reg_number || '').replace(/[^A-Za-z0-9 \-]/g, '')}')" title="Cancel this truck's sample QR (documents inconsistent / poor quality)">🚫 Cancel QR</button>`;
-        return cancelBtn + ` <button type="button" class="btn btn-secondary btn-sm" style="margin-left:4px;" onclick="window.openBottomRequest('${esc(truck.truck_id)}', '${String(truck.truck_reg_number || '').replace(/[^A-Za-z0-9 \-]/g, '')}')" title="Ask the chemistry team to test this truck separately">🧪 Bottom sample</button>`;
+        if (truck.bottom_request === 'REQUESTED') return ' <span class="badge badge-warning" style="background:#f59e0b; color:#fff; padding:4px 8px; border-radius:4px;">Bottom sample requested</span>';
+        if (truck.bottom_request === 'GENERATED') return ' <span class="badge badge-success" style="background:#0ea5e9; color:#fff; padding:4px 8px; border-radius:4px;">Bottom sample taken</span>';
+        const cancelBtn = ` <button type="button" class="btn btn-secondary btn-sm" style="margin-left:4px; border-color:#ef4444; color:#fca5a5;" onclick="window.openCancelQr('${esc(truck.truck_id)}', '${String(truck.truck_reg_number || '').replace(/[^A-Za-z0-9 \-]/g, '')}')" title="Cancel this truck's sample QR (documents inconsistent / poor quality)">Cancel QR</button>`;
+        return cancelBtn + ` <button type="button" class="btn btn-secondary btn-sm" style="margin-left:4px;" onclick="window.openBottomRequest('${esc(truck.truck_id)}', '${String(truck.truck_reg_number || '').replace(/[^A-Za-z0-9 \-]/g, '')}')" title="Ask the chemistry team to test this truck separately">Bottom sample</button>`;
     }
     window.openCancelQr = function(truckId, reg) {
         const modal = document.getElementById('cancel-qr-modal');
@@ -3561,19 +3643,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 let statusBadge = '';
                 if (truck.acceptance_status === 'REJECTED') {
-                    statusBadge = `<span class="badge badge-danger" style="background:#ef4444; color:white; padding:4px 8px; border-radius:4px; font-weight:bold;">⛔ REJECTED</span>`;
+                    statusBadge = `<span class="badge badge-danger" style="background:#ef4444; color:white; padding:4px 8px; border-radius:4px; font-weight:bold;">REJECTED</span>`;
                     tr.style.background = 'rgba(239, 68, 68, 0.12)';
                 } else if (truck.acceptance_status === 'CANCELLED') {
-                    statusBadge = `<span class="status-cancelled">🚫 QR CANCELLED</span>`;
+                    statusBadge = `<span class="status-cancelled">QR CANCELLED</span>`;
                     tr.style.background = 'rgba(107, 114, 128, 0.18)';
                 } else if (truck.acceptance_status === 'ACCEPTED') {
                     if (isUnloaded) {
-                        statusBadge = `<span class="badge badge-success" style="background:#10b981; color:white; padding:4px 8px; border-radius:4px; font-weight:bold;">✅ UNLOADED</span>`;
+                        statusBadge = `<span class="badge badge-success" style="background:#10b981; color:white; padding:4px 8px; border-radius:4px; font-weight:bold;">UNLOADED</span>`;
                     } else {
-                        statusBadge = `<span class="badge badge-primary" style="background:#3b82f6; color:white; padding:4px 8px; border-radius:4px; font-weight:bold;">🚚 UNLOADING IN PROGRESS</span>`;
+                        statusBadge = `<span class="badge badge-primary" style="background:#3b82f6; color:white; padding:4px 8px; border-radius:4px; font-weight:bold;">UNLOADING IN PROGRESS</span>`;
                     }
                 } else {
-                    statusBadge = `<span class="badge badge-warning" style="background:#f59e0b; color:white; padding:4px 8px; border-radius:4px;">⏳ Awaiting Lab 1</span>`;
+                    statusBadge = `<span class="badge badge-warning" style="background:#f59e0b; color:white; padding:4px 8px; border-radius:4px;">Awaiting Lab 1</span>`;
                 }
 
                 const carriedOver = !showAll && dateStr < todayYmd;
@@ -3586,7 +3668,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td style="color: var(--primary); font-weight: bold;">${tare > 0 ? net.toLocaleString() : '-'}</td>
                     <td>${moistureStr}</td>
                     <td>${statusBadge}</td>
-                    <td><button type="button" class="btn btn-secondary btn-sm" onclick="window.openTruckWeighmentSlip('${esc(truck.truck_id)}')" title="View & Print Slip">🖨️ Slip</button>
+                    <td><button type="button" class="btn btn-secondary btn-sm" onclick="window.openTruckWeighmentSlip('${esc(truck.truck_id)}')" title="View & Print Slip">Slip</button>
                         ${bottomButtonHtml(truck)}</td>
                 `;
                 tbody.appendChild(tr);
@@ -3824,7 +3906,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Nothing left for this role to do: both fields it's allowed to touch are already locked.
             const nothingToSubmit = role !== 'admin' && grossLocked && (hasGross ? tareLocked : true);
             submitBtn.disabled = nothingToSubmit;
-            submitBtn.textContent = nothingToSubmit ? '🔒 Already Recorded' : 'Save Weight Record';
+            submitBtn.textContent = nothingToSubmit ? 'Already Recorded' : 'Save Weight Record';
         }
 
         if (!tareInput.disabled) {
@@ -3838,7 +3920,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (truck && truck.acceptance_status === 'REJECTED') {
                 moistureAlert.style.display = 'block';
                 moistureAlert.innerHTML = `
-                    <div style="font-weight: bold; color: #ef4444; font-size: 1rem;">⛔ REJECTED CONSIGNMENT DETECTED (${truck.moisture_pct}% Moisture)</div>
+                    <div style="font-weight: bold; color: #ef4444; font-size: 1rem;">REJECTED CONSIGNMENT DETECTED (${truck.moisture_pct}% Moisture)</div>
                     <div style="font-size: 0.85rem; color: #fca5a5; margin-top: 0.25rem;">
                         This consignment was rejected by Lab 1. Biomass must NOT be unloaded. Record the exit tare weight for gate release; the net weight is kept as weighed but is not counted as unloaded quantity.
                     </div>
@@ -3892,7 +3974,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Validation guard: Tare cannot be >= Gross
             if (g && t && Number(g) > 0 && Number(t) > 0) {
                 if (Number(t) >= Number(g)) {
-                    alert(`⚠️ TARE WEIGHT ERROR:\nTare weight (${Number(t).toLocaleString()} kg) cannot be equal to or greater than Gross weight (${Number(g).toLocaleString()} kg)!\n\nPlease re-check weighbridge readout.`);
+                    alert(`TARE WEIGHT ERROR:\nTare weight (${Number(t).toLocaleString()} kg) cannot be equal to or greater than Gross weight (${Number(g).toLocaleString()} kg)!\n\nPlease re-check weighbridge readout.`);
                     return;
                 }
             }
@@ -3969,15 +4051,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 let acceptanceBadge = '';
                 if (row.acceptance_status === 'REJECTED') {
-                    acceptanceBadge = `<span class="badge badge-danger" style="background:#ef4444; color:white; padding:4px 8px; border-radius:4px; font-weight:bold;">⛔ REJECTED</span><br><small style="color:#ef4444; font-size:0.75rem;">${row.rejection_reason || 'Moisture >14%'}</small>`;
+                    acceptanceBadge = `<span class="badge badge-danger" style="background:#ef4444; color:white; padding:4px 8px; border-radius:4px; font-weight:bold;">REJECTED</span><br><small style="color:#ef4444; font-size:0.75rem;">${row.rejection_reason || 'Moisture >14%'}</small>`;
                     tr.style.background = 'rgba(239, 68, 68, 0.12)';
                 } else if (row.acceptance_status === 'CANCELLED') {
-                    acceptanceBadge = `<span class="status-cancelled">🚫 QR CANCELLED</span><br><small style="color:#9ca3af; font-size:0.75rem;">${esc(row.cancel_reason || '')}</small>`;
+                    acceptanceBadge = `<span class="status-cancelled">QR CANCELLED</span><br><small style="color:#9ca3af; font-size:0.75rem;">${esc(row.cancel_reason || '')}</small>`;
                     tr.style.background = 'rgba(107, 114, 128, 0.15)';
                 } else if (row.acceptance_status === 'ACCEPTED') {
-                    acceptanceBadge = `<span class="badge badge-success" style="background:#10b981; color:white; padding:4px 8px; border-radius:4px; font-weight:bold;">✅ ACCEPTED</span>`;
+                    acceptanceBadge = `<span class="badge badge-success" style="background:#10b981; color:white; padding:4px 8px; border-radius:4px; font-weight:bold;">ACCEPTED</span>`;
                 } else {
-                    acceptanceBadge = `<span class="badge badge-warning" style="background:#f59e0b; color:white; padding:4px 8px; border-radius:4px;">⏳ Pending Lab 1</span>`;
+                    acceptanceBadge = `<span class="badge badge-warning" style="background:#f59e0b; color:white; padding:4px 8px; border-radius:4px;">Pending Lab 1</span>`;
                 }
 
                 const gcvText = (row.acceptance_status === 'REJECTED' || row.acceptance_status === 'CANCELLED') ? ('<span style="color:#ef4444; font-weight:bold; font-size:0.75rem;">N/A (' + row.acceptance_status + ')</span>') : (row.gcv_value !== null ? row.gcv_value + ' kcal' : '<span class="badge badge-pending">Pending</span>');
@@ -4040,9 +4122,9 @@ document.addEventListener('DOMContentLoaded', function() {
             let rowHtml = '';
             report.rows.forEach(r => {
                 const acceptanceLabel = r.acceptance_status === 'REJECTED' 
-                    ? `<span style="color:red; font-weight:bold;">⛔ REJECTED (${r.rejection_reason || 'Moisture >14%'})</span>` 
-                    : r.acceptance_status === 'CANCELLED' ? `<span style="color:#444; font-weight:bold;">🚫 QR CANCELLED (${esc(r.cancel_reason || '')})</span>`
-                    : r.acceptance_status === 'ACCEPTED' ? '<span style="color:green; font-weight:bold;">✅ ACCEPTED</span>' : 'Pending';
+                    ? `<span style="color:red; font-weight:bold;">REJECTED (${r.rejection_reason || 'Moisture >14%'})</span>` 
+                    : r.acceptance_status === 'CANCELLED' ? `<span style="color:#444; font-weight:bold;">QR CANCELLED (${esc(r.cancel_reason || '')})</span>`
+                    : r.acceptance_status === 'ACCEPTED' ? '<span style="color:green; font-weight:bold;">ACCEPTED</span>' : 'Pending';
                 const chNo = r.invoice_no || r.challan_no || '-';
                 const gcvPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : (r.gcv_value !== null ? r.gcv_value : 'Pending');
                 const ashPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : (r.ash_pct !== null ? r.ash_pct + '%' : 'Pending');
@@ -4303,8 +4385,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                 ? `<span class="badge badge-success">ACCEPTED</span>`
                                 : (t.acceptance_status === 'REJECTED' ? `<span class="badge badge-danger">REJECTED</span>` : `<span class="badge badge-warning">PENDING</span>`);
                             const unloadBadge = t.is_unloaded
-                                ? `<span style="color:#10b981; font-weight:bold;">✅ Unloaded</span>`
-                                : `<span style="color:#f59e0b;">⏳ Pending</span>`;
+                                ? `<span style="color:#10b981; font-weight:bold;">Unloaded</span>`
+                                : `<span style="color:#f59e0b;">Pending</span>`;
                             // Column order must match the <thead> in index.html exactly:
                             // Truck ID | Date | Supplier Name | Vehicle Number | Challan No. | Gross | Tare | Net | Unloading State | Approval
                             tr.innerHTML = `
@@ -4408,7 +4490,7 @@ document.addEventListener('DOMContentLoaded', function() {
         ackBtn.style.display = res.can_acknowledge && actState.rows.some(r => !r.acknowledged) ? '' : 'none';
         return res;
     }
-    const actReview = (l, canAck) => l.acknowledged ? '<span class="mixr-pill ok">&#10003; acknowledged</span>'
+    const actReview = (l, canAck) => l.acknowledged ? '<span class="mixr-pill ok">acknowledged</span>'
         : (canAck ? `<button type="button" class="btn btn-secondary btn-sm" data-ack="${l.id}">Acknowledge</button>` : '<span class="mixr-pill wait">not yet</span>');
 
     // Super Admin: only its own changes + the submitted lab results with their values
@@ -4437,9 +4519,9 @@ document.addEventListener('DOMContentLoaded', function() {
     let superAuditData = null;
 
     const ipUnknown = (log) => !!log.ip && log.ip !== 'unknown' && !log.ip_label;
-    const devTag = (log) => log.device_name ? `<br><span class="ip-tag known" style="margin-top:2px;" title="The registered computer this was done from">&#128421; ${esc(log.device_name)}</span>` : '';
+    const devTag = (log) => log.device_name ? `<br><span class="ip-tag known" style="margin-top:2px;" title="The registered computer this was done from">${esc(log.device_name)}</span>` : '';
     const ipCell = (log, red, noUnknownTag) => {
-        const tag = (ipUnknown(log) && !noUnknownTag) ? '<span class="ip-tag unknown">⚠ UNKNOWN IP</span>' : (log.ip_label ? `<span class="ip-tag known">${esc(log.ip_label)}</span>` : '');
+        const tag = (ipUnknown(log) && !noUnknownTag) ? '<span class="ip-tag unknown">UNKNOWN IP</span>' : (log.ip_label ? `<span class="ip-tag known">${esc(log.ip_label)}</span>` : '');
         return `${tag}<br><span style="font-family:monospace; font-size:0.78rem;${red ? ' color:#ef4444;' : ''}">${esc(log.ip || '-')}</span>` +
                devTag(log) + (log.device ? `<br><span style="color:#94a3b8; font-size:0.7rem;">${esc(String(log.device).slice(0, 80))}</span>` : '');
     };
@@ -4557,12 +4639,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 .map(t => `<div class="tile"><small>${t[0]}</small><strong>${t[1]}</strong></div>`).join('');
             rtEl('rt-collect').checked = !!l.collect;
             rtEl('rt-verdict').innerHTML = l.last7 <= 2
-                ? `<span style="color:#34d399;">&#9989; Only ${l.last7} low-confidence photo(s) in the last 7 days: the reader is rarely unsure now. You can switch collecting off.</span>`
-                : `<span style="color:#fbbf24;">&#8505;&#65039; ${l.last7} low-confidence photos in the last 7 days. Keep learning until this stays at 2 or less per week (or 1&ndash;2 per month).</span>`;
+                ? `<span style="color:#34d399;">Only ${l.last7} low-confidence photo(s) in the last 7 days: the reader is rarely unsure now. You can switch collecting off.</span>`
+                : `<span style="color:#fbbf24;">${l.last7} low-confidence photos in the last 7 days. Keep learning until this stays at 2 or less per week (or 1&ndash;2 per month).</span>`;
             rtEl('rt-versions').innerHTML = (l.versions || []).length ? '<table style="min-width:0; font-size:0.85rem;"><thead><tr><th>Version</th><th>Published</th><th>By</th><th>Examples</th><th>Note</th><th></th></tr></thead><tbody>' +
                 l.versions.map(v => `<tr><td><b>${v.version}</b>${v.active ? ' <span class="mixr-pill ok">active</span>' : ''}</td><td>${esc(String(v.created_at).slice(0, 16).replace('T', ' '))} UTC</td><td>${esc(v.created_by || '')}</td><td>${v.examples}</td><td>${esc(v.note || '')}</td>` +
                     `<td>${v.active ? '' : `<button type="button" class="btn btn-secondary btn-sm" data-ver="${v.version}">Use this version</button>`}</td></tr>`).join('') +
-                `</tbody></table>${l.active_version ? '<div style="margin-top:0.5rem;"><button type="button" class="btn btn-secondary btn-sm" data-ver="0">&#8630; Go back to the built-in examples only</button></div>' : ''}`
+                `</tbody></table>${l.active_version ? '<div style="margin-top:0.5rem;"><button type="button" class="btn btn-secondary btn-sm" data-ver="0">Go back to the built-in examples only</button></div>' : ''}`
                 : '<span style="color:#94a3b8;">Nothing has been published yet.</span>';
             body.innerHTML = rt.rows.length ? rt.rows.map(r => {
                 const weight = r.kind !== 'moisture', gone = String(r.photo).startsWith('purged:');
@@ -4627,11 +4709,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         const blob = await (await fetch(await rtPhoto(r))).blob();
                         const x = await window.MoistureOCR.read(blob, { kind: 'moisture' });
                         const ok = x && Number(x.value) === Number(r.value);
-                        cell.innerHTML = x ? `${ok ? '&#9989;' : '&#10060;'} reads <b>${esc(String(x.value))}</b> (${Math.round(x.conf)}%)` : '&#10060; no reading';
+                        cell.innerHTML = x ? `${ok ? '&#9989;' : '&#10060;'} reads <b>${esc(String(x.value))}</b> (${Math.round(x.conf)}%)` : 'no reading';
                     } else {
                         const x = await rtReadWeight(r);
                         const ok = x.value && rtFmt(x.value) === rtFmt(r.value);
-                        cell.innerHTML = x.value ? `${ok ? '&#9989;' : '&#10060;'} reads <b>${esc(x.value)}</b> (${Math.round(x.conf)}%)` : `&#10060; ${esc(x.fail)}`;
+                        cell.innerHTML = x.value ? `${ok ? '&#9989;' : '&#10060;'} reads <b>${esc(x.value)}</b> (${Math.round(x.conf)}%)` : `${esc(x.fail)}`;
                     }
                 } catch (e) { cell.textContent = e.message; }
             }
@@ -4683,7 +4765,7 @@ document.addEventListener('DOMContentLoaded', function() {
             let okNew = 0, notChecked = 0; const rows = [];
             for (const l of lines) {
                 let res = '';
-                if (l.n) { try { const x = await rtReadWeight(l.r, all); const ok = x.value && rtFmt(x.value) === rtFmt(l.r.value); if (ok) okNew++; res = ok ? `&#9989; now reads ${esc(x.value)} (${Math.round(x.conf)}%)` : (l.src.indexOf('original') >= 0 ? `<span style="color:#94a3b8;">not re-checked: the stored photo is a smaller copy than the original (${esc(x.value || x.fail || 'unreadable')})</span>` : `&#10060; now reads ${esc(x.value || x.fail)}`); if (!ok && l.src.indexOf('original') >= 0) notChecked++; } catch (e) { res = esc(e.message); } }
+                if (l.n) { try { const x = await rtReadWeight(l.r, all); const ok = x.value && rtFmt(x.value) === rtFmt(l.r.value); if (ok) okNew++; res = ok ? `now reads ${esc(x.value)} (${Math.round(x.conf)}%)` : (l.src.indexOf('original') >= 0 ? `<span style="color:#94a3b8;">not re-checked: the stored photo is a smaller copy than the original (${esc(x.value || x.fail || 'unreadable')})</span>` : `now reads ${esc(x.value || x.fail)}`); if (!ok && l.src.indexOf('original') >= 0) notChecked++; } catch (e) { res = esc(e.message); } }
                 rows.push(`<tr><td>${RT_KIND[l.r.kind]} ${esc(rtFmt(l.r.value))}</td><td>${l.n ? l.n + ' new examples <small style="color:#94a3b8;">(' + esc(l.src) + ')</small>' : '<span style="color:#f59e0b;">skipped: ' + esc(l.why) + '</span>'}</td><td>${res}</td></tr>`);
             }
             let okOld = 0, totOld = 0;
@@ -4691,7 +4773,7 @@ document.addEventListener('DOMContentLoaded', function() {
             rt.newEntries = entries; rt.learned = learned;
             out.innerHTML = `<table style="min-width:0; font-size:0.85rem;"><thead><tr><th>Photo (confirmed value)</th><th>Learned</th><th>Reader with the new examples</th></tr></thead><tbody>${rows.join('')}</tbody></table>` +
                 `<p style="margin-top:0.6rem;"><b>${okNew} of ${learned.length}</b> learned photo(s) are read correctly with the new set` + (notChecked ? ` (${notChecked} could not be re-checked because the stored photo is a smaller copy than the original; their digits come from the original)` : '') + (totOld ? `; <b>${okOld} of ${totOld}</b> photos learned earlier are still read correctly` : '') + `. The new set has ${entries.length} learned examples in total (+${entries.length - rt.activeExamples.length}).</p>` +
-                (totOld && okOld < totOld ? '<p style="color:#fbbf24;">&#9888;&#65039; Some earlier photos are no longer read correctly with this set. Publishing is not recommended.</p>' : '');
+                (totOld && okOld < totOld ? '<p style="color:#fbbf24;">Some earlier photos are no longer read correctly with this set. Publishing is not recommended.</p>' : '');
             rtEl('rt-publish-box').style.display = learned.length ? '' : 'none';
         } catch (e) { out.innerHTML = `<span style="color:#ef4444;">${esc(e.message)}</span>`; }
         finally { btn.disabled = false; }
@@ -4768,18 +4850,18 @@ document.addEventListener('DOMContentLoaded', function() {
             const url = URL.createObjectURL(zip), a = document.createElement('a');
             a.href = url; a.download = fname; document.body.appendChild(a); a.click(); a.remove();
             setTimeout(() => URL.revokeObjectURL(url), 120000);
-            out.innerHTML = `&#9989; Downloaded <b>${esc(fname)}</b> (${included.length} photo(s), ${fmtMB(zip.size)}). Waiting for your confirmation before anything is deleted...`;
+            out.innerHTML = `Downloaded <b>${esc(fname)}</b> (${included.length} photo(s), ${fmtMB(zip.size)}). Waiting for your confirmation before anything is deleted...`;
             await new Promise(r => setTimeout(r, 1500));          // let the browser finish saving the file before asking
             const more = rows.length - part.length;
             if (!confirm(`The zip "${fname}" with ${included.length} photo(s) (${fmtMB(zip.size)}) has been downloaded and passed its check.\n\nOpen your Downloads folder and make sure the file is really there.\n\n` +
                 `Delete exactly these ${included.length} training photo(s) from Supabase Storage now, to free the space?\nThis cannot be undone` + (failed.length ? `\n(${failed.length} photo(s) could not be loaded; they are NOT deleted.)` : '') + '.\nThe confirmed values stay in the database.')) {
-                out.innerHTML = `&#9989; Downloaded <b>${esc(fname)}</b>. Nothing was deleted from Storage (you chose not to). Press the button again later to delete.`; return;
+                out.innerHTML = `Downloaded <b>${esc(fname)}</b>. Nothing was deleted from Storage (you chose not to). Press the button again later to delete.`; return;
             }
             out.textContent = 'Deleting from Storage...';
             const r = await window.BiomassAPI.deleteTrainingPhotos('all', (i, n) => { out.textContent = `Deleting... ${Math.round(i / n * 100)}%`; }, new Set(included));
             try { await window.BiomassAPI.logActivity('TRAINING_SET_EXPORTED', `${included.length} training photo(s) downloaded as ${fname}; ${r.done} file(s) deleted from Storage (about ${(r.freed / 1048576).toFixed(1)} MB), ${r.detached} sample(s) detached; not removed: ${r.failed}.`); } catch (e) { /* courtesy line */ }
             out.innerHTML = `${r.failed ? '&#9888;&#65039;' : '&#9989;'} Downloaded <b>${esc(fname)}</b> and deleted ${r.done} photo file(s) from Storage, freed about ${fmtMB(r.freed)}` + (r.failed ? `; ${r.failed} could not be removed (try again)` : '') + '.' +
-                (more > 0 ? `<br>&#8505;&#65039; ${more} more training photo(s) are waiting: press the button again for the next zip.` : '');
+                (more > 0 ? `<br>${more} more training photo(s) are waiting: press the button again for the next zip.` : '');
         } catch (e) { out.textContent = 'Could not finish: ' + e.message; }
         finally { all2.forEach(b => b.disabled = false); rtLoad(); }
     }
@@ -4809,9 +4891,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const say = (html) => { if (out) out.innerHTML = html; };
         const plan = await window.BiomassAPI.planPhotoCleanup({ targetPercent: STORAGE_TARGET_PCT, keepDays: STORAGE_KEEP_DAYS });
         const st = plan.status, pct = st.limit ? st.bytes / st.limit * 100 : 0;
-        if (plan.need <= 0) { say(`✅ Nothing to delete: storage is at ${pct.toFixed(1)}%, below the ${STORAGE_TARGET_PCT}% target.`); return null; }
+        if (plan.need <= 0) { say(`Nothing to delete: storage is at ${pct.toFixed(1)}%, below the ${STORAGE_TARGET_PCT}% target.`); return null; }
         if (!plan.items.length) {
-            say(`⚠️ Storage is at ${pct.toFixed(1)}%, but there are no photos old enough to delete (the newest ${STORAGE_KEEP_DAYS} days and open referee challenges are protected). Upgrade the Supabase plan or free space another way.`);
+            say(`Storage is at ${pct.toFixed(1)}%, but there are no photos old enough to delete (the newest ${STORAGE_KEEP_DAYS} days and open referee challenges are protected). Upgrade the Supabase plan or free space another way.`);
             return null;
         }
         const first = String(plan.items[0].created).slice(0, 10), last = String(plan.items[plan.items.length - 1].created).slice(0, 10);
@@ -4824,7 +4906,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         say('Deleting... 0%');
         const res = await window.BiomassAPI.runPhotoCleanup(plan.items, (i, n) => say(`Deleting... ${Math.round(i / n * 100)}%`));
-        say(`${res.failed ? '⚠️' : '✅'} Deleted ${res.done.toLocaleString()} old photo(s), freed about ${fmtMB(res.freed)}` + (res.failed ? `; ${res.failed} could not be removed (try again)` : '') +
+        say(`Deleted ${res.done.toLocaleString()} old photo(s), freed about ${fmtMB(res.freed)}` + (res.failed ? `; ${res.failed} could not be removed (try again)` : '') +
             (auto ? ' (automatic)' : '') + '.');
         return res;
     }
@@ -4883,7 +4965,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 if (details) {
                     details.innerHTML = `
-                        <div style="color: #10b981; font-weight: bold; margin-bottom: 0.35rem;">✅ Supabase Connection Verified & Active</div>
+                        <div style="color: #10b981; font-weight: bold; margin-bottom: 0.35rem;">Supabase Connection Verified & Active</div>
                         <div><strong>Round-trip Latency:</strong> ${health.latency_ms} ms</div>
                         <div><strong>Total Consignments in DB:</strong> ${health.truck_count}</div>
                         <div><strong>Lab 1 Records:</strong> ${health.lab1_count} | <strong>Composite Batches:</strong> ${health.composite_count}</div>
@@ -5687,7 +5769,7 @@ document.addEventListener('DOMContentLoaded', function() {
             host.innerHTML =
                 '<div id="' + key + '-auto-panel">' +
                   '<div class="scale-photo-row" style="margin-top: 0.5rem;">' +
-                    '<button type="button" class="btn btn-primary btn-sm" id="btn-' + key + '-scan">📷 Scan ' + cfg.scanLabel + '</button>' +
+                    '<button type="button" class="btn btn-primary btn-sm" id="btn-' + key + '-scan">Scan ' + cfg.scanLabel + '</button>' +
                     '<input type="file" id="' + key + '-scan-input" accept="image/*" capture="environment" style="display: none;">' +
                     '<span id="' + key + '-attempt-badge" class="badge badge-pending"></span>' +
                   '</div>' +
@@ -5697,8 +5779,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     '<img id="' + key + '-review-crop" class="auto-read-crop" alt="Digits the reader found">' +
                     '<div class="auto-read-q" id="' + key + '-review-q"></div>' +
                     '<div class="scale-photo-row">' +
-                      '<button type="button" class="btn btn-primary btn-sm" id="btn-' + key + '-accept">✔ Yes, use this value</button>' +
-                      '<button type="button" class="btn btn-secondary btn-sm" id="btn-' + key + '-retake">↻ No, retake photo</button>' +
+                      '<button type="button" class="btn btn-primary btn-sm" id="btn-' + key + '-accept">Yes, use this value</button>' +
+                      '<button type="button" class="btn btn-secondary btn-sm" id="btn-' + key + '-retake">No, retake photo</button>' +
                     '</div>' +
                   '</div>' +
                 '</div>';
@@ -5719,7 +5801,7 @@ document.addEventListener('DOMContentLoaded', function() {
             m.style.display = text ? 'block' : 'none';
         }
         function unavailableNotice() {
-            statusMsg('⚠️ Automatic reading is not available on this device. Attach a photo of the display and type the reading.', '#f59e0b');
+            statusMsg('Automatic reading is not available on this device. Attach a photo of the display and type the reading.', '#f59e0b');
         }
 
         function apply() {
@@ -5748,7 +5830,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const left = AUTO_READ_MAX_ATTEMPTS - st.attempts;
             if (st.mode === 'accepted') {
-                badge.textContent = '✔ Confirmed (attempt ' + st.attempts + ' of ' + AUTO_READ_MAX_ATTEMPTS + ')';
+                badge.textContent = 'Confirmed (attempt ' + st.attempts + ' of ' + AUTO_READ_MAX_ATTEMPTS + ')';
                 badge.className = 'badge badge-success';
             } else if (st.pending) {
                 badge.textContent = 'Attempt ' + st.attempts + ' of ' + AUTO_READ_MAX_ATTEMPTS + ' - check below';
@@ -5760,7 +5842,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 badge.textContent = left + ' attempt' + (left === 1 ? '' : 's') + ' left';
                 badge.className = 'badge badge-pending';
             }
-            scanBtn.textContent = st.mode === 'accepted' ? '↻ Scan Again' : '📷 Scan ' + cfg.scanLabel;
+            scanBtn.textContent = st.mode === 'accepted' ? 'Scan Again' : 'Scan ' + cfg.scanLabel;
             scanBtn.disabled = st.busy || !!st.pending || (st.mode === 'accepted' && st.attempts >= AUTO_READ_MAX_ATTEMPTS);
 
             review.style.display = st.pending ? '' : 'none';
@@ -5773,9 +5855,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 conf.className = 'badge ' + (p.uncertain ? 'badge-warning' : 'badge-success');
                 review.classList.toggle('is-uncertain', p.uncertain);
                 part('review-q').textContent = p.uncertain
-                    ? '⚠️ The reader is only ' + Math.round(p.conf) + '% sure. Look at the ' + cfg.deviceName + ' and at the digits above: does the number match EXACTLY? If yes, confirm it; if there is any doubt, retake the photo.'
+                    ? 'The reader is only ' + Math.round(p.conf) + '% sure. Look at the ' + cfg.deviceName + ' and at the digits above: does the number match EXACTLY? If yes, confirm it; if there is any doubt, retake the photo.'
                     : 'Does this exactly match the number on the ' + cfg.deviceName + '?';
-                el('btn-' + key + '-accept').textContent = p.uncertain ? '✔ Yes, it matches the display - use this value' : '✔ Yes, use this value';
+                el('btn-' + key + '-accept').textContent = p.uncertain ? 'Yes, it matches the display - use this value' : 'Yes, use this value';
             }
         }
 
@@ -5801,7 +5883,7 @@ document.addEventListener('DOMContentLoaded', function() {
             st.busy = false;
             autoMsg('');
             apply();
-            statusMsg('⚠️ ' + reason + ' Attach a photo of the display (Live Camera or Select Photo) and type the reading.', '#f59e0b');
+            statusMsg(reason + ' Attach a photo of the display (Live Camera or Select Photo) and type the reading.', '#f59e0b');
         }
 
         function clearAccepted() {
@@ -5830,8 +5912,8 @@ document.addEventListener('DOMContentLoaded', function() {
             st.attempts += 1;
             st.busy = true;
             autoMsg(cfg.kind === 'weight'
-                ? '⏳ Reading the display... this can take up to 30 seconds (the first scan after opening this page takes longer while the reader loads)'
-                : '⏳ Reading the display... (the first scan after opening this page can take a minute while the reader loads)', '#94a3b8');
+                ? 'Reading the display... this can take up to 30 seconds (the first scan after opening this page takes longer while the reader loads)'
+                : 'Reading the display... (the first scan after opening this page can take a minute while the reader loads)', '#94a3b8');
             apply();
 
             let result = null, dataUrl = '', failure = null;
@@ -5858,7 +5940,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const num = result ? Number(result.value) : NaN;
             if (!isFinite(num) || !cfg.valid(num)) {
-                autoMsg('❌ No reading could be found in that photo. Hold the phone steady, fill the frame with the display, avoid glare, then take another photo.', '#ef4444');
+                autoMsg('No reading could be found in that photo. Hold the phone steady, fill the frame with the display, avoid glare, then take another photo.', '#ef4444');
             } else {
                 const uncertain = result.conf < window.MoistureOCR.MIN_CONFIDENCE;
                 st.pending = { value: result.value, conf: result.conf, crop: result.crop, dataUrl, uncertain };
@@ -5894,7 +5976,7 @@ document.addEventListener('DOMContentLoaded', function() {
             st.pending = null;
             autoMsg('');
             const status = part('photo-status');
-            if (status) { status.textContent = '📸 Auto-read ' + p.value + ' ' + unit + (p.uncertain ? ' (operator confirmed, low confidence)' : ' (confirmed)'); status.className = 'badge badge-success'; }
+            if (status) { status.textContent = 'Auto-read ' + p.value + ' ' + unit + (p.uncertain ? ' (operator confirmed, low confidence)' : ' (confirmed)'); status.className = 'badge badge-success'; }
             statusMsg('Value read from the display photo and confirmed by the operator' + (p.uncertain ? ' (the reader was only ' + Math.round(p.conf) + '% sure)' : '') + '. Photo attached for supervisor audit.', '#10b981');
             apply();
             if (cfg.afterChange) cfg.afterChange();
@@ -5978,11 +6060,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!isNaN(initial) && initial > 0 && !isNaN(final) && final >= 0) {
             if (final > initial) {
                 if (errEl) {
-                    errEl.textContent = '⚠️ Final weight cannot exceed gross initial sample weight! Please re-verify scale reading.';
+                    errEl.textContent = 'Final weight cannot exceed gross initial sample weight! Please re-verify scale reading.';
                     errEl.style.display = 'block';
                 }
                 hidden.value = '';
-                display.textContent = '⚠️ Invalid (f > i)';
+                display.textContent = 'Invalid (f > i)';
                 return;
             }
             if (errEl) errEl.style.display = 'none';
@@ -6098,11 +6180,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const title = document.getElementById('fineness-camera-title');
         if (title) {
             if (target === 'moisture') {
-                title.textContent = '📷 Live Scale Photo Capture (Moisture Analyzer)';
+                title.textContent = 'Live Scale Photo Capture (Moisture Analyzer)';
             } else if (target === 'fineness-initial') {
-                title.textContent = '📷 Live Scale Photo Capture (Initial Weight)';
+                title.textContent = 'Live Scale Photo Capture (Initial Weight)';
             } else {
-                title.textContent = '📷 Live Scale Photo Capture (Final Weight)';
+                title.textContent = 'Live Scale Photo Capture (Final Weight)';
             }
         }
         // Move the single shared camera panel right next to the field that triggered it, so the
@@ -6159,7 +6241,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (statusBadge) {
-            statusBadge.textContent = '⏳ Compressing Photo...';
+            statusBadge.textContent = 'Compressing Photo...';
             statusBadge.className = 'badge badge-pending';
         }
 
@@ -6176,7 +6258,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (placeholder) placeholder.style.display = 'none';
 
             if (statusBadge) {
-                statusBadge.textContent = '📸 Scale Photo Attached';
+                statusBadge.textContent = 'Scale Photo Attached';
                 statusBadge.className = 'badge badge-success';
             }
 
@@ -6204,7 +6286,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (err) {
             console.error('Scale photo handling error:', err);
             if (statusBadge) {
-                statusBadge.textContent = '⚠️ Image Error';
+                statusBadge.textContent = 'Image Error';
                 statusBadge.className = 'badge badge-danger';
             }
             if (statusMsg) {
@@ -6253,11 +6335,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const formatted = isMoisture ? val.toFixed(2) : val.toFixed(3);
         if (inputEl) inputEl.value = formatted;
         if (statusBadge) {
-            statusBadge.textContent = `⚠️ ${formatted} ${isMoisture ? '%M' : 'kg'} (Manual + Audit Photo)`;
+            statusBadge.textContent = `${formatted} ${isMoisture ? '%M' : 'kg'} (Manual + Audit Photo)`;
             statusBadge.className = 'badge badge-warning';
         }
         if (statusMsg) {
-            statusMsg.innerHTML = `<span style="color:#f59e0b">⚠️ Manually entered by operator (${formatted} ${isMoisture ? '%' : 'kg'}) with scale photo attached for supervisor audit.</span>`;
+            statusMsg.innerHTML = `<span style="color:#f59e0b">Manually entered by operator (${formatted} ${isMoisture ? '%' : 'kg'}) with scale photo attached for supervisor audit.</span>`;
             statusMsg.style.display = 'block';
         }
     };
@@ -6417,10 +6499,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const msg = 'Data already saved for this QR.';
         const detail = what + ' result for this QR was already submitted' + (when ? ' at ' + when : '') + ' and is locked. It cannot be entered again.';
         if (box) {
-            box.innerHTML = '<strong>\u26D4 ' + msg + '</strong><span>' + esc(detail) + '</span>';
+            box.innerHTML = '<strong>' + msg + '</strong><span>' + esc(detail) + '</span>';
             box.style.display = 'flex';
         }
-        alert('\u26D4 ' + msg + '\n\n' + detail);
+        alert(msg + '\n\n' + detail);
     }
 
     async function lookupLab1Barcode(barcode) {
@@ -6452,7 +6534,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }
                 entryCard.style.display = 'block';
-                document.getElementById('lab1-blind-code').textContent = '✅ ACTIVE SECURE SAMPLE';
+                document.getElementById('lab1-blind-code').textContent = 'ACTIVE SECURE SAMPLE';
                 document.getElementById('lab1-barcode-id').value = data.sample1_barcode_id;
 
                 if (data.meta || data.company_name || data.truck_reg_number) {
@@ -6485,7 +6567,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     moistureInput.value = data.moisture_pct;
                     const mStatus = document.getElementById('moisture-photo-status');
                     if (mStatus) {
-                        mStatus.textContent = '✅ Already Tested';
+                        mStatus.textContent = 'Already Tested';
                         mStatus.className = 'badge badge-success';
                     }
                 }
@@ -6495,7 +6577,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     ['initial', 'final'].forEach(w => {
                         const fStatus = document.getElementById(`fineness-${w}-photo-status`);
                         if (fStatus) {
-                            fStatus.textContent = '✅ Already Tested';
+                            fStatus.textContent = 'Already Tested';
                             fStatus.className = 'badge badge-success';
                         }
                     });
@@ -6606,7 +6688,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             if (Number(finalWeight) > Number(initialWeight)) {
-                alert('⚠️ Fineness Calculation Error: Final retained weight cannot exceed gross initial sample weight!');
+                alert('Fineness Calculation Error: Final retained weight cannot exceed gross initial sample weight!');
                 return;
             }
             updateFinenessCalc();
@@ -6645,8 +6727,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const res = await window.BiomassAPI.submitSample1Result(barcode, moisture, fineness, extra);
             if (res.success) {
                 const acceptMsg = res.acceptance_status === 'REJECTED' 
-                    ? '\n⚠️ CONSIGNMENT REJECTED: Moisture is 14.0% or higher.' 
-                    : (res.acceptance_status === 'ACCEPTED' ? '\n✅ CONSIGNMENT ACCEPTED: Moisture is below 14.0%.' : '');
+                    ? '\nCONSIGNMENT REJECTED: Moisture is 14.0% or higher.' 
+                    : (res.acceptance_status === 'ACCEPTED' ? '\nCONSIGNMENT ACCEPTED: Moisture is below 14.0%.' : '');
                 // Proof of what the database really holds, compared with what was sent. A difference is shown loudly.
                 const rec = res.record || {};
                 let saved = '';
@@ -6793,33 +6875,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (group.is_batch_created) {
                     actionHtml = `
                         <div style="color: #10b981; font-weight: bold; font-size: 0.85rem; margin-top: 0.5rem;">
-                            ✅ Composite generated - cannot be generated again
+                            Composite generated - cannot be generated again
                         </div>
                         <div style="font-size: 0.82rem; color: #cbd5e1; background: rgba(16,185,129,0.1); border-radius: 6px; padding: 0.4rem 0.6rem;">
                             <strong>${esc(group.mixed_samples_count != null ? group.mixed_samples_count : acc)}</strong> sample(s) mixed
                             (of ${esc(group.total_registered)} registered; ${esc(rej)} rejected and left out${pen > 0 ? '; ' + esc(pen) + ' arrived later, not mixed' : ''})
                         </div>
-                        <button type="button" class="btn btn-secondary btn-sm mt-2 lab2-reprint" style="width: 100%;">🖨️ View / Reprint Composite QR Codes</button>`;
-                } else if (pen > 0) {
-                    actionHtml = `
-                        <div style="color: #f59e0b; font-size: 0.82rem; margin-top: 0.5rem;">⏳ Waiting for Lab 1 moisture results (${pen} pending).</div>
-                        <button type="button" class="btn btn-secondary btn-sm mt-2" disabled style="width: 100%; opacity: 0.5; cursor: not-allowed;">🔒 Locked (Lab 1 incomplete)</button>`;
-                } else if (acc === 0) {
-                    actionHtml = `<div style="color: #ef4444; font-size: 0.82rem; margin-top: 0.5rem;">⛔ All ${rej} consignments in this group were REJECTED.</div>`;
-                } else if (!group.all_scanned) {
-                    const remaining = acc - scanned;
-                    actionHtml = `
-                        <div style="color: #cbd5e1; font-size: 0.82rem; margin-top: 0.5rem;">
-                            Scanned in the Fineness login: <strong>${scanned} / ${acc}</strong> accepted container(s).
-                        </div>
-                        <button type="button" class="btn btn-secondary btn-sm mt-2" disabled style="width: 100%; opacity: 0.6; cursor: not-allowed;">
-                            🔒 Waiting for ${remaining} more scan${remaining > 1 ? 's' : ''} in the Fineness login
-                        </button>`;
+                        <button type="button" class="btn btn-secondary btn-sm mt-2 lab2-reprint" style="width: 100%;">View / Reprint Composite QR Codes</button>`;
+                } else if (pen > 0 || acc === 0 || !group.all_scanned) {
+                    // Composite QR cannot be generated until every truck going into the mix has its moisture and fineness report
+                    const total = acc + pen, missing = pen + Math.max(0, acc - scanned);
+                    actionHtml = acc === 0 && pen === 0
+                        ? `<div style="color: #ef4444; font-size: 0.95rem; font-weight: 600; margin-top: 0.5rem;">All ${rej} rejected</div>`
+                        : `<div class="lab2-missing" style="color: #ef4444; font-size: 1rem; font-weight: 600; margin-top: 0.6rem;">${missing}/${total} trucks fineness/moisture report missing/pending</div>`;
                 } else {
                     actionHtml = `
-                        <div style="color: #10b981; font-size: 0.85rem; font-weight: bold; margin-top: 0.5rem;">🎉 All ${acc} accepted containers scanned in the Fineness login!</div>
                         <button type="button" class="btn btn-primary btn-sm mt-2 lab2-generate" style="width: 100%; background: linear-gradient(135deg, #10b981 0%, #059669 100%); font-weight: bold;">
-                            ⚗️ Generate Composite Mix (${esc(group.group_code)})
+                            Generate Composite Mix (${esc(group.group_code)})
                         </button>`;
                 }
 
@@ -7051,7 +7123,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (sul >= 0) h += `ARB Sulphur = <strong>${r2(sul * x, 2).toFixed(2)}</strong> % &nbsp; `;
             if (vm >= 0) h += `ARB VM = <strong>${r2(vm * x, 2).toFixed(2)}</strong> %`;
         }
-        if (adm > lab2Calc.tm) h += '<br><span style="color:#fbbf24;">⚠️ AD moisture is higher than TM - please check the value.</span>';
+        if (adm > lab2Calc.tm) h += '<br><span style="color:#fbbf24;">AD moisture is higher than TM - please check the value.</span>';
         box.innerHTML = h; box.style.display = 'block';
     }
     ['lab2-ad-moisture', 'lab2-gcv', 'lab2-ash', 'lab2-sulphur', 'lab2-vm'].forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('input', lab2Preview); });
@@ -7094,7 +7166,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const data = await fetchData();
             if (data.success) {
                 entryCard.style.display = 'block';
-                document.getElementById('lab2-blind-code').textContent = `✅ ACTIVE SECURE COMPOSITE (${data.lot_type})`;
+                document.getElementById('lab2-blind-code').textContent = `ACTIVE SECURE COMPOSITE (${data.lot_type})`;
                 document.getElementById('lab2-barcode-id').value = data.composite_barcode_id;
 
                 if (data.meta || data.company_name || data.parent_truck_ids) {
@@ -7142,7 +7214,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert('Composite analysis locked and submitted successfully!\n\nTM ' + r2(Number(res.tm), 2).toFixed(2) + ' %  |  X ' + Number(res.x).toFixed(6) +
                       '\nARB GCV ' + res.arb_gcv + ' kcal/kg  |  ARB Ash ' + Number(res.arb_ash).toFixed(2) + ' %' +
                       (res.arb_sulphur !== null && res.arb_sulphur !== undefined ? '\nARB Sulphur ' + Number(res.arb_sulphur).toFixed(2) + ' %  |  ARB VM ' + Number(res.arb_vm).toFixed(2) + ' %' : '') +
-                      (res.warning ? '\n\n⚠️ ' + res.warning : ''));
+                      (res.warning ? '\n\n' + res.warning : ''));
                 document.getElementById('lab2-entry-card').style.display = 'none';
                 renderLab2History();
             } else {
@@ -7255,9 +7327,9 @@ document.addEventListener('DOMContentLoaded', function() {
             <td><strong>${esc(v.name)}</strong></td><td><span class="vd-lot ${vdLotCls(v.lot)}">${esc(lotLabel(v.lot))}</span></td><td style="font-family:monospace;">${esc(v.po_number || '-')}</td>
             <td>${esc(v.trucks)}</td><td>${v.last_used ? esc(dmy(v.last_used)) : '-'}</td>
             <td>${v.active ? '<span class="badge badge-success">ACTIVE</span>' : '<span class="badge badge-pending">RETIRED</span>'}</td>
-            <td style="min-width:250px;"><button class="btn btn-secondary btn-sm" data-act="edit" data-id="${esc(v.id)}">✏️ Edit</button>
+            <td style="min-width:250px;"><button class="btn btn-secondary btn-sm" data-act="edit" data-id="${esc(v.id)}">Edit</button>
                 ${v.active ? `<button class="btn btn-secondary btn-sm" data-act="retire" data-id="${esc(v.id)}">⏸ Retire</button>` : `<button class="btn btn-secondary btn-sm" data-act="restore" data-id="${esc(v.id)}">▶ Re-activate</button>`}
-                ${v.trucks === 0 ? `<button class="btn btn-secondary btn-sm" style="border-color:#ef4444; color:#fca5a5;" data-act="delete" data-id="${esc(v.id)}">🗑 Delete</button>` : ''}</td></tr>`).join('')
+                ${v.trucks === 0 ? `<button class="btn btn-secondary btn-sm" style="border-color:#ef4444; color:#fca5a5;" data-act="delete" data-id="${esc(v.id)}">Delete</button>` : ''}</td></tr>`).join('')
             || '<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No vendors match.</td></tr>';
     }
     function vdFormHtml(v, canLot) {
@@ -7272,7 +7344,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <label class="vd-field">PO number</label><input class="vd-dlg-input" id="vdf-po" maxlength="40" value="${esc(v.po_number || '')}" placeholder="optional">`;
     }
     function vdAddDialog() {
-        vdDialog({ title: '➕ Add vendor', html: vdFormHtml({ lot: ['LOT2', 'LOT3', 'LOT4', 'LOT4A'].includes(vdState.lot) ? vdState.lot : 'LOT3' }, true) +
+        vdDialog({ title: 'Add vendor', html: vdFormHtml({ lot: ['LOT2', 'LOT3', 'LOT4', 'LOT4A'].includes(vdState.lot) ? vdState.lot : 'LOT3' }, true) +
             '<p style="font-size:0.8rem; color:#94a3b8; margin-top:0.6rem;">A vendor that also exists under the other lot keeps the same spelling automatically.</p>', okLabel: 'Add vendor',
             onOk: async () => {
                 const name = document.getElementById('vdf-name').value.trim(); if (!name) throw new Error('Type the vendor name.');
@@ -7280,7 +7352,7 @@ document.addEventListener('DOMContentLoaded', function() {
             } });
     }
     function vdEditDialog(v) {
-        vdDialog({ title: `✏️ Edit ${esc(v.name)}`, html: vdFormHtml(v, v.trucks === 0) + (v.trucks ? `<p style="font-size:0.8rem; color:#94a3b8; margin-top:0.6rem;">Renaming also renames the vendor on its ${esc(v.trucks)} truck(s), composites and mixing groups. The PO of trucks already booked is not changed.</p>` : ''), okLabel: 'Save',
+        vdDialog({ title: `Edit ${esc(v.name)}`, html: vdFormHtml(v, v.trucks === 0) + (v.trucks ? `<p style="font-size:0.8rem; color:#94a3b8; margin-top:0.6rem;">Renaming also renames the vendor on its ${esc(v.trucks)} truck(s), composites and mixing groups. The PO of trucks already booked is not changed.</p>` : ''), okLabel: 'Save',
             onOk: async () => {
                 const name = document.getElementById('vdf-name').value.trim(); if (!name) throw new Error('Type the vendor name.');
                 const row = { id: v.id, name, po_number: document.getElementById('vdf-po').value.trim() };
@@ -7462,15 +7534,28 @@ document.addEventListener('DOMContentLoaded', function() {
         if (up) { b.style.top = 'auto'; b.style.bottom = (window.innerHeight - r.top + 2) + 'px'; } else { b.style.bottom = 'auto'; b.style.top = (r.bottom + 2) + 'px'; }
     }
     function sugHide() { if (sugS.box) sugS.box.style.display = 'none'; sugS.active = -1; }
+    function sugHl(str, text) {                           // the typed letters, marked
+        const toks = String(text || '').trim().split(/\s+/).filter(Boolean).map(x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        const raw = String(str === null || str === undefined ? '' : str);
+        if (!toks.length) return esc(raw);
+        return raw.split(new RegExp('(' + toks.join('|') + ')', 'i')).map((part, i) => i % 2 ? '<mark>' + esc(part) + '</mark>' : esc(part)).join('');
+    }
+    const sugExactIndex = (items, text) => { const t = String(text || '').trim().toLowerCase(); return t ? (items || []).findIndex(it => String(it.value).toLowerCase() === t) : -1; };
     function sugPaint(text) {
         const b = sugElBox(), items = sugS.items;
         if (!items.length && sugS.busy) b.innerHTML = '<div class="vendor-empty">Searching...</div>';
-        else b.innerHTML = (items.length ? items.map((it, i) => {
-                const k = SUG_KIND[it.kind] || SUG_KIND.opt;
-                return `<div class="vendor-item${i === sugS.active ? ' active' : ''}" data-i="${i}" role="option"><span class="vendor-name">${esc(it.label)}</span>` +
-                    `<span class="vendor-meta">${k[1] ? `<span class="sx-sugkind">${k[0]} ${k[1]}</span>` : ''}${it.meta || ''}${it.n > 1 ? ` &nbsp;&middot;&nbsp; ${it.n}x` : ''}</span></div>`;
-            }).join('') : `<div class="vendor-empty">No match for "${esc(text)}". ${sugS.entry && sugS.entry.noMatchHint || 'Press Enter to search anyway.'}</div>`) +
-            (sugS.busy && items.length ? '<div class="sx-sug-note">Looking for more...</div>' : '');
+        else {
+            let prev = null;
+            b.innerHTML = (items.length ? items.map((it, i) => {
+                    const k = SUG_KIND[it.kind] || SUG_KIND.opt;
+                    const head = (it.kind !== 'opt' && it.kind !== prev) ? `<div class="sx-sug-head">${esc(k[1])}</div>` : '';
+                    prev = it.kind;
+                    return head + `<div class="vendor-item${i === sugS.active ? ' active' : ''}" data-i="${i}" role="option"><span class="vendor-name">${sugHl(it.label, text)}</span>` +
+                        `<span class="vendor-meta">${k[1] ? `<span class="sx-sugkind">${k[0]} ${k[1]}</span>` : ''}${it.meta || ''}${it.n > 1 ? ` &nbsp;&middot;&nbsp; ${it.n}x` : ''}</span></div>`;
+                }).join('') + `<div class="sx-sug-foot"><span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>Enter</kbd> pick</span><span><kbd>Esc</kbd> close</span><span class="n">${items.length} result${items.length > 1 ? 's' : ''}</span></div>`
+                : `<div class="vendor-empty">No match for "${esc(text)}". ${sugS.entry && sugS.entry.noMatchHint || 'Press Enter to search anyway.'}</div>`) +
+                (sugS.busy && items.length ? '<div class="sx-sug-note">Looking for more...</div>' : '');
+        }
         b.style.display = 'block'; sugPlace();
     }
     async function sugRefresh(input, entry, fromFocus) {
@@ -7480,11 +7565,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const mine = ++sugS.seq; sugS.busy = true;
         const q = (fromFocus && entry.showAllOnFocus) ? '' : text;
         try {
-            const first = await entry.get(q, (partial) => { if (mine === sugS.seq) { sugS.items = partial; sugS.active = -1; sugPaint(text); } });
+            const first = await entry.get(q, (partial) => { if (mine === sugS.seq) { sugS.items = partial; sugS.active = sugExactIndex(partial, q); sugPaint(text); } });
             if (mine !== sugS.seq) return;
             sugS.items = first || [];
         } catch (e) { if (mine !== sugS.seq) return; sugS.items = []; }
-        sugS.busy = false; sugS.active = -1; sugPaint(text);
+        sugS.busy = false; sugS.active = sugExactIndex(sugS.items, q); sugPaint(text);
     }
     function sugPick(i) {
         const it = sugS.items[i], input = sugS.input, entry = sugS.entry; if (!it || !input) return;
@@ -7584,6 +7669,18 @@ document.addEventListener('DOMContentLoaded', function() {
         const seen = {}, rows = (r.samples || []).filter(x => x.mixing_code && !seen[x.mixing_code] && (seen[x.mixing_code] = 1));
         return sugFromRows(text, rows, [{ key: 'mixing_code', kind: 'code', label: (x, v) => String(v).toUpperCase(), meta: (x) => sugMeta(x.company_name, x.lot && lotLabel(x.lot)) }], 40);
     }
+    // press "/" anywhere (not while typing, not under a pop-up window) to jump to the search box of the screen you are on
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+        const t = e.target, tag = t && t.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+        if ([...document.querySelectorAll('[id$="-modal"]')].some(m => getComputedStyle(m).display !== 'none')) return;
+        const ids = Object.keys(SUG_REG).filter(k => k.indexOf('*') < 0).concat([...document.querySelectorAll('input[id^="sxt-find-"]')].map(x => x.id));
+        for (const id of ids) {
+            const el = document.getElementById(id);
+            if (el && el.offsetParent !== null && !el.disabled && el.type !== 'hidden' && el.getBoundingClientRect().height > 0) { e.preventDefault(); el.focus(); try { el.select(); } catch (x) { /* ignore */ } return; }
+        }
+    });
     document.addEventListener('focusin', (e) => {
         const el = e.target; if (!el || !el.id || el.tagName !== 'INPUT') return;
         const entry = SUG_REG[el.id] || (el.id.indexOf('sxt-find-') === 0 ? SUG_REG['sxt-find-*'] : null);
@@ -7685,7 +7782,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const sxF = (v, d) => (v === null || v === undefined || v === '') ? '<span style="color:#f59e0b;">&mdash;</span>' : Number(v).toFixed(d);
     function sxStatus(r) {
         if (r.cancel_status === 'VOIDED') return { cls: 'st-can', badge: '<span class="sx-pill sx-void">VOIDED</span>' };
-        if (r.cancel_status === 'CANCELLED') return { cls: 'st-can', badge: '<span class="sx-pill sx-cancel">🚫 QR CANCELLED</span>' };
+        if (r.cancel_status === 'CANCELLED') return { cls: 'st-can', badge: '<span class="sx-pill sx-cancel">QR CANCELLED</span>' };
         const ov = r.acceptance_override ? ' <span class="sx-pill sx-ovr" title="Accept / reject was set by the Super Admin">OVERRIDE</span>' : '';
         if (r.acceptance_status === 'REJECTED') return { cls: 'st-rej', badge: '<span class="sx-pill sx-rej">REJECTED</span>' + ov };
         if (r.acceptance_status === 'ACCEPTED') return { cls: 'st-ok', badge: '<span class="sx-pill sx-ok">ACCEPTED</span>' + ov };
@@ -7745,10 +7842,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div class="sx-stats"><div><small>Moisture</small><b>${sxF(r.moisture_pct, 2)}</b></div><div><small>Fineness</small><b>${sxF(r.fineness_value, 2)}</b></div><div><small>Truck id</small><b style="font-size:0.7rem;">${esc(r.truck_id)}</b></div></div>
                 <div class="sx-qr">${esc(r.sample1_barcode_id)}</div>${old}
                 <div class="sx-actions">
-                    <button class="btn btn-primary btn-sm" data-act="open" data-i="${i}">🔍 Open &amp; edit</button>
-                    <button class="btn btn-secondary btn-sm" data-act="print" data-i="${i}">🖨️ Print QR</button>
+                    <button class="btn btn-primary btn-sm" data-act="open" data-i="${i}">Open &amp; edit</button>
+                    <button class="btn btn-secondary btn-sm" data-act="print" data-i="${i}">Print QR</button>
                     <button class="btn btn-secondary btn-sm" data-act="png" data-i="${i}" title="Download the QR as a picture">⬇</button>
-                    <button class="btn btn-secondary btn-sm" data-act="group" data-i="${i}" title="Everything of this mixing code">👥 Group</button>
+                    <button class="btn btn-secondary btn-sm" data-act="group" data-i="${i}" title="Everything of this mixing code">Group</button>
                 </div></div>`;
         }).join('');
         sx$('super-samples-grid').innerHTML = sHtml || '<div class="sx-note">No samples to show.</div>';
@@ -7761,17 +7858,17 @@ document.addEventListener('DOMContentLoaded', function() {
             const vals = tested
                 ? `<div class="sx-stats"><div><small>TM</small><b>${sxF(c.tm_value, 2)}</b></div><div><small>ARB GCV</small><b>${esc(c.arb_gcv)}</b></div><div><small>ARB Ash</small><b>${sxF(c.arb_ash, 2)}</b></div></div>` +
                   `<div class="sx-meta">AD: ${sxF(c.ad_moisture, 2)}% moisture / ${sxF(c.ad_gcv, 0)} GCV / ${sxF(c.ad_ash, 2)}% ash${l4 ? ` / S ${sxF(c.ad_sulphur, 2)}% / VM ${sxF(c.ad_vm, 2)}%` : ''}${l4 ? `<br>ARB: S ${sxF(c.arb_sulphur, 2)}% / VM ${sxF(c.arb_vm, 2)}%` : ''}</div>`
-                : '<div class="sx-meta" style="color:#fcd34d;">⏳ AD values not entered yet</div>';
+                : '<div class="sx-meta" style="color:#fcd34d;">AD values not entered yet</div>';
             return `<div class="sx-card st-cmp">
                 <div class="sx-card-top"><div class="sx-reg">${esc(c.composite_ref_id)}</div><span class="sx-pill ${tested ? 'sx-ok' : 'sx-pen'}">${tested ? 'TESTED' : 'NOT TESTED'}</span></div>
                 <div class="sx-vendor">${esc(c.company_name)}</div>
                 <div class="sx-meta"><span class="sx-code">${esc(c.mixing_code)}</span><span>${esc(dmy(c.date))}</span><span>${esc(c.lot)}</span><span>${esc(c.truck_count)} truck(s)</span></div>
                 ${vals}
                 <div class="sx-actions">
-                    <button class="btn btn-primary btn-sm" data-k="c" data-act="cedit" data-i="${i}">✏️ Edit AD values</button>
-                    <button class="btn btn-secondary btn-sm" data-k="c" data-act="cprint" data-i="${i}">🖨️ Print 3 labels</button>
-                    <button class="btn btn-secondary btn-sm" data-k="c" data-act="group" data-i="${i}">👥 Group</button>
-                    <button class="btn btn-secondary btn-sm sx-danger" data-k="c" data-act="cvoid" data-i="${i}">🗑 Void</button>
+                    <button class="btn btn-primary btn-sm" data-k="c" data-act="cedit" data-i="${i}">Edit AD values</button>
+                    <button class="btn btn-secondary btn-sm" data-k="c" data-act="cprint" data-i="${i}">Print 3 labels</button>
+                    <button class="btn btn-secondary btn-sm" data-k="c" data-act="group" data-i="${i}">Group</button>
+                    <button class="btn btn-secondary btn-sm sx-danger" data-k="c" data-act="cvoid" data-i="${i}">Void</button>
                 </div></div>`;
         }).join('');
         sx$('super-comps-grid').innerHTML = cHtml || '<div class="sx-note">No composite lots to show.</div>';
@@ -7800,8 +7897,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (comp && compIdx < 0) { superState.comps.push(comp); cRef = comp; }
             box.innerHTML = `
                 <div style="display:flex; justify-content:space-between; gap:0.6rem; flex-wrap:wrap; align-items:center;">
-                    <h3>👥 Mixing code <span class="sx-code" style="font-size:1.1rem;">${esc(code)}</span> &middot; ${esc(dmy(date))}</h3>
-                    <button class="btn btn-secondary btn-sm" id="sx-group-close">✕ Hide</button>
+                    <h3>Mixing code <span class="sx-code" style="font-size:1.1rem;">${esc(code)}</span> &middot; ${esc(dmy(date))}</h3>
+                    <button class="btn btn-secondary btn-sm" id="sx-group-close">Hide</button>
                 </div>
                 <div class="sx-meta" style="font-size:0.85rem; color:#e2e8f0;">${esc(vendors.join(' / ') || '-')} &middot; ${esc(rows[0] ? rows[0].lot : '')} &middot; PO ${esc(rows[0] ? rows[0].po_number || '-' : '-')}</div>
                 <div class="sx-tiles" style="margin-top:0.7rem;">
@@ -7813,10 +7910,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="sx-tile"><small>Composite</small><b style="font-size:0.95rem;">${comp ? esc(comp.composite_ref_id) : 'not made'}</b></div>
                 </div>
                 <div class="sx-btnrow">
-                    ${comp ? `<button class="btn btn-primary btn-sm" id="sx-g-print">🖨️ Print the 3 labels</button>
-                              <button class="btn btn-secondary btn-sm" id="sx-g-edit">✏️ Edit AD values</button>
-                              <button class="btn btn-secondary btn-sm sx-danger" id="sx-g-void">🗑 Void composite (so it can be made again)</button>`
-                          : `<button class="btn btn-primary btn-sm" id="sx-g-force">⚡ Force-create the composite</button>`}
+                    ${comp ? `<button class="btn btn-primary btn-sm" id="sx-g-print">Print the 3 labels</button>
+                              <button class="btn btn-secondary btn-sm" id="sx-g-edit">Edit AD values</button>
+                              <button class="btn btn-secondary btn-sm sx-danger" id="sx-g-void">Void composite (so it can be made again)</button>`
+                          : `<button class="btn btn-primary btn-sm" id="sx-g-force">Force-create the composite</button>`}
                 </div>
                 <div class="table-responsive"><table class="mixsearch-table" style="min-width:0; font-size:0.82rem;"><thead><tr><th>Truck</th><th>Sample QR</th><th>Type</th><th>Moisture</th><th>Fineness</th><th>Result</th><th>In mixture</th><th>Scanned</th><th></th></tr></thead><tbody>
                 ${rows.map(r => {
@@ -7824,7 +7921,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     const inMix = r.mix_status === 'ACCEPTED' ? '<span class="sx-pill sx-ok">Included</span>' : r.mix_status === 'CANCELLED' ? '<span class="sx-pill sx-cancel">Cancelled</span>' : r.mix_status === 'REJECTED' ? '<span class="sx-pill sx-rej">Left out</span>' : '<span class="sx-pill sx-pen">Waiting</span>';
                     return `<tr><td><b>${esc(r.truck_reg_number)}</b><br><small style="color:#94a3b8;">${esc(r.driver_name || '')}</small></td><td style="font-family:monospace; font-size:0.74rem;">${esc(r.sample1_barcode_id)}</td>
                         <td>${r.is_bottom_sample ? '<span class="sx-pill sx-bot">Bottom</span>' : 'Truck'}</td><td>${sxF(r.moisture_pct, 2)}</td><td>${sxF(r.fineness_value, 2)}</td><td>${st.badge}</td><td>${inMix}</td><td>${r.mixing_scanned ? '✅' : '-'}</td>
-                        <td><button class="btn btn-secondary btn-sm" data-gopen="${esc(r.truck_id)}">🔍 Open</button></td></tr>`;
+                        <td><button class="btn btn-secondary btn-sm" data-gopen="${esc(r.truck_id)}">Open</button></td></tr>`;
                 }).join('') || '<tr><td colspan="9" style="color:#94a3b8;">No trucks.</td></tr>'}
                 </tbody></table></div>`;
             sx$('sx-group-close').onclick = () => { box.style.display = 'none'; sxGroup = null; };
@@ -7999,7 +8096,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const locked = (d.group_composite || (d.composites || []).length);
         const btn = (act, label, cls, extra) => `<button class="btn ${cls || 'btn-secondary'} btn-sm" data-act="${act}" ${extra || ''}>${label}</button>`;
         const photoBtns = [['truck', t.has_photo, 'Truck photo'], ['moisture', l.has_moisture_photo, 'Moisture photo'], ['fineness_initial', l.has_fineness_initial_photo, 'Fineness (before)'], ['fineness_final', l.has_fineness_final_photo, 'Fineness (after)']]
-            .filter(x => x[1]).map(x => btn('photo', '🖼 ' + x[2], 'btn-secondary', `data-kind="${x[0]}" data-id="${esc(x[0] === 'truck' ? t.truck_id : t.sample1_barcode_id)}"`)).join(' ');
+            .filter(x => x[1]).map(x => btn('photo', x[2], 'btn-secondary', `data-kind="${x[0]}" data-id="${esc(x[0] === 'truck' ? t.truck_id : t.sample1_barcode_id)}"`)).join(' ');
         const comps = d.composites || [];
         const bs = d.bottom_sample, br = d.bottom_request;
         const bottomState = bs && !bs.cancel_status ? `Generated: <span style="font-family:monospace;">${esc(bs.sample1_barcode_id)}</span> (mixing code ${esc(bs.daily_group_code)})`
@@ -8018,7 +8115,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="sxd-sec"><h5>Registration</h5>
                 <div class="sxd-kv">${kv('Vehicle no.', `<b>${esc(t.truck_reg_number)}</b>`)}${kv('Driver', esc(t.driver_name))}${kv('Invoice / challan', esc(t.invoice_no || t.challan_no))}
                     ${kv('Vendor', esc(t.company_name))}${kv('Lot', esc(t.lot))}${kv('PO number', esc(t.po_number))}${kv('Entry', esc(dmy(t.entry_date)) + ' ' + esc(t.entry_time || ''))}${kv('Truck id', esc(t.truck_id))}</div>
-                <div class="sx-btnrow">${btn('edit-reg', '✏️ Edit registration details', 'btn-primary')}</div>
+                <div class="sx-btnrow">${btn('edit-reg', 'Edit registration details', 'btn-primary')}</div>
                 <div class="sx-meta">Changing the vehicle number, driver or invoice never changes the mixing group. Changing the <b>vendor</b> (or the date) moves the truck to that vendor's mixing group.</div>
             </div>
 
@@ -8026,38 +8123,38 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div class="sxd-kv">${kv('Gross (kg)', wt(t.gross_weight))}${kv('Final / tare (kg)', wt(t.tare_weight))}${kv('Net (kg)', wt(t.net_weight))}</div></div>
 
             <div class="sxd-sec"><h5>Lab 1 results</h5>
-                <div class="sxd-kv">${kv('Moisture %', sxF(l.moisture_pct, 3))}${kv('Fineness %', sxF(l.fineness_value, 2))}${kv('Fineness weights (kg)', l.fineness_initial_weight ? `${esc(l.fineness_initial_weight)} &rarr; ${esc(l.fineness_final_weight)}` : '')}${kv('Tested', esc(l.tested_at || ''))}${kv('Scanned for mixing', d.mixing_scanned ? '✅ yes' : 'no')}</div>
-                <div class="sx-btnrow">${btn('feed-lab1', '✏️ Feed / correct results', 'btn-primary')}</div></div>
+                <div class="sxd-kv">${kv('Moisture %', sxF(l.moisture_pct, 3))}${kv('Fineness %', sxF(l.fineness_value, 2))}${kv('Fineness weights (kg)', l.fineness_initial_weight ? `${esc(l.fineness_initial_weight)} &rarr; ${esc(l.fineness_final_weight)}` : '')}${kv('Tested', esc(l.tested_at || ''))}${kv('Scanned for mixing', d.mixing_scanned ? 'yes' : 'no')}</div>
+                <div class="sx-btnrow">${btn('feed-lab1', 'Feed / correct results', 'btn-primary')}</div></div>
 
             <div class="sxd-sec"><h5>Accept / reject decision</h5>
                 <div class="sx-meta" style="margin-bottom:0.4rem;">Normally decided by the moisture rule. Use an override only for a documented exception (needs a reason; the group's composite must not exist yet).</div>
-                <div class="sx-btnrow">${btn('ovr', '✅ Force ACCEPT', 'btn-secondary', 'data-st="ACCEPTED"')}${btn('ovr', '⛔ Force REJECT', 'btn-secondary sx-danger', 'data-st="REJECTED"')}${t.acceptance_override ? btn('ovr', '↩ Back to the moisture rule', 'btn-secondary', 'data-st="NONE"') : ''}</div></div>
+                <div class="sx-btnrow">${btn('ovr', 'Force ACCEPT', 'btn-secondary', 'data-st="ACCEPTED"')}${btn('ovr', 'Force REJECT', 'btn-secondary sx-danger', 'data-st="REJECTED"')}${t.acceptance_override ? btn('ovr', 'Back to the moisture rule', 'btn-secondary', 'data-st="NONE"') : ''}</div></div>
 
             <div class="sxd-sec"><h5>Sample QR code</h5>
                 <div class="sx-qr" style="font-size:0.85rem; color:#fff;">${esc(t.sample1_barcode_id)}</div>
                 ${(d.qr_history || []).length ? `<div class="sx-meta">Replaced earlier (no longer valid): ${d.qr_history.map(h => esc(h.old_barcode)).join(', ')}</div>` : ''}
-                <div class="sx-btnrow">${btn('print-qr', '🖨️ Print the QR label')}${btn('png-qr', '⬇ Download picture')}${btn('replace-qr', '🔁 Replace lost / damaged QR', 'btn-secondary sx-danger')}</div></div>
+                <div class="sx-btnrow">${btn('print-qr', 'Print the QR label')}${btn('png-qr', 'Download picture')}${btn('replace-qr', 'Replace lost / damaged QR', 'btn-secondary sx-danger')}</div></div>
 
             <div class="sxd-sec"><h5>Bottom sample</h5>
                 <div style="font-size:0.85rem; margin-bottom:0.4rem;">${bottomState}</div>
                 <div class="sx-btnrow">
-                    ${!br && !isCancelled ? btn('bottom', '➕ Request a bottom sample (no password)', 'btn-secondary', 'data-b="REQUEST"') : ''}
-                    ${br && br.status === 'REQUESTED' ? btn('bottom', '✖ Cancel the request', 'btn-secondary', 'data-b="CANCEL_REQUEST"') : ''}
-                    ${br && br.status === 'GENERATED' && bs && !bs.cancel_status ? btn('bottom', '↩ Undo the bottom sample', 'btn-secondary sx-danger', 'data-b="UNDO"') : ''}
+                    ${!br && !isCancelled ? btn('bottom', 'Request a bottom sample (no password)', 'btn-secondary', 'data-b="REQUEST"') : ''}
+                    ${br && br.status === 'REQUESTED' ? btn('bottom', 'Cancel the request', 'btn-secondary', 'data-b="CANCEL_REQUEST"') : ''}
+                    ${br && br.status === 'GENERATED' && bs && !bs.cancel_status ? btn('bottom', 'Undo the bottom sample', 'btn-secondary sx-danger', 'data-b="UNDO"') : ''}
                 </div></div>
 
             <div class="sxd-sec"><h5>Composite</h5>
                 ${comps.length ? comps.map((c, i) => `<div style="display:flex; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; align-items:center; padding:0.3rem 0; border-top:1px dashed rgba(255,255,255,0.1);">
                     <div><b>${esc(c.composite_ref_id)}</b> &middot; code ${esc(c.daily_group_code)} &middot; ${esc(dmy(c.date))} ${c.gcv_value != null ? `&middot; ARB GCV ${esc(c.gcv_value)} / ash ${esc(c.ash_pct)}` : '&middot; not tested'}</div>
-                    <div>${btn('comp-void', '🗑 Void composite', 'btn-secondary sx-danger', `data-ref="${esc(c.composite_ref_id)}"`)}</div></div>`).join('')
+                    <div>${btn('comp-void', 'Void composite', 'btn-secondary sx-danger', `data-ref="${esc(c.composite_ref_id)}"`)}</div></div>`).join('')
                     : (d.group_composite ? `<div>The group's composite <b>${esc(d.group_composite.composite_ref_id)}</b> was made without this truck.</div>` : '<div style="color:#94a3b8;">This truck is not in a composite yet.</div>')}
             </div>
 
             <div class="sxd-sec"><h5>Cancel / void</h5>
                 <div class="sx-meta" style="margin-bottom:0.4rem;"><b>Cancel QR</b>: the truck stays in the reports as "QR cancelled" with the reason (the sample is left out of the mixture). <b>Void</b>: the truck was registered by mistake - it disappears from every list and report (nothing is deleted).</div>
                 <div class="sx-btnrow">
-                    ${!isCancelled ? btn('cancel', '🚫 Cancel the QR', 'btn-secondary sx-danger') + btn('void', '🗑 Void this registration', 'btn-secondary sx-danger') : btn('restore', `↩ Restore (${esc(t.cancel_status)})`, 'btn-primary')}
-                </div>${locked ? '<div class="sx-meta">⚠ This truck\'s mixing group already has a composite - void that composite first for these actions.</div>' : ''}</div>
+                    ${!isCancelled ? btn('cancel', 'Cancel the QR', 'btn-secondary sx-danger') + btn('void', 'Void this registration', 'btn-secondary sx-danger') : btn('restore', `Restore (${esc(t.cancel_status)})`, 'btn-primary')}
+                </div>${locked ? '<div class="sx-meta">This truck\'s mixing group already has a composite - void that composite first for these actions.</div>' : ''}</div>
 
             <div class="sxd-sec"><h5>Audit trail of this truck</h5>
                 <div class="sxd-trail">${(d.audit || []).map(a => `<div><b>${esc(a.timestamp)}</b> &middot; ${esc(a.username)} &middot; <span style="color:#fca5a5;">${esc(a.action)}</span><br>${esc(a.details)}${a.ip ? ` <small style="color:#94a3b8;">[${esc(a.ip)}]</small>` : ''}</div>`).join('') || '<div>No entries.</div>'}</div></div>`;
@@ -8195,51 +8292,51 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // ---------- Toolbox: what the 10 tools are for ----------
     const SX_TOOLS = [
-        { n: 1, icon: '⚡', title: 'Force-create a composite',
+        { n: 1, icon: '', title: 'Force-create a composite',
           use: 'The Fineness technician forgot to scan one container, or a scan was lost, and the whole group is stuck although the mixture is physically ready.',
           how: ['Type the mixing code and pick the date below.', 'Press <b>Force-create…</b>, type a reason and confirm with your password.', 'The composite is made from all ACCEPTED trucks; the 3 labels can be printed at once.'],
           note: 'Only the "every accepted container scanned" rule is skipped. Pending moisture results and rejected trucks are still respected.', kind: 'force' },
-        { n: 2, icon: '✏️', title: 'Edit registration details',
+        { n: 2, icon: '', title: 'Edit registration details',
           use: 'The gate operator typed the wrong vehicle number, driver name or invoice, or chose the wrong vendor.',
           how: ['Find the truck (vehicle number, mixing code or QR).', 'In the truck window press <b>Edit registration details</b>.', 'Vehicle / driver / invoice: nothing else changes. <b>Vendor or date</b>: the truck moves to that vendor\'s mixing group (created if needed).'],
           note: 'Not possible while the old or the new group already has a composite - void it first (tool 5).', kind: 'find' },
-        { n: 3, icon: '🗑', title: 'Void a wrong truck registration',
+        { n: 3, icon: '', title: 'Void a wrong truck registration',
           use: 'A truck was registered twice or by mistake and never came. It must disappear from every list and report but must not be deleted.',
           how: ['Find the truck.', 'In the truck window press <b>Void this registration</b>.', 'It can be restored from the same window.'],
           note: 'Different from "Cancel QR": a cancelled QR stays in the reports with its reason; a voided truck is hidden.', kind: 'find' },
-        { n: 4, icon: '🔁', title: 'Replace a lost or damaged QR',
+        { n: 4, icon: '', title: 'Replace a lost or damaged QR',
           use: 'The sticker was lost, soaked or torn, and the sample can no longer be scanned.',
           how: ['Find the truck (or paste the old QR code).', 'Press <b>Replace lost / damaged QR</b>.', 'A new label prints; the old code stops working; moisture / fineness and scan follow the new code.'],
           note: 'The old code is kept in the history shown in the truck window.', kind: 'find' },
-        { n: 5, icon: '🗑', title: 'Void a composite / move a truck',
+        { n: 5, icon: '', title: 'Void a composite / move a truck',
           use: 'A composite was made too early, with the wrong trucks, or a truck has to move to another group.',
           how: ['Type the composite code (CMP-…) below and press <b>Void…</b>, or use <b>Void</b> on its card.', 'The record is archived (nothing is lost) and the group can be mixed again.', 'To move a truck: void the composite, then change the truck\'s vendor / date (tool 2).'],
           note: 'Labels already printed for the voided composite stop working.', kind: 'void-comp' },
-        { n: 6, icon: '🧪', title: 'Bottom-sample controls without the password',
+        { n: 6, icon: '', title: 'Bottom-sample controls without the password',
           use: 'A bottom sample has to be requested, cancelled or undone but the unloading password is not at hand.',
           how: ['Find the truck.', 'In the <b>Bottom sample</b> section press Request / Cancel the request / Undo.'],
           note: 'Undo returns the original sample to its mixture (if the composite is not made yet).', kind: 'find' },
-        { n: 7, icon: '⚖️', title: 'Accept / reject override',
+        { n: 7, icon: '', title: 'Accept / reject override',
           use: 'A documented exception: a truck just above the moisture limit is accepted by management, or a truck below the limit is rejected for another reason.',
           how: ['Find the truck.', 'In <b>Accept / reject decision</b> press Force ACCEPT / Force REJECT.', 'Use "Back to the moisture rule" to remove the override.'],
           note: 'Marked with an OVERRIDE badge everywhere and recorded with your reason.', kind: 'find' },
-        { n: 8, icon: '🔑', title: 'Reset / unlock / disable logins',
+        { n: 8, icon: '', title: 'Reset / unlock / disable logins',
           use: 'A worker is locked out by wrong passwords, a phone was lost, or someone left the company.',
           how: ['Open the <b>Logins</b> tab.', 'Unlock a locked login, or Disable / Enable one.'],
-          note: 'The last active Admin and the Super Admin itself cannot be disabled. Passwords are changed in Supabase → Authentication.', kind: 'logins' },
-        { n: 9, icon: '🩺', title: 'Data-health check',
+          note: 'The last active Admin and the Super Admin itself cannot be disabled. Passwords are changed in Supabase Authentication.', kind: 'logins' },
+        { n: 9, icon: '', title: 'Data-health check',
           use: 'A routine look every morning: groups waiting for results, trucks that never left, composites without results, broken links.',
           how: ['Open the <b>Data health</b> tab and press Run the check.', 'Each finding explains itself; <b>Open</b> jumps to the records, <b>Fix</b> repairs harmless leftovers.'],
           note: 'Nothing changes unless you press Fix.', kind: 'health' },
-        { n: 12, icon: '🧩', title: 'Combine two mixing codes of the same vendor and day',
+        { n: 12, icon: '', title: 'Combine two mixing codes of the same vendor and day',
           use: 'The same vendor, day, lot and PO ended up with two mixing codes (for example a Lot-3 code and a Lot-4 code), and no composite has been made yet. They must be ONE mixing code.',
           how: ['Type the date, the code that goes away (FROM) and the code that stays (TO).', 'Press <b>Preview…</b>: you see how many trucks move and how many accepted / scanned samples the code will have afterwards.', 'Confirm with a reason: the trucks take the Lot and PO of the TO code and <b>keep their Fineness scans</b>. In Lab 2 you then see one code with all samples scanned.', 'To move just ONE truck, use Inspector &rarr; Open truck &rarr; Edit registration &rarr; Mixing code.'],
           note: 'Refused when a composite exists for either code (void it first, tool 5) or when the codes belong to different vendors.', kind: 'merge' },
-        { n: 11, icon: '🔁', title: 'Convert a vendor\'s existing samples to Lot 4 / Lot 4A (in place)',
+        { n: 11, icon: '', title: 'Convert a vendor\'s existing samples to Lot 4 / Lot 4A (in place)',
           use: 'A vendor already has samples, mixing codes and composites under Lot 2/3 but is to be treated as Lot 4 (it finished its Lot-3 quantity) - or under Lot 4 but belongs to Lot 4A. Re-booking everything would create havoc; this changes only the lot.',
           how: ['Choose the target lot (Lot 4 takes over from Lot 2/3, Lot 4A takes over from Lot 4), type the vendor (it needs an active entry under the target lot in Admin > Vendors) and optionally limit it to a date range.', 'Press <b>Preview…</b>: you see how many trucks, mixing codes and composites are affected - nothing is changed yet.', 'Confirm with a reason: trucks, mixing codes, scans, composites and labels stay exactly as they are; only the lot changes.', 'Lot 2/3 &rarr; Lot 4 only - composites <b>not yet tested</b>: Lab 2 now also asks for sulphur and VM. Composites <b>already tested</b>: Inspector &rarr; Edit AD values (the old values are pre-filled) &rarr; add AD sulphur and VM; GCV / ash stay the same. Lot 4 &rarr; Lot 4A changes nothing in the results: Lot 4 and Lot 4A follow the same rules.'],
           note: 'A truck that was rejected under the Lot-3 rule stays rejected. The PO of the trucks is kept unless you choose to switch it. Refused when the vendor has both a Lot-3 and a LOT4 mixing code on the same day (or both a Lot-4 and a Lot-4A code when converting to Lot 4A).', kind: 'convert' },
-        { n: 10, icon: '🛡️', title: 'Protection of this console',
+        { n: 10, icon: '', title: 'Protection of this console',
           use: 'The Super Admin can change almost anything, so the console protects itself.',
           how: ['<b>Idle sign-out</b>: after 10 minutes without activity you are signed out.', '<b>Password re-check</b>: the first change (and then every 5 minutes) asks for your password again.', '<b>Alerts</b>: the Admin sees a red badge on the Activity Log until the Super Admin changes are acknowledged.', '<b>Export</b>: the full audit log can be downloaded as Excel.'],
           note: 'Every line carries the IP address and device from which it was done.', kind: 'protect' }
@@ -8251,15 +8348,15 @@ document.addEventListener('DOMContentLoaded', function() {
         const today = window.BiomassAPI.todayIST();
         box.innerHTML = SX_TOOLS.slice().sort((a, b) => a.n - b.n).map(t => {
             let act = '';
-            if (t.kind === 'force') act = `<input id="sxt-force-code" placeholder="Mixing code" maxlength="12" style="text-transform:uppercase; max-width:130px;"><input type="date" id="sxt-force-date" value="${today}" style="max-width:160px;"><button class="btn btn-primary btn-sm" data-tool="force">⚡ Force-create…</button>`;
-            else if (t.kind === 'find') act = `<input id="sxt-find-${t.n}" placeholder="Vehicle no., QR or mixing code"><button class="btn btn-primary btn-sm" data-tool="find" data-n="${t.n}">🔍 Find the truck</button>`;
-            else if (t.kind === 'void-comp') act = `<input id="sxt-void-code" placeholder="Composite code, e.g. CMP-20261021-001"><button class="btn btn-primary btn-sm" data-tool="void-comp">🗑 Void…</button>`;
-            else if (t.kind === 'merge') act = `<input type="date" id="sxt-mg-date" value="${today}" style="max-width:150px; flex:0 0 auto;"><input id="sxt-mg-from" placeholder="FROM code, e.g. MRQ" maxlength="12" style="text-transform:uppercase; max-width:150px;"><input id="sxt-mg-to" placeholder="TO code, e.g. NRB" maxlength="12" style="text-transform:uppercase; max-width:150px;"><button class="btn btn-primary btn-sm" data-tool="merge">🧩 Preview…</button>`;
-            else if (t.kind === 'convert') act = `<select id="sxt-conv-target" title="Convert to" style="max-width:140px; flex:0 0 auto;"><option value="LOT4">&rarr; Lot 4</option><option value="LOT4A">&rarr; Lot 4A</option></select><input id="sxt-conv-name" list="sxt-conv-list" placeholder="Vendor, e.g. KARNI TRADING COMPANY"><datalist id="sxt-conv-list"></datalist><input type="date" id="sxt-conv-from" title="From (optional)" style="max-width:150px; flex:0 0 auto;"><input type="date" id="sxt-conv-to" title="To (optional)" style="max-width:150px; flex:0 0 auto;"><label style="font-size:0.78rem; color:#cbd5e1; display:flex; gap:0.35rem; align-items:center; flex-basis:100%;"><input type="checkbox" id="sxt-conv-both" style="flex:0 0 auto; min-width:0;"> If the vendor already has a LOT4 mixing code that day, keep BOTH codes (the old code stays as it is)</label><button class="btn btn-primary btn-sm" data-tool="convert">🔁 Preview…</button>`;
-            else if (t.kind === 'logins') act = `<button class="btn btn-primary btn-sm" data-tool="goto" data-tab="super-logins">👥 Open Logins</button>`;
-            else if (t.kind === 'health') act = `<button class="btn btn-primary btn-sm" data-tool="goto" data-tab="super-health">🩺 Open Data health</button>`;
-            else act = `<button class="btn btn-secondary btn-sm" data-tool="goto" data-tab="admin-activity">📜 Open the Audit log</button><button class="btn btn-secondary btn-sm" data-tool="export">⬇ Export audit log (Excel)</button>`;
-            return `<div class="sx-tool" data-n="${t.n}"><span class="sx-tool-n">${t.n}</span><h4>${t.icon} ${t.title}</h4>
+            if (t.kind === 'force') act = `<input id="sxt-force-code" placeholder="Mixing code" maxlength="12" style="text-transform:uppercase; max-width:130px;"><input type="date" id="sxt-force-date" value="${today}" style="max-width:160px;"><button class="btn btn-primary btn-sm" data-tool="force">Force-create…</button>`;
+            else if (t.kind === 'find') act = `<input id="sxt-find-${t.n}" placeholder="Vehicle no., QR or mixing code"><button class="btn btn-primary btn-sm" data-tool="find" data-n="${t.n}">Find the truck</button>`;
+            else if (t.kind === 'void-comp') act = `<input id="sxt-void-code" placeholder="Composite code, e.g. CMP-20261021-001"><button class="btn btn-primary btn-sm" data-tool="void-comp">Void…</button>`;
+            else if (t.kind === 'merge') act = `<input type="date" id="sxt-mg-date" value="${today}" style="max-width:150px; flex:0 0 auto;"><input id="sxt-mg-from" placeholder="FROM code, e.g. MRQ" maxlength="12" style="text-transform:uppercase; max-width:150px;"><input id="sxt-mg-to" placeholder="TO code, e.g. NRB" maxlength="12" style="text-transform:uppercase; max-width:150px;"><button class="btn btn-primary btn-sm" data-tool="merge">Preview…</button>`;
+            else if (t.kind === 'convert') act = `<select id="sxt-conv-target" title="Convert to" style="max-width:140px; flex:0 0 auto;"><option value="LOT4">&rarr; Lot 4</option><option value="LOT4A">&rarr; Lot 4A</option></select><input id="sxt-conv-name" list="sxt-conv-list" placeholder="Vendor, e.g. KARNI TRADING COMPANY"><datalist id="sxt-conv-list"></datalist><input type="date" id="sxt-conv-from" title="From (optional)" style="max-width:150px; flex:0 0 auto;"><input type="date" id="sxt-conv-to" title="To (optional)" style="max-width:150px; flex:0 0 auto;"><label style="font-size:0.78rem; color:#cbd5e1; display:flex; gap:0.35rem; align-items:center; flex-basis:100%;"><input type="checkbox" id="sxt-conv-both" style="flex:0 0 auto; min-width:0;"> If the vendor already has a LOT4 mixing code that day, keep BOTH codes (the old code stays as it is)</label><button class="btn btn-primary btn-sm" data-tool="convert">Preview…</button>`;
+            else if (t.kind === 'logins') act = `<button class="btn btn-primary btn-sm" data-tool="goto" data-tab="super-logins">Open Logins</button>`;
+            else if (t.kind === 'health') act = `<button class="btn btn-primary btn-sm" data-tool="goto" data-tab="super-health">Open Data health</button>`;
+            else act = `<button class="btn btn-secondary btn-sm" data-tool="goto" data-tab="admin-activity">Open the Audit log</button><button class="btn btn-secondary btn-sm" data-tool="export">Export audit log (Excel)</button>`;
+            return `<div class="sx-tool" data-n="${t.n}"><span class="sx-tool-n">${t.n}</span><h4>${t.title}</h4>
                 <div class="lbl">Useful when</div><p>${t.use}</p>
                 <div class="lbl">How to use</div><ol>${t.how.map(h => `<li>${h}</li>`).join('')}</ol>
                 <p style="font-size:0.76rem; color:#94a3b8;">${t.note}</p>
@@ -8272,7 +8369,7 @@ document.addEventListener('DOMContentLoaded', function() {
             cards.forEach(c => c.classList.toggle('active', c.dataset.n === String(n)));
             nav.querySelectorAll('button[data-tool-n]').forEach(b => b.classList.toggle('active', b.dataset.toolN === String(n)));
         };
-        nav.innerHTML = groups.map(([g, ns]) => `<div class="sec-navhead">${esc(g)}</div>` + ns.map(n => { const t = SX_TOOLS.find(x => x.n === n); return `<button type="button" data-tool-n="${n}"><span><span class="sec-n">${n}</span>${t.icon} ${esc(t.title)}</span></button>`; }).join('')).join('');
+        nav.innerHTML = groups.map(([g, ns]) => `<div class="sec-navhead">${esc(g)}</div>` + ns.map(n => { const t = SX_TOOLS.find(x => x.n === n); return `<button type="button" data-tool-n="${n}"><span><span class="sec-n">${n}</span>${esc(t.title)}</span></button>`; }).join('')).join('');
         nav.onclick = (e) => { const b = e.target.closest('button[data-tool-n]'); if (b) showTool(b.dataset.toolN); };
         showTool(1);
         sxLoadCompanies().then(cs => { const dl = sx$('sxt-conv-list'); if (dl) dl.innerHTML = [...new Set(cs.filter(c => isLot4(c.lot)).map(c => c.name))].map(n => `<option value="${esc(n)}">`).join(''); }).catch(() => { });
@@ -8375,21 +8472,21 @@ document.addEventListener('DOMContentLoaded', function() {
         const res = sxHealth.res, box = sx$('sx-health-body'), nav = sx$('sx-health-nav'), issues = res.issues || [];
         if (sxHealth.sel !== 'overview' && !issues[Number(sxHealth.sel)]) sxHealth.sel = 'overview';
         const sel = sxHealth.sel;
-        nav.innerHTML = `<button type="button" data-hk="overview" class="${sel === 'overview' ? 'active' : ''}"><span>&#128202; Overview</span><small>${issues.length ? issues.length + ' finding(s)' : 'all clear'}</small></button>` +
-            issues.map((is, k) => `<button type="button" data-hk="${k}" class="${String(k) === sel ? 'active' : ''}"><span>${is.severity === 'INFO' ? '&#8505;&#65039;' : '&#9888;&#65039;'} ${esc(is.title)}</span><small>${(is.items || []).length} item(s)</small></button>`).join('');
+        nav.innerHTML = `<button type="button" data-hk="overview" class="${sel === 'overview' ? 'active' : ''}"><span>Overview</span><small>${issues.length ? issues.length + ' finding(s)' : 'all clear'}</small></button>` +
+            issues.map((is, k) => `<button type="button" data-hk="${k}" class="${String(k) === sel ? 'active' : ''}"><span>${esc(is.title)}</span><small>${(is.items || []).length} item(s)</small></button>`).join('');
         if (sel === 'overview') {
-            box.innerHTML = !issues.length ? `<div class="sx-ok-banner">✅ Nothing to worry about. Checked ${esc(res.checked_at || '')}.</div>` :
+            box.innerHTML = !issues.length ? `<div class="sx-ok-banner">Nothing to worry about. Checked ${esc(res.checked_at || '')}.</div>` :
                 `<div class="sx-note" style="margin-bottom:0.6rem;">${issues.length} finding(s) &middot; checked ${esc(res.checked_at || '')} &middot; pick one on the left, or click it here</div>` +
-                issues.map((is, k) => `<div class="sx-issue ${is.severity === 'INFO' ? 'info' : ''}" data-hk-go="${k}" style="cursor:pointer;"><h4>${is.severity === 'INFO' ? 'ℹ️' : '⚠️'} ${esc(is.title)} <span class="sx-pill sx-pen">${(is.items || []).length}</span></h4><div class="sx-note" style="margin:0;">${esc(is.help || '')}</div></div>`).join('');
+                issues.map((is, k) => `<div class="sx-issue ${is.severity === 'INFO' ? 'info' : ''}" data-hk-go="${k}" style="cursor:pointer;"><h4>${esc(is.title)} <span class="sx-pill sx-pen">${(is.items || []).length}</span></h4><div class="sx-note" style="margin:0;">${esc(is.help || '')}</div></div>`).join('');
             return;
         }
         const is = issues[Number(sel)], k = Number(sel);
         box.innerHTML = `<div class="sx-note" style="margin-bottom:0.6rem;">checked ${esc(res.checked_at || '')}</div><div class="sx-issue ${is.severity === 'INFO' ? 'info' : ''}">
-            <div style="display:flex; justify-content:space-between; gap:0.6rem; flex-wrap:wrap;"><h4>${is.severity === 'INFO' ? 'ℹ️' : '⚠️'} ${esc(is.title)} <span class="sx-pill sx-pen">${(is.items || []).length}</span></h4>
-                ${is.fix ? `<button class="btn btn-primary btn-sm" data-fix="${esc(is.fix)}" data-k="${k}">🛠 Fix</button>` : ''}</div>
+            <div style="display:flex; justify-content:space-between; gap:0.6rem; flex-wrap:wrap;"><h4>${esc(is.title)} <span class="sx-pill sx-pen">${(is.items || []).length}</span></h4>
+                ${is.fix ? `<button class="btn btn-primary btn-sm" data-fix="${esc(is.fix)}" data-k="${k}">Fix</button>` : ''}</div>
             <div class="sx-note" style="margin:0 0 0.4rem;">${esc(is.help || '')}</div>
             ${(is.items || []).slice(0, 40).map(it => `<div class="sx-item"><span>${it.date ? esc(dmy(it.date)) + ' &middot; ' : ''}${it.code ? `<span class="sx-code">${esc(it.code)}</span> ` : ''}${esc(it.detail)}</span>
-                <button class="btn btn-secondary btn-sm" data-open="${esc(it.code || String(it.detail).split(' ')[0])}" data-date="${esc(it.date || '')}">🔍 Open</button></div>`).join('')}
+                <button class="btn btn-secondary btn-sm" data-open="${esc(it.code || String(it.detail).split(' ')[0])}" data-date="${esc(it.date || '')}">Open</button></div>`).join('')}
             ${(is.items || []).length > 40 ? `<div class="sx-note">… and ${(is.items || []).length - 40} more</div>` : ''}
         </div>`;
     }
@@ -8402,9 +8499,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const res = await window.BiomassAPI.superLogins();
             const L = res.logins || [];
             body.innerHTML = L.map((u, i) => `<tr><td><b>${esc(u.username)}</b></td><td>${esc(u.name || '')}</td><td>${esc(u.role)}</td>
-                <td>${u.active ? '<span class="sx-pill sx-ok">ACTIVE</span>' : '<span class="sx-pill sx-rej">DISABLED</span>'} ${u.locked ? '<span class="sx-pill sx-pen">🔒 LOCKED (wrong passwords)</span>' : ''}</td>
-                <td>${u.locked ? `<button class="btn btn-secondary btn-sm" data-a="UNLOCK" data-i="${i}">🔓 Unlock</button>` : ''}
-                    ${u.role === 'superadmin' ? '' : (u.active ? `<button class="btn btn-secondary btn-sm sx-danger" data-a="DISABLE" data-i="${i}">⛔ Disable</button>` : `<button class="btn btn-secondary btn-sm" data-a="ENABLE" data-i="${i}">✅ Enable</button>`)}</td></tr>`).join('');
+                <td>${u.active ? '<span class="sx-pill sx-ok">ACTIVE</span>' : '<span class="sx-pill sx-rej">DISABLED</span>'} ${u.locked ? '<span class="sx-pill sx-pen">LOCKED (wrong passwords)</span>' : ''}</td>
+                <td>${u.locked ? `<button class="btn btn-secondary btn-sm" data-a="UNLOCK" data-i="${i}">Unlock</button>` : ''}
+                    ${u.role === 'superadmin' ? '' : (u.active ? `<button class="btn btn-secondary btn-sm sx-danger" data-a="DISABLE" data-i="${i}">Disable</button>` : `<button class="btn btn-secondary btn-sm" data-a="ENABLE" data-i="${i}">Enable</button>`)}</td></tr>`).join('');
             body.onclick = (e) => {
                 const b = e.target.closest('button[data-a]'); if (!b) return;
                 const u = L[Number(b.dataset.i)], a = b.dataset.a;
@@ -8424,13 +8521,13 @@ document.addEventListener('DOMContentLoaded', function() {
             const [st, un] = await Promise.all([window.BiomassAPI.superPasswordStatus(), window.BiomassAPI.superActionPasswordStatus().catch(() => null)]);
             box.innerHTML = (st.passwords || []).map(p => {
                 const when = p.changed_at ? ' (last changed ' + esc(String(p.changed_at).replace('T', ' ').slice(0, 16)) + ' UTC)' : '';
-                const status = !p.is_set ? '⚠️ <strong>Not set yet</strong>.' : p.viewable ? '✅ Set' + when + '. It can be shown.' : '✅ Set' + when + '. <span style="color:#fbbf24;">Not viewable yet: set it once again and it can be shown.</span>';
+                const status = !p.is_set ? '<strong>Not set yet</strong>.' : p.viewable ? 'Set' + when + '. It can be shown.' : 'Set' + when + '. <span style="color:#fbbf24;">Not viewable yet: set it once again and it can be shown.</span>';
                 const extra = p.id === 'unloading' && un ? `<br><small style="color:#94a3b8;">Bottom-sample requests waiting: <b>${esc(un.pending_requests)}</b> &bull; generated so far: <b>${esc(un.generated)}</b>.</small>` : '';
                 return `<div class="card" style="margin-bottom:1rem;"><h3 class="card-title">${p.id === 'admin_edit' ? '&#9999;&#65039;' : '&#129514;'} ${esc(p.name)}</h3>` +
                     `<p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.8rem;">Used for: ${esc(p.used_for)}.</p>` +
                     `<div style="font-size:0.9rem; margin-bottom:0.8rem;">${status}${extra}</div>` +
-                    `<div style="display:flex; gap:0.5rem; flex-wrap:wrap;"><button type="button" class="btn btn-primary" data-pw="${esc(p.id)}" data-name="${esc(p.name)}" data-act="set">&#128273; Set / change&hellip;</button>` +
-                    `<button type="button" class="btn btn-secondary" data-pw="${esc(p.id)}" data-name="${esc(p.name)}" data-act="show" ${p.viewable && st.mfa_ready ? '' : 'disabled'} title="${p.viewable ? (st.mfa_ready ? '' : 'Set up the authenticator app first (Security tab)') : 'Set the password once again to make it viewable'}">&#128065; Show current password&hellip;</button></div></div>`;
+                    `<div style="display:flex; gap:0.5rem; flex-wrap:wrap;"><button type="button" class="btn btn-primary" data-pw="${esc(p.id)}" data-name="${esc(p.name)}" data-act="set">Set / change&hellip;</button>` +
+                    `<button type="button" class="btn btn-secondary" data-pw="${esc(p.id)}" data-name="${esc(p.name)}" data-act="show" ${p.viewable && st.mfa_ready ? '' : 'disabled'} title="${p.viewable ? (st.mfa_ready ? '' : 'Set up the authenticator app first (Security tab)') : 'Set the password once again to make it viewable'}">Show current password&hellip;</button></div></div>`;
             }).join('');
         } catch (e) { box.innerHTML = `<div class="card"><span style="color:#ef4444;">${esc(e.message)}</span></div>`; }
     }
@@ -8487,7 +8584,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const [factors, sec] = await Promise.all([window.BiomassAPI.mfaFactors(), window.BiomassAPI.mySecurity()]);
             const ok = factors.filter(f => f.status === 'verified');
             if (ok.length) {
-                box.innerHTML = `<div>✅ <b>Set up</b> on this login (${esc(ok[0].friendly_name || 'authenticator app')}). ${sec.mfa_required ? 'The second step is <b>required</b> for the Admin logins.' : 'You are asked for the code every time you sign in.'}</div>` +
+                box.innerHTML = `<div><b>Set up</b> on this login (${esc(ok[0].friendly_name || 'authenticator app')}). ${sec.mfa_required ? 'The second step is <b>required</b> for the Admin logins.' : 'You are asked for the code every time you sign in.'}</div>` +
                     `<div style="margin-top:0.6rem;"><button type="button" class="btn btn-secondary btn-sm" id="mfa-remove-btn" style="border-color:#ef4444; color:#fca5a5;">Remove the authenticator app</button> <span id="mfa-msg" style="font-size:0.85rem;"></span></div>`;
                 box.querySelector('#mfa-remove-btn').onclick = async () => {
                     const msg = box.querySelector('#mfa-msg');
@@ -8498,7 +8595,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 };
                 return;
             }
-            box.innerHTML = '<div>⚠️ Not set up yet. Your log-in uses the password only.</div><div style="margin-top:0.6rem;"><button type="button" class="btn btn-primary" id="mfa-start-btn">Set up Google Authenticator</button></div><div id="mfa-setup" style="margin-top:0.9rem;"></div>';
+            box.innerHTML = '<div>Not set up yet. Your log-in uses the password only.</div><div style="margin-top:0.6rem;"><button type="button" class="btn btn-primary" id="mfa-start-btn">Set up Google Authenticator</button></div><div id="mfa-setup" style="margin-top:0.9rem;"></div>';
             box.querySelector('#mfa-start-btn').onclick = async () => {
                 const btn = box.querySelector('#mfa-start-btn'), setup = box.querySelector('#mfa-setup');
                 btn.disabled = true; setup.textContent = 'Preparing...';
@@ -8599,7 +8696,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 on ? '<b>Only for a login that no person types into</b> &ndash; for example the daily-backup tool. This login will work with its password alone even when the second step is required, and it is never held back by a computer lock, so give it a long random password and keep it only on the backup computer. Never do this for a login a person uses.' : 'This login will need the 6-digit code like the others (the backup tool would stop working until it is exempted again or enrols an authenticator).',
                 [], async (v, why) => { await window.BiomassAPI.superMfaExempt(who, on, why); }, { saveLabel: on ? 'Make it a machine login' : 'Require the code', danger: !on, after: renderSuperSecurity });
         };
-        sx$('sx-mfa-required').innerHTML = o.required ? '&#9989; The second step is <b>REQUIRED</b>: the Admin and Super Admin can do nothing without the code.' : 'The second step is <b>not required yet</b> (everyone who has set the app up is still asked for the code at sign-in).';
+        sx$('sx-mfa-required').innerHTML = o.required ? 'The second step is <b>REQUIRED</b>: the Admin and Super Admin can do nothing without the code.' : 'The second step is <b>not required yet</b> (everyone who has set the app up is still asked for the code at sign-in).';
         sx$('btn-sx-mfa-required').textContent = o.required ? 'Switch the second step OFF…' : 'Switch the second step ON for the Admin and Super Admin logins…';
     }
 
@@ -8626,7 +8723,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const d = sxSec.dev; if (!d) return;
         if (sxSec.sub !== 'overview' && !d.logins.some(x => x.username === sxSec.sub)) sxSec.sub = 'overview';
         const waiting = d.devices.filter(x => x.status === 'PENDING').length, badge = (n) => n ? ` <span class="sec-badge">${n}</span>` : '';
-        sx$('sx-dev-sub').innerHTML = `<button type="button" data-sub="overview" class="${sxSec.sub === 'overview' ? 'active' : ''}">&#128202; Overview${badge(waiting)}</button>` +
+        sx$('sx-dev-sub').innerHTML = `<button type="button" data-sub="overview" class="${sxSec.sub === 'overview' ? 'active' : ''}">Overview${badge(waiting)}</button>` +
             d.logins.map(x => `<button type="button" data-sub="${esc(x.username)}" class="${sxSec.sub === x.username ? 'active' : ''}">${x.lock && !x.exempt ? '&#128274; ' : ''}${esc(x.username)}${badge(x.pending)}</button>`).join('');
         const main = sx$('sx-dev-main');
         if (sxSec.sub === 'overview') {
@@ -8639,7 +8736,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         const x = d.logins.find(v => v.username === sxSec.sub), isS = x.role === 'superadmin', mine = d.devices.find(v => v.this_device);
-        const btns = isS ? `${mine && mine.status === 'TRUSTED' ? '' : '<button type="button" class="btn btn-primary" data-sec-act="trust">&#128274; Trust this computer&hellip;</button> '}<button type="button" class="btn btn-secondary" data-sec-act="superlock">${d.lock ? 'Switch the lock OFF…' : 'Switch the lock ON…'}</button>`
+        const btns = isS ? `${mine && mine.status === 'TRUSTED' ? '' : '<button type="button" class="btn btn-primary" data-sec-act="trust">Trust this computer&hellip;</button> '}<button type="button" class="btn btn-secondary" data-sec-act="superlock">${d.lock ? 'Switch the lock OFF…' : 'Switch the lock ON…'}</button>`
             : (x.exempt ? '' : `<button type="button" class="btn ${x.lock ? 'btn-secondary' : 'btn-primary'}" data-lg="${esc(x.username)}" data-on="${x.lock ? 0 : 1}">${x.lock ? 'Unlock this login…' : 'Lock this login to approved computers…'}</button>`);
         main.innerHTML = `<div class="sec-loginhead"><div><h3>${esc(x.username)}</h3><small style="color:#94a3b8;">${esc(x.name)} &middot; ${esc(x.role)}</small></div><div>${secLockPill(x)}<br><small>${secCount(x)}</small></div><div style="display:flex; gap:0.5rem; flex-wrap:wrap;">${btns}</div></div>` +
             (isS ? `<p style="font-size:0.88rem; margin:0 0 0.8rem;">This computer: <b>${mine ? esc(mine.status) + ' (' + esc(mine.name) + ')' : 'not trusted yet'}</b> &middot; ID <b style="font-family:monospace;">${esc(d.this_fp || '')}</b> &middot; opened from <b>${esc(window.BiomassAPI.siteName() || '-')}</b> &middot; this session: <b>${d.session_verified ? 'verified' : 'not verified'}</b></p>` : '') +
@@ -8651,7 +8748,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function secRecoveryHtml() {
         const r = sxSec.rec;
         return `<div style="margin:0 0 1rem; padding:0.8rem 1rem; border-radius:10px; border:1px solid ${r && r.set ? 'rgba(16,185,129,0.5)' : 'rgba(245,158,11,0.6)'}; background:rgba(0,0,0,0.2);">` +
-            `<b>&#128273; Recovery code</b> &ndash; your way back in if no trusted computer is at hand (it lets you register a new one together with your password${sxSec.mfaRequired ? ' and the 6-digit code' : ''}).<br>` +
+            `<b>Recovery code</b> &ndash; your way back in if no trusted computer is at hand (it lets you register a new one together with your password${sxSec.mfaRequired ? ' and the 6-digit code' : ''}).<br>` +
             (r ? (r.set ? `<span style="color:#34d399;">A recovery code exists (created ${esc(r.created_at || '')}). It works once.</span>` : '<span style="color:#fbbf24;">No recovery code exists yet &ndash; create one and keep it written down somewhere safe.</span>') : '') +
             ` <button type="button" class="btn ${r && r.set ? 'btn-secondary' : 'btn-primary'} btn-sm" data-sec-act="recovery-new" style="margin-left:0.4rem;">${r && r.set ? 'Create a new one&hellip; (the old one stops working)' : 'Create a recovery code&hellip;'}</button></div>`;
     }
@@ -8820,7 +8917,7 @@ document.addEventListener('DOMContentLoaded', function() {
             sxIps = r.ips || [];
             const b = sx$('sx-ip-badge'); if (b) { b.textContent = String(r.unknown); b.style.display = r.unknown ? 'inline-block' : 'none'; }
             body.innerHTML = sxIps.map((k, i) => `<tr class="${k.label ? '' : 'ip-unknown'}"><td style="font-family:monospace; font-weight:700;">${esc(k.ip)}</td>
-                <td><span class="ip-tag ${k.label ? 'known' : 'unknown'}" style="margin-bottom:4px;">${k.label ? 'NAMED' : '⚠ UNKNOWN'}</span><br>
+                <td><span class="ip-tag ${k.label ? 'known' : 'unknown'}" style="margin-bottom:4px;">${k.label ? 'NAMED' : 'UNKNOWN'}</span><br>
                     <input class="ip-input" id="sx-ipn-${i}" value="${esc(k.label || '')}" maxlength="60" placeholder="e.g. CHP Coal Bhawan PC"> <button class="btn btn-primary btn-sm" data-ipsave="${i}">Save</button></td>
                 <td>${esc(k.first_seen)}</td><td>${esc(k.last_seen)}</td><td>${esc(k.seen_count)}</td><td>${esc(k.last_user || '-')}<br><small style="color:#94a3b8;">${esc(k.last_action || '')}</small></td>
                 <td style="font-size:0.72rem; color:#94a3b8; max-width:240px;">${esc(String(k.device || '').slice(0, 110))}</td></tr>`).join('')
@@ -8833,7 +8930,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 catch (err) { alert(err.message); bt.disabled = false; }
             };
             const sel = sx$('sx-ipl-ip'), cur = sel.value;
-            sel.innerHTML = '<option value="">All places</option>' + sxIps.map(k => `<option value="${esc(k.ip)}">${esc(k.label ? k.label + ' (' + k.ip + ')' : '⚠ UNKNOWN ' + k.ip)}</option>`).join('');
+            sel.innerHTML = '<option value="">All places</option>' + sxIps.map(k => `<option value="${esc(k.ip)}">${esc(k.label ? k.label + ' (' + k.ip + ')' : 'UNKNOWN ' + k.ip)}</option>`).join('');
             sel.value = cur;
             renderSuperIpLog();
         } catch (e) {
@@ -8849,7 +8946,7 @@ document.addEventListener('DOMContentLoaded', function() {
             body.innerHTML = lines.map(l => {
                 const unk = ipUnknown(l);
                 return `<tr class="${unk ? 'ip-unknown' : ''}"><td style="font-family:monospace; font-size:0.82rem; white-space:nowrap;">${esc(l.timestamp)}</td>
-                    <td>${unk ? '<span class="ip-tag unknown">⚠ UNKNOWN</span>' : `<span class="ip-tag known">${esc(l.ip_label || '-')}</span>`}<br><small style="font-family:monospace; color:#94a3b8;">${esc(l.ip || '-')}</small>${devTag(l)}</td>
+                    <td>${unk ? '<span class="ip-tag unknown">UNKNOWN</span>' : `<span class="ip-tag known">${esc(l.ip_label || '-')}</span>`}<br><small style="font-family:monospace; color:#94a3b8;">${esc(l.ip || '-')}</small>${devTag(l)}</td>
                     <td>${esc(l.username)}</td><td><b>${esc(l.action)}</b><br><span style="font-size:0.82rem;">${esc(l.details)}</span></td></tr>`;
             }).join('') || '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No activity found.</td></tr>';
         } catch (e) {
@@ -8902,7 +8999,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const a = sx$('btn-audit-export'), b = sx$('btn-audit-export-exc');
         const cu = window.BiomassAPI.getCurrentUser();
         if (cu && cu.is_super) {
-            if (a) { a.onclick = exportSuperLogs; a.innerHTML = '&#11015;&#65039; Export (Excel)'; }
+            if (a) { a.onclick = exportSuperLogs; a.innerHTML = 'Export (Excel)'; }
             if (b) b.style.display = 'none';
             return;
         }
@@ -8920,8 +9017,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (badge) { badge.textContent = String(n + u); badge.style.display = (n + u) ? 'inline-block' : 'none'; }
             if (bar) {
                 bar.style.display = (n + u) ? 'flex' : 'none';
-                sx$('super-alert-text').innerHTML = [u ? `🌐 <b>${u} UNKNOWN IP address(es)</b> have been used - see the red lines below. The Super Admin must name them.` : '',
-                    n ? `⚠️ ${n} change(s) were made by the Super Admin and have not been acknowledged.` : ''].filter(Boolean).join('<br>');
+                sx$('super-alert-text').innerHTML = [u ? `<b>${u} UNKNOWN IP address(es)</b> have been used - see the red lines below. The Super Admin must name them.` : '',
+                    n ? `${n} change(s) were made by the Super Admin and have not been acknowledged.` : ''].filter(Boolean).join('<br>');
                 const ack = sx$('btn-super-ack');
                 ack.style.display = (r.is_real_admin && n) ? '' : 'none';
                 ack.onclick = async () => { ack.disabled = true; try { await window.BiomassAPI.ackSuperAlerts(); } catch (e) { alert(e.message); } ack.disabled = false; refreshSuperAlert(); };
@@ -8972,7 +9069,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 card.className = 'bottom-req-card' + (pending ? ' pending' : '');
                 card.innerHTML = `
                     <div>
-                        <div style="font-size:${pending ? '1.25rem' : '1rem'}; font-weight:800;">${pending ? '🔔 ' : '✅ '}${esc(r.truck_reg_number)}</div>
+                        <div style="font-size:${pending ? '1.25rem' : '1rem'}; font-weight:800;">${esc(r.truck_reg_number)}</div>
                         <div style="font-size:0.85rem; color:#cbd5e1;">${esc(r.company_name)} &bull; Driver: ${esc(r.driver_name || '-')}</div>
                         <div style="font-size:0.8rem; color:#94a3b8;">Requested ${esc(dmy(r.requested_date))} ${esc(r.requested_time || '')}${r.reason ? ' &bull; Reason: ' + esc(r.reason) : ''}</div>
                         ${r.entry_date ? `<div style="font-size:0.8rem; color:#fbbf24;">The label will carry the truck's ORIGINAL entry date: ${esc(dmy(r.entry_date))}</div>` : ''}
@@ -8983,11 +9080,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 btn.type = 'button';
                 if (pending) {
                     btn.className = 'btn btn-primary';
-                    btn.textContent = '🖨️ Generate QR & print label';
+                    btn.textContent = 'Generate QR & print label';
                     btn.onclick = () => generateBottomLabel(r, btn);
                 } else {
                     btn.className = 'btn btn-secondary btn-sm';
-                    btn.textContent = '🖨️ Reprint label';
+                    btn.textContent = 'Reprint label';
                     btn.onclick = () => reprintBottomLabel(r, btn);
                 }
                 holder.appendChild(btn);
@@ -9307,12 +9404,12 @@ document.addEventListener('DOMContentLoaded', function() {
                         const photoBtn = (kind, caption, label) =>
                             `<button type="button" class="btn btn-secondary btn-sm" onclick="window.viewEvidencePhoto('${kind}', '${sampleKey}', '${esc(caption).replace(/'/g, '')}')" style="${photoBtnStyle}">${label}</button>`;
                         const photoBtns = [];
-                        if (res.lab1.has_moisture_photo) photoBtns.push(photoBtn('moisture', 'Moisture Analyzer Scale Photo (' + res.lab1.moisture_pct + '%)', '📷 View Moisture Scale Photo'));
-                        if (res.lab1.has_fineness_initial_photo) photoBtns.push(photoBtn('fineness_initial', 'Initial Weight Scale Photo (i = ' + fmtKg(res.lab1.fineness_initial_weight) + ')', '📷 View Initial Scale Photo (i: ' + esc(fmtKg(res.lab1.fineness_initial_weight)) + ')'));
-                        if (res.lab1.has_fineness_final_photo) photoBtns.push(photoBtn('fineness_final', 'Final Weight Scale Photo (f = ' + fmtKg(res.lab1.fineness_final_weight) + ')', '📷 View Final Scale Photo (f: ' + esc(fmtKg(res.lab1.fineness_final_weight)) + ')'));
+                        if (res.lab1.has_moisture_photo) photoBtns.push(photoBtn('moisture', 'Moisture Analyzer Scale Photo (' + res.lab1.moisture_pct + '%)', 'View Moisture Scale Photo'));
+                        if (res.lab1.has_fineness_initial_photo) photoBtns.push(photoBtn('fineness_initial', 'Initial Weight Scale Photo (i = ' + fmtKg(res.lab1.fineness_initial_weight) + ')', 'View Initial Scale Photo (i: ' + esc(fmtKg(res.lab1.fineness_initial_weight)) + ')'));
+                        if (res.lab1.has_fineness_final_photo) photoBtns.push(photoBtn('fineness_final', 'Final Weight Scale Photo (f = ' + fmtKg(res.lab1.fineness_final_weight) + ')', 'View Final Scale Photo (f: ' + esc(fmtKg(res.lab1.fineness_final_weight)) + ')'));
                         if (photoBtns.length) {
                             scalePhotosHtml = `<div style="margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px dashed rgba(6, 95, 70, 0.3); display: flex; gap: 0.5rem; flex-wrap: wrap;">`;
-                            scalePhotosHtml += `<span style="width: 100%; font-size: 0.8rem; font-weight: bold; color: #065f46;">📸 Scale Reading Photo Audit Proofs:</span>`;
+                            scalePhotosHtml += `<span style="width: 100%; font-size: 0.8rem; font-weight: bold; color: #065f46;">Scale Reading Photo Audit Proofs:</span>`;
                             scalePhotosHtml += photoBtns.join('');
                             scalePhotosHtml += `</div>`;
                         }
@@ -9330,8 +9427,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                 • Tested At: ${res.lab1.tested_at || '-'}
                                 ${(res.lab1.moisture_pct !== null && res.lab1.moisture_pct !== undefined) || (initW !== '-' && finalW !== '-') ? `<div style="margin-top:0.8rem; padding-top:0.6rem; border-top:1px dashed rgba(6,95,70,0.3);">` +
                                     `<div style="display:flex; gap:0.5rem; flex-wrap:wrap;">` +
-                                    `${res.lab1.moisture_pct !== null && res.lab1.moisture_pct !== undefined ? `<button type="button" class="btn btn-secondary btn-sm" style="${editBtnStyle}" onclick="window.adminCorrectMoisture('${sampleKey}', ${Number(res.lab1.moisture_pct)})">✏️ Correct moisture</button>` : ''}` +
-                                    `${initW !== '-' && finalW !== '-' ? `<button type="button" class="btn btn-secondary btn-sm" style="${editBtnStyle}" onclick="window.adminCorrectFineness('${sampleKey}', ${Number(initW)}, ${Number(finalW)})">✏️ Correct fineness weights</button>` : ''}` +
+                                    `${res.lab1.moisture_pct !== null && res.lab1.moisture_pct !== undefined ? `<button type="button" class="btn btn-secondary btn-sm" style="${editBtnStyle}" onclick="window.adminCorrectMoisture('${sampleKey}', ${Number(res.lab1.moisture_pct)})">Correct moisture</button>` : ''}` +
+                                    `${initW !== '-' && finalW !== '-' ? `<button type="button" class="btn btn-secondary btn-sm" style="${editBtnStyle}" onclick="window.adminCorrectFineness('${sampleKey}', ${Number(initW)}, ${Number(finalW)})">Correct fineness weights</button>` : ''}` +
                                     `</div><div style="font-size:0.75rem; margin-top:0.35rem; color:#92400e; font-family:system-ui,sans-serif;">Each correction needs the Admin edit password and a reason; it is logged.</div></div>` : ''}
                                 ${scalePhotosHtml}
                             </div>
@@ -9339,7 +9436,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     } else {
                         lab1Html = `
                             <div class="lab-meta-display" style="background: #fef3c7; border-color: #fde68a; margin-top: 1rem; color: #92400e;">
-                                ⚠️ No Lab 1 results submitted yet.
+                                No Lab 1 results submitted yet.
                             </div>
                         `;
                     }
@@ -9379,7 +9476,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <strong>Gross Weight:</strong> ${res.truck.gross_weight || '-'} kg<br>
                             <strong>Tare Weight:</strong> ${res.truck.tare_weight || '-'} kg<br>
                             <strong>Net Weight:</strong> <strong style="color: var(--primary);">${res.truck.net_weight || '-'} kg</strong><br>
-                            <strong>Registered By:</strong> ${esc(res.truck.created_by || 'system')}${res.truck.has_photo ? `<br><button type="button" class="btn btn-secondary btn-sm" style="margin-top:0.4rem;" onclick="window.viewEvidencePhoto('truck', '${esc(res.truck.truck_id)}', 'Gate photo at registration')">📷 View Gate Photo</button>` : ''}
+                            <strong>Registered By:</strong> ${esc(res.truck.created_by || 'system')}${res.truck.has_photo ? `<br><button type="button" class="btn btn-secondary btn-sm" style="margin-top:0.4rem;" onclick="window.viewEvidencePhoto('truck', '${esc(res.truck.truck_id)}', 'Gate photo at registration')">View Gate Photo</button>` : ''}
                         </div>
                         ${lab1Html}
                         ${compositeHtml}
@@ -9403,14 +9500,14 @@ document.addEventListener('DOMContentLoaded', function() {
                                 ${isL4 ? `• <strong>ARB Sulphur: ${fx(b.arb_sulphur, 2)}%</strong><br>• <strong>ARB VM: ${fx(b.arb_vm, 2)}%</strong><br>` : ''}
                                 • Tested By: ${esc(b.tested_by)}<br>
                                 • Tested At: ${b.tested_at}<br>
-                                <div style="margin-top:0.8rem; padding-top:0.6rem; border-top:1px dashed rgba(6,95,70,0.3);"><button type="button" class="btn btn-secondary btn-sm" style="background:#fffbeb; border:1px solid #d97706; color:#92400e; font-weight:700; min-width:200px; justify-content:center;" onclick="window.adminCorrectAd()">✏️ Correct AD values</button>
+                                <div style="margin-top:0.8rem; padding-top:0.6rem; border-top:1px dashed rgba(6,95,70,0.3);"><button type="button" class="btn btn-secondary btn-sm" style="background:#fffbeb; border:1px solid #d97706; color:#92400e; font-weight:700; min-width:200px; justify-content:center;" onclick="window.adminCorrectAd()">Correct AD values</button>
                                 <div style="font-size:0.75rem; margin-top:0.35rem; color:#92400e; font-family:system-ui,sans-serif;">Needs the Admin edit password and a reason; it is logged.</div></div>
                             </div>
                         `;
                     } else {
                         lab2ResultsHtml = `
                             <div class="lab-meta-display" style="background: #fef3c7; border-color: #fde68a; margin-top: 1rem; color: #92400e;">
-                                ⚠️ No Lab 2 GCV/Ash test results uploaded yet.
+                                No Lab 2 GCV/Ash test results uploaded yet.
                             </div>
                         `;
                     }
@@ -9481,10 +9578,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (refreshBtn) {
             refreshBtn.onclick = async () => {
                 refreshBtn.disabled = true;
-                refreshBtn.textContent = '⏳ Syncing...';
+                refreshBtn.textContent = 'Syncing...';
                 await renderExecutiveDashboardData(true);
                 refreshBtn.disabled = false;
-                refreshBtn.textContent = '🔄 Refresh Live Data';
+                refreshBtn.textContent = 'Refresh Live Data';
             };
         }
 
@@ -9492,7 +9589,7 @@ document.addEventListener('DOMContentLoaded', function() {
             themeToggleBtn.onclick = () => {
                 document.body.classList.toggle('light-theme');
                 const isLight = document.body.classList.contains('light-theme');
-                themeToggleBtn.textContent = isLight ? '🌙 Dark Mode' : '☀️ Light Mode';
+                themeToggleBtn.textContent = isLight ? 'Dark Mode' : 'Light Mode';
                 renderExecutiveDashboardData();
             };
         }
@@ -9546,9 +9643,9 @@ document.addEventListener('DOMContentLoaded', function() {
         let rowHtml = '';
         rows.forEach(r => {
             const acceptanceLabel = r.acceptance_status === 'REJECTED'
-                ? `<span style="color:red; font-weight:bold;">⛔ REJECTED (${r.rejection_reason || 'Moisture >14%'})</span>`
-                : r.acceptance_status === 'CANCELLED' ? `<span style="color:#444; font-weight:bold;">🚫 QR CANCELLED (${esc(r.cancel_reason || '')})</span>`
-                : r.acceptance_status === 'ACCEPTED' ? '<span style="color:green; font-weight:bold;">✅ ACCEPTED</span>' : 'Pending';
+                ? `<span style="color:red; font-weight:bold;">REJECTED (${r.rejection_reason || 'Moisture >14%'})</span>`
+                : r.acceptance_status === 'CANCELLED' ? `<span style="color:#444; font-weight:bold;">QR CANCELLED (${esc(r.cancel_reason || '')})</span>`
+                : r.acceptance_status === 'ACCEPTED' ? '<span style="color:green; font-weight:bold;">ACCEPTED</span>' : 'Pending';
             const gcvPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : (num(r.gcv_value) !== null ? num(r.gcv_value) : 'Pending');
             const ashPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : (num(r.ash_pct) !== null ? num(r.ash_pct) + '%' : 'Pending');
             const vendorGcvPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : formatVendorGcvDisplay(r);
@@ -10001,7 +10098,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const statusBadge = r.acceptance_status === 'ACCEPTED' ? 
                 '<span class="badge badge-complete">ACCEPTED</span>' : 
                 (r.acceptance_status === 'REJECTED' ? '<span class="badge badge-rejected">REJECTED</span>'
-                    : r.acceptance_status === 'CANCELLED' ? `<span class="status-cancelled" title="${esc(r.cancel_reason || '')}">🚫 QR CANCELLED</span><br><small>${esc(r.cancel_reason || '')}</small>`
+                    : r.acceptance_status === 'CANCELLED' ? `<span class="status-cancelled" title="${esc(r.cancel_reason || '')}">QR CANCELLED</span><br><small>${esc(r.cancel_reason || '')}</small>`
                     : '<span class="badge badge-pending">PENDING</span>');
 
             return `
@@ -10303,10 +10400,10 @@ document.addEventListener('DOMContentLoaded', function() {
         prog.textContent = ''; rc.busy = false;
     }
     function rcVerdict(r) {
-        if (r.err) return ['no', '\u274C The reader could not run: ' + r.err];
-        if (r.value === null) return ['no', '\u274C No reading found - the operator would be asked to retake the photo'];
-        if (r.conf >= window.MoistureOCR.MIN_CONFIDENCE) return ['ok', '\u2705 Shown as a clear reading (the operator presses "Yes, use this value")'];
-        return ['unsure', '\u26A0\uFE0F Shown as "Not sure" - the operator can still accept it by confirming in a pop-up'];
+        if (r.err) return ['no', 'The reader could not run: ' + r.err];
+        if (r.value === null) return ['no', 'No reading found - the operator would be asked to retake the photo'];
+        if (r.conf >= window.MoistureOCR.MIN_CONFIDENCE) return ['ok', 'Shown as a clear reading (the operator presses "Yes, use this value")'];
+        return ['unsure', 'Shown as "Not sure" - the operator can still accept it by confirming in a pop-up'];
     }
     function rcMatch(r) {
         if (r.expected === '' || r.expected === undefined) return null;
@@ -10333,7 +10430,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const confidentWrong = withExp.filter(r => rcMatch(r) === false && r.value !== null && r.conf >= window.MoistureOCR.MIN_CONFIDENCE).length;
         rcEl('rc-summary').innerHTML = `<b>${rc.rows.length}</b> photo(s)` + (withExp.length ? ` &middot; with a real value typed: <b>${withExp.length}</b> &middot; right <b style="color:#34d399;">${right}</b> &middot; wrong <b style="color:#f87171;">${withExp.length - right}</b>` + (confidentWrong ? ` &middot; <b style="color:#f87171;">${confidentWrong} wrong although shown as a clear reading</b>` : '') : ' &middot; type the real value in the column on the right to count right and wrong answers');
     }
-    function rcRight(r) { const m = rcMatch(r); return m === null ? '<span style="color:#94a3b8;">&ndash;</span>' : (m ? '<b style="color:#34d399;">&#10003; right</b>' : '<b style="color:#f87171;">&#10007; wrong</b>'); }
+    function rcRight(r) { const m = rcMatch(r); return m === null ? '<span style="color:#94a3b8;">&ndash;</span>' : (m ? '<b style="color:#34d399;">right</b>' : '<b style="color:#f87171;">wrong</b>'); }
     async function rcExport() {
         try {
             const wb = new ExcelJS.Workbook(), sh = wb.addWorksheet('Reader check');
@@ -10360,3 +10457,18 @@ document.addEventListener('DOMContentLoaded', function() {
         initExecutiveDashboard();
     }
 });
+
+
+// Buttons whose only content is a picture (print, edit, delete, camera) are drawn large and bold; labelled buttons carry no icon.
+(function markIconOnlyButtons() {
+    const nonAscii = /[^\x00-\x7F]/;
+    function scan(root) {
+        (root || document).querySelectorAll('button:not(.icon-only)').forEach(b => {
+            const t = (b.textContent || '').trim();
+            if (t && t.length <= 4 && nonAscii.test(t) && !/^[✕×✖+−-]$/.test(t)) b.classList.add('icon-only');
+        });
+    }
+    let timer = null;
+    const later = () => { clearTimeout(timer); timer = setTimeout(() => scan(document), 120); };
+    document.addEventListener('DOMContentLoaded', () => { scan(document); new MutationObserver(later).observe(document.body, { childList: true, subtree: true }); });
+})();

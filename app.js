@@ -1304,8 +1304,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const shift = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
         dateEl.max = today;
         if (!dateEl.value) dateEl.value = today;
-        document.getElementById('btn-dayreport-today').onclick = () => { dateEl.value = window.BiomassAPI.todayIST(); };
-        document.getElementById('btn-dayreport-yesterday').onclick = () => { dateEl.value = shift(window.BiomassAPI.todayIST(), -1); };
+        const bToday = document.getElementById('btn-dayreport-today'), bYest = document.getElementById('btn-dayreport-yesterday');
+        // the chosen day is highlighted so a click is always visible
+        const paint = () => {
+            const t = window.BiomassAPI.todayIST();
+            [[bToday, t], [bYest, shift(t, -1)]].forEach(([b, d]) => { b.classList.toggle('btn-primary', dateEl.value === d); b.classList.toggle('btn-secondary', dateEl.value !== d); });
+        };
+        const pick = (d) => { dateEl.value = d; dateEl.dispatchEvent(new Event('input', { bubbles: true })); dateEl.dispatchEvent(new Event('change', { bubbles: true })); paint(); };
+        bToday.onclick = () => pick(window.BiomassAPI.todayIST());
+        bYest.onclick = () => pick(shift(window.BiomassAPI.todayIST(), -1));
+        dateEl.addEventListener('change', paint);
+        paint();
         document.getElementById('btn-dayreport-summary').onclick = () => openDayReportPdf('summary');
         document.getElementById('btn-dayreport-details').onclick = () => openDayReportPdf('details');
         document.getElementById('btn-dayreport-excel').onclick = () => openDayReportPdf('excel');
@@ -1355,13 +1364,17 @@ document.addEventListener('DOMContentLoaded', function() {
         d.header = (first) => {
             pdf.addPage(W, H);
             if (first) {
-                pdf.rect(M, 26, d.CW, 34, { fill: NAVY });
-                pdf.text(title, M + 12, 35, { size: 19, bold: true, color: '#FFFFFF' });
-                pdf.text('DATE: ' + dateTxt, W - M - 12, 38, { size: 13, bold: true, color: '#FFFFFF', align: 'right' });
-                pdf.rect(M, 60, d.CW, 20, { fill: '#3B4A85' });
-                pdf.text(subtitle, M + 12, 65, { size: 10.5, bold: true, color: '#FFFFFF' });
-                pdf.text('Generated: ' + generated + ' IST', W - M - 12, 66, { size: 8, color: '#FFFFFF', align: 'right' });
-                d.y = 94;
+                const LG = window.__reportLogos;                    // NTPC (left) and NTPC Dadri (right) logos above the title band
+                if (LG && LG.ntpc) pdf.image(LG.ntpc, M, 8, 36 * LG.ntpc.width / LG.ntpc.height, 36);
+                if (LG && LG.dadri) pdf.image(LG.dadri, W - M - 36 * LG.dadri.width / LG.dadri.height, 8, 36 * LG.dadri.width / LG.dadri.height, 36);
+                const T0 = 50;
+                pdf.rect(M, T0 + 0, d.CW, 34, { fill: NAVY });
+                pdf.text(title, M + 12, T0 + 9, { size: 19, bold: true, color: '#FFFFFF' });
+                pdf.text('DATE: ' + dateTxt, W - M - 12, T0 + 12, { size: 13, bold: true, color: '#FFFFFF', align: 'right' });
+                pdf.rect(M, T0 + 34, d.CW, 20, { fill: '#3B4A85' });
+                pdf.text(subtitle, M + 12, T0 + 39, { size: 10.5, bold: true, color: '#FFFFFF' });
+                pdf.text('Generated: ' + generated + ' IST', W - M - 12, T0 + 40, { size: 8, color: '#FFFFFF', align: 'right' });
+                d.y = T0 + 68;
             } else {
                 pdf.rect(M, 26, d.CW, 20, { fill: NAVY });
                 pdf.text(title, M + 10, 31, { size: 10.5, bold: true, color: '#FFFFFF' });
@@ -1466,10 +1479,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const lotBlank = () => { const o = {}; SUMMARY_LOTS.forEach(l => { o[l] = { unloaded: 0, kg: 0 }; }); return o; };
         const blank = () => ({ received: 0, approved: 0, unloaded: 0, rejected: 0, cancelled: 0, awaiting: 0, notUnloaded: 0, kg: 0, rejKg: 0, lots: lotBlank() });
         const add = (o, r) => {
+            if (isCancelled(r)) { o.cancelled++; return; }       // a cancelled QR is not a truck of that day: not received, not pending, not rejected
             o.received++;
             if (isApp(r)) { o.approved++; if (!isUnl(r)) o.notUnloaded++; }
             if (isUnl(r)) { o.unloaded++; o.kg += kg(r); const L = o.lots[lotOf(r)]; L.unloaded++; L.kg += kg(r); }
-            if (isRej(r)) { o.rejected++; o.rejKg += kg(r); if (isCancelled(r)) o.cancelled++; }
+            if (isRej(r)) { o.rejected++; o.rejKg += kg(r); }
             if (!isApp(r) && !isRej(r)) o.awaiting++;
         };
         const total = blank(), vendors = {}, lots = {}, lotVendors = {};
@@ -1992,7 +2006,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } else if (user.role === 'unloading') {
             screens.unloading.classList.add('active');
             initUnloadingScreen();
-        } else if (user.role === 'lab2') {
+        } else if (user.role === 'lab2' || user.role === 'composite') {
             screens.lab2.classList.add('active');
             initLab2Screen();
         }
@@ -2498,7 +2512,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const countSpan = document.getElementById('referee-records-count');
         if (!tbody) return;
 
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Loading composite lot history...</td></tr>';
+        tbody.innerHTML = window.skelRows(8);
 
         try {
             const batches = await window.BiomassAPI.getCompositeBatches();
@@ -3406,7 +3420,7 @@ document.addEventListener('DOMContentLoaded', function() {
     async function renderWeighmentLog() {
         const tbody = document.getElementById('table-weighment-body');
         if (!tbody) return;
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center;">Loading trucks...</td></tr>';
+        tbody.innerHTML = window.skelRows(9);
         if (window.showGlobalLoader) window.showGlobalLoader('Fetching Weighment Log...');
         
         try {
@@ -3428,7 +3442,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
 
             if (filtered.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center;">No pending truck entries found for this filter.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">No pending truck entries found for this filter.</td></tr>';
                 return;
             }
 
@@ -3498,8 +3512,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 tr.innerHTML = `
                     <td><strong>${esc(truck.truck_id)}</strong></td>
                     <td>${dateStr} ${timeStr}</td>
-                    <td><span style="font-family: monospace;">${esc(truck.truck_reg_number)}</span></td>
-                    <td><span style="font-family: monospace;">${esc(chNo)}</span></td>
+                    <td class="cell-wrap"><strong style="font-family: monospace;">${esc(truck.truck_reg_number)}</strong><small>Challan ${esc(chNo)}</small></td>
                     <td>${truck.gross_weight ? Number(truck.gross_weight).toLocaleString() : '-'}</td>
                     <td>${truck.tare_weight ? Number(truck.tare_weight).toLocaleString() : '-'}</td>
                     <td style="color: var(--primary); font-weight: bold;">${truck.net_weight ? Number(truck.net_weight).toLocaleString() : '-'}</td>
@@ -3510,7 +3523,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 tbody.appendChild(tr);
             });
         } catch (e) {
-            tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--danger);">Failed to load: ${esc(e.message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--danger);">Failed to load: ${esc(e.message)}</td></tr>`;
         } finally {
             if (window.hideGlobalLoader) window.hideGlobalLoader();
         }
@@ -3590,13 +3603,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // so a truck that takes 1-3 days to unload stays on the board and can still get a bottom sample / Cancel QR. 'all' = every truck, any date.
     const UNLOADING_CARRYOVER_DAYS = 1;
     let currentUnloadingFilter = 'recent';
+    const btnUnloadToday = document.getElementById('btn-unloading-filter-today');
     const btnUnloadRecent = document.getElementById('btn-unloading-filter-recent');
     const btnUnloadAll = document.getElementById('btn-unloading-filter-all');
-    [[btnUnloadRecent, 'recent'], [btnUnloadAll, 'all']].forEach(([btn, mode]) => {
+    [[btnUnloadToday, 'today'], [btnUnloadRecent, 'recent'], [btnUnloadAll, 'all']].forEach(([btn, mode]) => {
         if (!btn) return;
         btn.onclick = () => {
             currentUnloadingFilter = mode;
-            [btnUnloadRecent, btnUnloadAll].forEach(b => { if (b) b.classList.toggle('active', b === btn); });
+            [btnUnloadToday, btnUnloadRecent, btnUnloadAll].forEach(b => { if (b) b.classList.toggle('active', b === btn); });
             renderUnloadingLog();
         };
     });
@@ -3604,19 +3618,20 @@ document.addEventListener('DOMContentLoaded', function() {
     async function renderUnloadingLog() {
         const tbody = document.getElementById('table-unloading-body');
         if (!tbody) return;
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">Loading unloading entries...</td></tr>';
+        tbody.innerHTML = window.skelRows(8);
         if (window.showGlobalLoader) window.showGlobalLoader('Fetching Unloading Clearances...');
 
         try {
             const showAll = currentUnloadingFilter === 'all';
-            const fetched = await window.BiomassAPI.getTrucks(showAll ? 'all' : { days: UNLOADING_CARRYOVER_DAYS });
+            // Today | Yesterday + pending (today, yesterday and every older truck still not unloaded) | All. Newest first.
+            const trucks = await window.BiomassAPI.getTrucks(showAll ? 'all' : currentUnloadingFilter === 'today' ? { today: true } : { days: UNLOADING_CARRYOVER_DAYS, include_pending: true });
             const todayYmd = window.BiomassAPI.todayIST();
-            const trucks = showAll ? fetched : fetched.filter(t =>
-                window.BiomassAPI.formatLocalYYYYMMDD(t.entry_date) >= todayYmd || !(Number(t.tare_weight) > 0));
             const filter = searchUnloadingInput ? searchUnloadingInput.value.toLowerCase().trim() : '';
             tbody.innerHTML = '';
 
+            const cancelDay = (t) => { const c = t.cancelled_at ? new Date(t.cancelled_at) : null; return c && !isNaN(c) ? window.BiomassAPI.formatLocalYYYYMMDD(new Date(c.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10)) : null; };
             const filtered = trucks.filter(t => {
+                if (t.acceptance_status === 'CANCELLED' && !showAll) { const cd = cancelDay(t); if (!cd || cd < todayYmd) return false; }   // cancelled QR leaves the board the day after
                 const id = String(t.truck_id || '').toLowerCase();
                 const driver = String(t.driver_name || '').toLowerCase();
                 const reg = String(t.truck_reg_number || '').toLowerCase();
@@ -3625,11 +3640,11 @@ document.addEventListener('DOMContentLoaded', function() {
             });
 
             if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="9" style="text-align: center;">No matching truck entries found${showAll ? '' : ' for today or pending from the previous day'}.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align: center;">No matching truck entries found${showAll ? '' : ' in this view'}.</td></tr>`;
                 return;
             }
 
-            filtered.slice().reverse().forEach(truck => {
+            filtered.slice().sort((a, b) => String(b.entry_date || '').slice(0, 10).localeCompare(String(a.entry_date || '').slice(0, 10)) || (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0)).forEach(truck => {
                 const tr = document.createElement('tr');
                 
                 const dateStr = window.BiomassAPI.formatLocalYYYYMMDD(truck.entry_date);
@@ -3658,11 +3673,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     statusBadge = `<span class="badge badge-warning" style="background:#f59e0b; color:white; padding:4px 8px; border-radius:4px;">Awaiting Lab 1</span>`;
                 }
 
-                const carriedOver = !showAll && dateStr < todayYmd;
                 tr.innerHTML = `
-                    <td>${dateStr} ${timeStr}${carriedOver ? '<br><small style="color:#f59e0b;">from an earlier day, still pending</small>' : ''}</td>
-                    <td><span style="font-family: monospace; font-weight: bold;">${esc(truck.truck_reg_number)}</span></td>
-                    <td><span style="font-family: monospace;">${esc(chNo)}</span></td>
+                    <td>${dateStr} ${timeStr}</td>
+                    <td class="cell-wrap"><strong style="font-family: monospace;">${esc(truck.truck_reg_number)}</strong><small>Challan ${esc(chNo)}</small></td>
                     <td>${gross > 0 ? gross.toLocaleString() : '-'}</td>
                     <td>${tare > 0 ? tare.toLocaleString() : '-'}</td>
                     <td style="color: var(--primary); font-weight: bold;">${tare > 0 ? net.toLocaleString() : '-'}</td>
@@ -3674,7 +3687,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 tbody.appendChild(tr);
             });
         } catch (e) {
-            tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--danger);">Failed to load unloading log: ${esc(e.message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--danger);">Failed to load unloading log: ${esc(e.message)}</td></tr>`;
         } finally {
             if (window.hideGlobalLoader) window.hideGlobalLoader();
         }
@@ -3711,6 +3724,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const bodyHtml = `
                 <div class="print-slip-container">
                     <div class="slip-header">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;"><img src="assets/ntpc/ntpc-logo.png" alt="NTPC" style="height:34px;" onerror="this.style.display='none'"><img src="assets/ntpc/dadri-logo.png" alt="NTPC Dadri" style="height: 34px;" onerror="this.style.display='none'"></div>
                         ${truckQrImg}
                         <h2 class="slip-title">BIOMASS CONSIGNMENT WEIGHMENT SLIP</h2>
                         <div class="slip-subtitle">Quality & Material Gate Receipt</div>
@@ -4152,12 +4166,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
             return `
                 <div class="print-report-view">
-                    <div style="display: flex; align-items: center; justify-content: center; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 2px solid black; padding-bottom: 0.75rem;">
-                        <img src="ntpc-logo.png" alt="" style="height: 50px;" onerror="this.style.display='none'">
-                        <div style="text-align: left;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 2px solid black; padding-bottom: 0.75rem;">
+                        <img src="assets/ntpc/ntpc-logo.png" alt="NTPC" style="height: 56px;" onerror="this.style.display='none'">
+                        <div style="text-align: center; flex: 1;">
                             <h1 style="font-size: 20pt; font-weight: bold; margin: 0; color: #000;">NTPC LIMITED</h1>
                             <h3 style="font-size: 11pt; font-weight: bold; letter-spacing: 0.05em; margin: 0; color: #444;">CHEMISTRY DEPARTMENT</h3>
                         </div>
+                        <img src="assets/ntpc/dadri-logo.png" alt="NTPC Dadri" style="height: 56px;" onerror="this.style.display='none'">
                     </div>
 
                     <h2 style="font-size: 16pt; font-weight: bold; text-align: center; margin-bottom: 1rem;">OFFICIAL BIOMASS LAB QUALITY REPORT</h2>
@@ -4289,6 +4304,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         return `
             <div class="print-report-view">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.6rem; border-bottom: 2px solid black; padding-bottom: 0.5rem;">
+                    <img src="assets/ntpc/ntpc-logo.png" alt="NTPC" style="height: 56px;" onerror="this.style.display='none'">
+                    <div style="text-align: center; font-weight: bold; font-size: 14pt;">NTPC DADRI</div>
+                    <img src="assets/ntpc/dadri-logo.png" alt="NTPC Dadri" style="height: 56px;" onerror="this.style.display='none'">
+                </div>
                 <h2 style="font-size: 16pt; font-weight: bold; text-align: center; margin-bottom: 0.2in;">BIOMASS LOGISTICS &amp; UNLOADING REPORT (${esc((rep.period || '').toUpperCase())})</h2>
                 <div class="report-meta-info">
                     <div><strong>Period:</strong> ${esc(rep.start_date)} to ${esc(rep.end_date)}</div>
@@ -4499,7 +4519,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const chg = document.getElementById('sx-audit-changes'), subs = document.getElementById('sx-audit-subs');
         document.querySelectorAll('#tab-admin-activity .admin-only-log').forEach(el => el.style.display = 'none');
         document.getElementById('sx-audit-panel').style.display = 'flex';
-        chg.innerHTML = subs.innerHTML = '<tr><td colspan="6" style="text-align:center;">Loading...</td></tr>';
+        chg.innerHTML = subs.innerHTML = window.skelRows(6);
         try {
             const res = await actFetch();
             chg.innerHTML = actState.rows.map(l => `<tr><td style="font-family:monospace; font-size:0.82rem; color:#ef4444; white-space:nowrap;">${esc(l.timestamp)}</td><td>${esc(l.username)}</td><td><strong style="color:#ef4444;">${esc(l.action.replace('SUPERADMIN_', ''))}</strong></td>` +
@@ -4530,7 +4550,7 @@ document.addEventListener('DOMContentLoaded', function() {
         actWire();
         if (cu && cu.is_super) return renderSuperAuditTab();
         const exceptionsBody = document.getElementById('exceptions-log-body');
-        exceptionsBody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Loading exception logs...</td></tr>';
+        exceptionsBody.innerHTML = window.skelRows(6);
         try {
             await actFetch();
             // The Admin gets NO unknown-IP / "new IP address detected" alerts (owner's decision): such lines are not listed and not marked.
@@ -4626,7 +4646,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function rtLoad() {
         const body = rtEl('rt-body'), tiles = rtEl('rt-tiles');
-        body.innerHTML = '<tr><td colspan="7" style="text-align:center;">Loading...</td></tr>';
+        body.innerHTML = window.skelRows(7);
         rtEl('rt-result').innerHTML = ''; rtEl('rt-publish-box').style.display = 'none'; rt.newEntries = null;
         rtSpace();
         try {
@@ -6809,14 +6829,20 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     function initLab2Screen() {
+        // Lab 2 only scans and submits results; the Composite login only generates / reprints the composite codes
+        const me = window.BiomassAPI.getCurrentUser(), isComp = !!me && me.role === 'composite';
+        const tabBtn = (k) => document.querySelector('#lab2-tabs button[data-ft="' + k + '"]');
+        ['scan', 'hist'].forEach(k => { const b = tabBtn(k); if (b) b.style.display = isComp ? 'none' : ''; });
+        const mixBtn = tabBtn('mix'); if (mixBtn) mixBtn.style.display = isComp ? '' : 'none';
+        const bar = document.getElementById('lab2-tabs');
+        if (bar && bar.dataset.wired) showFtab('lab2-tabs', isComp ? 'mix' : 'scan');
         initFeatureTabs('lab2-tabs');
+        if (isComp) showFtab('lab2-tabs', 'mix');
         const entryCard = document.getElementById('lab2-entry-card');
         if (entryCard) entryCard.style.display = 'none';
         const compositeOutput = document.getElementById('lab2-composite-output');
         if (compositeOutput) compositeOutput.style.display = 'none';
-        renderLab2History();
-        setupLab2CameraScanner();
-        setupLab2TypedLookup();
+        if (!isComp) { renderLab2History(); setupLab2CameraScanner(); setupLab2TypedLookup(); return; }
         setupLab2Filter();
         renderLab2MixingGroups();
         if (!lab2State.timer) {
@@ -7227,7 +7253,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function renderLab2History() {
         const tbody = document.getElementById('lab2-history-body');
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">Loading history...</td></tr>';
+        tbody.innerHTML = window.skelRows(7);
 
         try {
             const history = await window.BiomassAPI.getLab2History();
@@ -7565,17 +7591,21 @@ document.addEventListener('DOMContentLoaded', function() {
         const mine = ++sugS.seq; sugS.busy = true;
         const q = (fromFocus && entry.showAllOnFocus) ? '' : text;
         try {
-            const first = await entry.get(q, (partial) => { if (mine === sugS.seq) { sugS.items = partial; sugS.active = sugExactIndex(partial, q); sugPaint(text); } });
+            const first = await entry.get(q, (partial) => { if (mine === sugS.seq) { sugS.items = partial; sugS.active = sugExactIndex(partial, q); if (partial.length === 1 && sugNorm(partial[0].value) === sugNorm(text)) sugHide(); else sugPaint(text); } });
             if (mine !== sugS.seq) return;
             sugS.items = first || [];
         } catch (e) { if (mine !== sugS.seq) return; sugS.items = []; }
-        sugS.busy = false; sugS.active = sugExactIndex(sugS.items, q); sugPaint(text);
+        sugS.busy = false; sugS.active = sugExactIndex(sugS.items, q);
+        // the one suggestion left is exactly what is typed: nothing more to offer, keep the list closed
+        if (sugS.items.length === 1 && sugNorm(sugS.items[0].value) === sugNorm(text)) { sugHide(); return; }
+        sugPaint(text);
     }
     function sugPick(i) {
         const it = sugS.items[i], input = sugS.input, entry = sugS.entry; if (!it || !input) return;
         sugHide(); sugS.seq++;
         if (entry.pick) entry.pick(it, input);
         else { input.value = it.value; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); }
+        clearTimeout(sugS.timer); sugS.seq++; sugHide();      // the 'input' event fired above must not reopen the list for the value just chosen
         if (entry.afterPick) entry.afterPick(it, input);
     }
     function attachSug(el, entry) {
@@ -7595,7 +7625,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const a = sugS.box.querySelector('.vendor-item.active'); if (a) a.scrollIntoView({ block: 'nearest' });
             } else if (e.key === 'Enter' && open && sugS.active >= 0) {
                 e.preventDefault(); e.stopImmediatePropagation(); sugPick(sugS.active);
-            } else if (e.key === 'Escape' && open) { sugHide(); }
+            } else if (e.key === 'Enter' && open) { clearTimeout(sugS.timer); sugS.seq++; sugHide(); } else if (e.key === 'Escape' && open) { sugHide(); }
         }, true);
     }
 
@@ -8492,9 +8522,46 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ---------- Logins ----------
+    // ---- Vendor website: copies the releasable truck rows to the SEPARATE vendor project (one-way; nothing is read back)
+    const VS_KEY = 'BIOMASS_VENDOR_SITE';
+    const vsConf = () => { try { return JSON.parse(localStorage.getItem(VS_KEY) || 'null') || {}; } catch (e) { return {}; } };
+    function initVendorSiteCard() {
+        const card = document.getElementById('vendor-site-card');
+        if (!card || card.dataset.wired) return;
+        card.dataset.wired = '1';
+        const paint = () => { const c = vsConf(); document.getElementById('vs-status').textContent = c.url ? ('Last published: ' + (c.last || 'never') + (c.count != null ? ' (' + c.count + ' trucks)' : '')) : 'Not connected yet'; };
+        paint();
+        document.getElementById('vs-connection').onclick = () => {
+            const c = vsConf();
+            vdDialog({ title: 'Vendor site connection', okLabel: 'Save', html:
+                '<label style="font-size:1rem;font-weight:600;">Project URL<input type="url" id="vs-url" placeholder="https://xxxx.supabase.co" style="width:100%;"></label>' +
+                '<label style="font-size:1rem;font-weight:600;display:block;margin-top:0.8rem;">Public (anon) key<input type="text" id="vs-anon" style="width:100%;"></label>',
+                onOk: async () => {
+                    const url = document.getElementById('vs-url').value.trim().replace(/\/+$/, ''), anon = document.getElementById('vs-anon').value.trim();
+                    if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(url) || anon.length < 20) throw new Error('Enter the vendor project URL (https://....supabase.co) and its anon key.');
+                    localStorage.setItem(VS_KEY, JSON.stringify(Object.assign(c, { url, anon }))); paint();
+                } });
+            document.getElementById('vs-url').value = c.url || ''; document.getElementById('vs-anon').value = c.anon || '';
+        };
+        document.getElementById('vs-publish').onclick = () => {
+            const c = vsConf();
+            if (!c.url || !c.anon) { document.getElementById('vs-connection').click(); return; }
+            vdDialog({ title: 'Publish to vendor site', okLabel: 'Publish', html: '<label style="font-size:1rem;font-weight:600;">Vendor site secret<input type="password" id="vs-secret" autocomplete="off" style="width:100%;"></label>',
+                onOk: async () => {
+                    const secret = document.getElementById('vs-secret').value;
+                    if (!secret) throw new Error('Type the vendor site secret.');
+                    const rows = await window.BiomassAPI.superVendorExport(120);
+                    const res = await fetch(c.url + '/rest/v1/rpc/vp_ingest', { method: 'POST', headers: { apikey: c.anon, Authorization: 'Bearer ' + c.anon, 'Content-Type': 'application/json' }, body: JSON.stringify({ p: { secret, rows } }) });
+                    const out = await res.json().catch(() => ({}));
+                    if (!res.ok || !out || out.success === false) throw new Error((out && (out.message || out.error)) || 'The vendor site refused the upload.');
+                    c.last = new Date().toLocaleString('en-IN'); c.count = rows.length; localStorage.setItem(VS_KEY, JSON.stringify(c)); paint();
+                } });
+        };
+    }
     async function renderSuperLogins() {
         const body = sx$('sx-logins-body');
-        body.innerHTML = '<tr><td colspan="5" class="sx-loading">Loading...</td></tr>';
+        initVendorSiteCard();
+        body.innerHTML = window.skelRows(5);
         try {
             const res = await window.BiomassAPI.superLogins();
             const L = res.logins || [];
@@ -8911,7 +8978,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     async function renderSuperIps() {
         const body = sx$('sx-ips-body');
-        body.innerHTML = '<tr><td colspan="7" class="sx-loading">Loading...</td></tr>';
+        body.innerHTML = window.skelRows(7);
         try {
             const r = await window.BiomassAPI.superIps();
             sxIps = r.ips || [];
@@ -8939,7 +9006,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     async function renderSuperIpLog() {
         const body = sx$('sx-ipl-body');
-        body.innerHTML = '<tr><td colspan="4" class="sx-loading">Loading...</td></tr>';
+        body.innerHTML = window.skelRows(4);
         try {
             const lines = await window.BiomassAPI.superIpLogs(sx$('sx-ipl-ip').value, sx$('sx-ipl-q').value.trim(), 500);
             actSugRows = lines || actSugRows;
@@ -9671,12 +9738,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const bodyHtml = `
             <div class="print-report-view">
-                <div style="display: flex; align-items: center; justify-content: center; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 2px solid black; padding-bottom: 0.75rem;">
-                    <img src="ntpc-logo.png" alt="" style="height: 50px;" onerror="this.style.display='none'">
-                    <div style="text-align: left;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 2px solid black; padding-bottom: 0.75rem;">
+                    <img src="assets/ntpc/ntpc-logo.png" alt="NTPC" style="height: 56px;" onerror="this.style.display='none'">
+                    <div style="text-align: center; flex: 1;">
                         <h1 style="font-size: 20pt; font-weight: bold; margin: 0; color: #000;">NTPC LIMITED</h1>
                         <h3 style="font-size: 11pt; font-weight: bold; letter-spacing: 0.05em; margin: 0; color: #444;">CHEMISTRY DEPARTMENT</h3>
                     </div>
+                    <img src="assets/ntpc/dadri-logo.png" alt="NTPC Dadri" style="height: 56px;" onerror="this.style.display='none'">
                 </div>
 
                 <h2 style="font-size: 16pt; font-weight: bold; text-align: center; margin-bottom: 1rem;">BIOMASS QUALITY REPORT — FILTERED SELECTION</h2>
@@ -9905,6 +9973,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (startBoundary && r.date_obj < startBoundary) return false;
                 if (endBoundary && r.date_obj > endBoundary) return false;
                 if (compFilter !== 'ALL' && r.company_name !== compFilter) return false;
+                if (r.acceptance_status === 'CANCELLED') return false;           // a cancelled QR is not a truck: never shown on the dashboard
                 if (statusFilter !== 'ALL' && r.acceptance_status !== statusFilter) return false;
                 if (searchQuery) {
                     const matchText = `${r.truck_id} ${r.truck_reg_number} ${r.company_name} ${r.driver_name} ${r.invoice_no}`.toLowerCase();
@@ -9926,7 +9995,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
             // Update Summary KPI Cards
-            const totalCount = filteredRecords.length;
+            const totalCount = filteredRecords.filter(r => r.acceptance_status !== 'CANCELLED').length;
             const acceptedList = filteredRecords.filter(r => r.acceptance_status === 'ACCEPTED');
             const rejectedList = filteredRecords.filter(r => r.acceptance_status === 'REJECTED');
             
@@ -9949,13 +10018,20 @@ document.addEventListener('DOMContentLoaded', function() {
             const kpiMoisEl = document.getElementById('kpi-avg-moisture');
             const kpiGcvEl = document.getElementById('kpi-avg-gcv');
 
-            if (kpiNetEl) kpiNetEl.textContent = `${totalNetMT.toFixed(2)} MT`;
-            if (kpiTotEl) kpiTotEl.textContent = totalCount;
+            // the numbers count up from 0 to the exact value
+            const kpiTo = (el, text) => { if (!el) return; const m = /^(-?[\d.]+)(.*)$/.exec(String(text)); if (!m) { el.textContent = text; return; }
+                const to = Number(m[1]), dp = (m[1].split('.')[1] || '').length, suf = m[2], tok = (el._kt = (el._kt || 0) + 1), t0 = performance.now();
+                el.textContent = (0).toFixed(dp) + suf;                                  // always starts at zero
+                const ease = (p) => p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;   // slow start, so the first numbers shown are small
+                const step = (t) => { if (el._kt !== tok) return; const p = Math.min(1, (t - t0) / 1600); el.textContent = (to * ease(p)).toFixed(dp) + suf; if (p < 1) requestAnimationFrame(step); };
+                requestAnimationFrame(step); };
+            kpiTo(kpiNetEl, `${totalNetMT.toFixed(2)} MT`);
+            kpiTo(kpiTotEl, String(totalCount));
             if (kpiBreakEl) kpiBreakEl.textContent = `${acceptedList.length} Accepted | ${rejectedList.length} Rejected (${rejectedNetMT.toFixed(2)} MT)`;
-            if (kpiAccEl) kpiAccEl.textContent = `${acceptRate}%`;
+            kpiTo(kpiAccEl, `${acceptRate}%`);
             if (kpiRejEl) kpiRejEl.textContent = `Rejection Rate: ${rejectRate}%`;
-            if (kpiMoisEl) kpiMoisEl.textContent = `${avgMoisture}%`;
-            if (kpiGcvEl) kpiGcvEl.textContent = `${avgGCV} kcal/kg`;
+            kpiTo(kpiMoisEl, `${avgMoisture}%`);
+            kpiTo(kpiGcvEl, `${avgGCV} kcal/kg`);
 
             // Render Charts
             renderExecutiveCharts(filteredRecords);
@@ -10089,11 +10165,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (countInfo) countInfo.textContent = `Showing ${records.length} consignments`;
 
         if (records.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="14" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No consignments match current filters.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No consignments match current filters.</td></tr>`;
             return;
         }
 
-        tbody.innerHTML = records.slice(0, 50).map(r => {
+        tbody.innerHTML = records.map(r => {
             const dateStr = r.date_obj ? r.date_obj.toISOString().substring(0, 10) : (r.date || '-');
             const statusBadge = r.acceptance_status === 'ACCEPTED' ? 
                 '<span class="badge badge-complete">ACCEPTED</span>' : 
@@ -10104,19 +10180,15 @@ document.addEventListener('DOMContentLoaded', function() {
             return `
                 <tr>
                     <td>${dateStr}</td>
-                    <td>${r.invoice_no || r.challan_no || '-'}</td>
-                    <td><strong>${r.company_name || '-'}</strong></td>
-                    <td>${r.truck_reg_number || r.truck_id || '-'}</td>
-                    <td>${r.driver_name || '-'}</td>
-                    <td>${r.gross_weight ? r.gross_weight + ' kg' : '-'}</td>
-                    <td>${r.tare_weight ? r.tare_weight + ' kg' : '-'}</td>
+                    <td class="cell-wrap"><strong>${esc(r.company_name || '-')}</strong><small>Challan ${esc(r.invoice_no || r.challan_no || '-')}</small></td>
+                    <td class="cell-wrap"><strong>${esc(r.truck_reg_number || r.truck_id || '-')}</strong><small>${esc(r.driver_name || '-')}</small></td>
                     <td><strong>${r.net_weight_mt > 0 ? r.net_weight_mt.toFixed(2) + ' MT' : '-'}</strong></td>
                     <td>${r.moisture_pct !== null ? r.moisture_pct + '%' : '-'}</td>
                     <td>${r.tm !== null && r.tm !== undefined ? r.tm.toFixed(2) + '%' : '-'}</td>
                     <td>${r.gcv_value ? r.gcv_value + ' kcal/kg' : '-'}</td>
                     <td>${r.ash_pct !== null && r.ash_pct !== undefined ? r.ash_pct + '%' : '-'}</td>
                     <td>${statusBadge}</td>
-                    <td><span class="badge badge-info">${r.pipeline_stage}</span></td>
+                    <td class="stage-cell"><span class="badge badge-info">${esc(r.pipeline_stage)}</span></td>
                 </tr>
             `;
         }).join('');
@@ -10471,4 +10543,140 @@ document.addEventListener('DOMContentLoaded', function() {
     let timer = null;
     const later = () => { clearTimeout(timer); timer = setTimeout(() => scan(document), 120); };
     document.addEventListener('DOMContentLoaded', () => { scan(document); new MutationObserver(later).observe(document.body, { childList: true, subtree: true }); });
+})();
+
+
+// ===== THEME (dark by default, NTPC light theme on demand), LOGIN BACKGROUND, PUBLIC NUMBERS, SKELETON ROWS =====
+window.skelRows = function (cols, rows) {
+    let h = '';
+    for (let r = 0; r < (rows || 5); r++) {
+        h += '<tr class="sk-row">';
+        for (let c = 0; c < cols; c++) h += '<td><span class="sk-bar" style="width:' + (45 + ((r * 7 + c * 13) % 45)) + '%"></span></td>';
+        h += '</tr>';
+    }
+    return h;
+};
+(function themeAndLanding() {
+    const root = document.documentElement;
+    const get = () => { try { return localStorage.getItem('BIOMASS_THEME') === 'light' ? 'light' : 'dark'; } catch (e) { return 'dark'; } };
+    const apply = (t) => { if (t === 'light') root.setAttribute('data-theme', 'light'); else root.removeAttribute('data-theme'); };
+    function toggle() {
+        const next = get() === 'light' ? 'dark' : 'light';
+        root.classList.add('theme-anim');
+        apply(next);
+        try { localStorage.setItem('BIOMASS_THEME', next); } catch (e) { /* storage blocked: the choice lasts until reload */ }
+        setTimeout(() => root.classList.remove('theme-anim'), 600);
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+        apply(get());
+        document.querySelectorAll('.theme-toggle').forEach(b => b.addEventListener('click', toggle));
+
+        // login page: photographs fade into each other every 7 seconds (only while the login page is showing)
+        const slides = [...document.querySelectorAll('.ntpc-slide')];
+        let i = 0;
+        const loginOn = () => { const s = document.getElementById('screen-login'); return s && s.classList.contains('active') && !document.hidden; };
+        if (slides.length > 1) setInterval(() => {
+            if (!loginOn()) return;
+            slides[i].classList.remove('on'); i = (i + 1) % slides.length; slides[i].classList.add('on');
+        }, 7000);
+
+        // public numbers (aggregates only, no names): loaded when the login page is shown, refreshed every minute
+        const fmt = (k, v) => /_mt$/.test(k) ? Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(v).toLocaleString('en-IN');
+        function countUp(el, k, to) {
+            const t0 = performance.now(), dur = 1600, ease = (p) => p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+            el.textContent = fmt(k, 0);
+            const step = (t) => { const p = Math.min(1, (t - t0) / dur); el.textContent = fmt(k, to * ease(p)); if (p < 1) requestAnimationFrame(step); else el.textContent = fmt(k, to); };
+            requestAnimationFrame(step);
+        }
+        async function loadStats() {
+            if (!loginOn() || !window.BiomassAPI || !window.BiomassAPI.publicStats) return;
+            try {
+                const d = await window.BiomassAPI.publicStats();
+                document.querySelectorAll('#public-stats .ntpc-stat-n').forEach(el => {
+                    const v = d && d[el.dataset.k];
+                    el.classList.remove('sk');
+                    if (v === undefined || v === null) { el.textContent = '-'; return; }
+                    if (el._last === Number(v)) return; el._last = Number(v);          // the minute refresh only animates a changed number
+                    countUp(el, el.dataset.k, Number(v));
+                });
+            } catch (e) {
+                document.querySelectorAll('#public-stats .ntpc-stat-n').forEach(el => { el.classList.remove('sk'); el.textContent = '-'; });
+            }
+        }
+        loadStats();
+        setInterval(loadStats, 60000);
+    });
+})();
+
+
+// logos used on the PDF reports: loaded once into white-backed canvases (the PDF writer stores pictures as JPEG)
+(function preloadReportLogos() {
+    window.__reportLogos = {};
+    [['ntpc', 'assets/ntpc/ntpc-logo.png'], ['dadri', 'assets/ntpc/dadri-logo.png']].forEach(([k, src]) => {
+        const im = new Image();
+        im.onload = () => { const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, 0, 0); window.__reportLogos[k] = c; };
+        im.src = src;
+    });
+})();
+
+
+// ===== LONG TABLES: 10 rows per page; wide tables on phones show key columns and open a row on tap =====
+(function tableEnhancer() {
+    const PAGE = 10, KEY = /action|status|result|decision/i;
+    const skip = (t) => t.hasAttribute('data-nopage') || t.closest('#tab-admin-training, #global-loader, .print-report-view, .modal, [id$="-modal"]');
+    function process(table) {
+        const head = table.tHead && table.tHead.rows.length ? table.tHead.rows[table.tHead.rows.length - 1] : null;
+        const tb = table.tBodies[0];
+        if (!head || !tb) return;
+        const n = head.cells.length;
+        const rows = [...tb.rows].filter(r => r.cells.length === n && !r.classList.contains('sk-row') && !r.classList.contains('rx-detail'));
+        // phones: which columns stay visible when a row is closed
+        const wide = n > 6;
+        table.classList.toggle('rx', wide);
+        if (wide && table._rxN !== n) {
+            const labels = [...head.cells].map(c => c.textContent.replace(/\s+/g, ' ').trim());
+            let keep = new Set([0, 1]);
+            labels.forEach((l, i) => { if (KEY.test(l) && keep.size < 5) keep.add(i); });
+            [2].forEach(i => { if (keep.size < 4 && i < n) keep.add(i); });
+            table._rxN = n; table._rxKeep = keep; table._rxLabels = labels;
+            [...head.cells].forEach((c, i) => c.classList.toggle('rx-hide', !keep.has(i)));
+        }
+        if (wide) rows.forEach(r => {
+            if (r._rxDone === n) return; r._rxDone = n;
+            [...r.cells].forEach((c, i) => { c.setAttribute('data-label', table._rxLabels[i] || ''); c.classList.toggle('rx-hide', !table._rxKeep.has(i)); });
+        });
+        // 10 rows per page
+        const total = rows.length;
+        if (total <= PAGE) { rows.forEach(r => r.classList.remove('pg-hide')); if (table._pager) { table._pager.remove(); table._pager = null; } table._pg = 1; return; }
+        if (table._first !== rows[0]) table._pg = 1;
+        table._first = rows[0];
+        const pages = Math.ceil(total / PAGE);
+        table._pg = Math.min(Math.max(1, table._pg || 1), pages);
+        const from = (table._pg - 1) * PAGE;
+        rows.forEach((r, i) => r.classList.toggle('pg-hide', i < from || i >= from + PAGE));
+        if (!table._pager) {
+            const p = document.createElement('div'); p.className = 'rx-pager';
+            p.addEventListener('click', (e) => { const b = e.target.closest('button[data-d]'); if (!b || b.disabled) return; table._pg += Number(b.dataset.d); busy(() => process(table)); });
+            (table.closest('.table-responsive') || table).insertAdjacentElement('afterend', p); table._pager = p;
+        }
+        const html = '<button type="button" class="btn btn-secondary btn-sm" data-d="-1"' + (table._pg <= 1 ? ' disabled' : '') + '>Previous</button><span>' + (from + 1) + '-' + Math.min(total, from + PAGE) + ' of ' + total + ' &nbsp;&bull;&nbsp; page ' + table._pg + ' of ' + pages + '</span><button type="button" class="btn btn-secondary btn-sm" data-d="1"' + (table._pg >= pages ? ' disabled' : '') + '>Next</button>';
+        if (table._pager.innerHTML !== html) table._pager.innerHTML = html;
+    }
+    let obs = null, timer = null;
+    const busy = (fn) => { if (obs) obs.disconnect(); try { fn(); } finally { watch(); } };
+    function all() { document.querySelectorAll('table').forEach(t => { if (!skip(t)) process(t); }); }
+    function watch() { if (obs) obs.observe(document.body, { childList: true, subtree: true }); }
+    document.addEventListener('DOMContentLoaded', () => {
+        obs = new MutationObserver((muts) => {
+            if (muts.every(m => m.target.closest && m.target.closest('.rx-pager'))) return;
+            clearTimeout(timer); timer = setTimeout(() => busy(all), 90);
+        });
+        watch(); busy(all);
+        // tap a row on a phone: open / close all its fields
+        document.addEventListener('click', (e) => {
+            const tr = e.target.closest('table.rx tbody tr'); if (!tr || e.target.closest('button, a, input, select, textarea, label, summary')) return;
+            if (window.innerWidth > 760) return;
+            tr.classList.toggle('rx-open');
+        });
+    });
 })();

@@ -1999,3 +1999,160 @@ small[style*="font-size"], .form-group small { font-size: 0.85rem; }
 .scan-trigger-section h4 { font-size: 1.15rem !important; margin: 0 !important; }
 #lab2-code-input { font-size: 1.5rem !important; font-weight: 800 !important; letter-spacing: 0.12em; }
 #lab2-code-date { font-size: 1.15rem !important; }
+
+/* ==========================================================================
+   NTPC LOGIN PAGE, LIGHT / DARK THEME, SKELETON SCREENS  (Nov 2026)
+   ========================================================================== */
+/* --- login page: slow cross-fading NTPC Dadri photographs behind the stats and the sign-in card --- */
+#screen-login { margin: -2rem; width: calc(100% + 4rem); }
+.ntpc-login { position: relative; min-height: calc(100vh - 2rem); overflow: hidden; display: flex; flex-direction: column; isolation: isolate; }
+.ntpc-bg, .ntpc-shade { position: absolute; inset: 0; z-index: -2; }
+.ntpc-shade { z-index: -1; background: linear-gradient(100deg, rgba(5,10,20,0.88) 0%, rgba(5,10,20,0.62) 55%, rgba(5,10,20,0.45) 100%); transition: background 0.5s; }
+.ntpc-slide { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: 0; transition: opacity 2s ease-in-out; transform: scale(1.04); }
+.ntpc-slide.on { opacity: 1; animation: ntpcZoom 14s ease-out forwards; }
+@keyframes ntpcZoom { from { transform: scale(1.04); } to { transform: scale(1.12); } }
+.ntpc-topbar { display: flex; align-items: center; justify-content: space-between; padding: 1rem 2rem; }
+.ntpc-brand { display: flex; align-items: center; gap: 1rem; }
+.ntpc-logo { height: 58px; width: auto; background: #fff; border-radius: 10px; padding: 5px 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.3); }
+.ntpc-logo-dadri { height: 58px; }
+.ntpc-body { flex: 1; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, 440px); gap: 2.5rem; align-items: center; padding: 1rem 3rem 3rem; }
+.ntpc-title { font-size: clamp(2.2rem, 5vw, 4rem); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #fff; text-shadow: 0 2px 18px rgba(0,0,0,0.5); -webkit-text-fill-color: #fff; background: none; margin-bottom: 1.5rem; }
+.ntpc-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1rem; max-width: 760px; }
+.ntpc-stat { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.22); border-radius: 14px; padding: 1rem 1.1rem; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: #fff; }
+.ntpc-stat-n { font-size: 2.1rem; font-weight: 700; line-height: 1.15; min-height: 2.4rem; font-variant-numeric: tabular-nums; }
+.ntpc-stat-l { font-size: 0.95rem; opacity: 0.88; margin-top: 0.15rem; }
+.ntpc-login .login-container { margin: 0; max-width: 440px; justify-self: end; width: 100%; background: rgba(15, 23, 42, 0.78); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+.ntpc-login .login-header { margin-bottom: 1.2rem; text-align: left; }
+.ntpc-login .login-header h2 { font-size: 1.7rem; font-weight: 700; }
+@media (max-width: 900px) {
+    #screen-login { margin: -1rem; width: calc(100% + 2rem); }
+    .ntpc-body { grid-template-columns: 1fr; padding: 0.5rem 1rem 2rem; gap: 1.5rem; }
+    .ntpc-login .login-container { justify-self: stretch; max-width: none; }
+    .ntpc-topbar { padding: 0.8rem 1rem; }
+    .ntpc-logo, .ntpc-logo-dadri { height: 44px; }
+    .ntpc-stat-n { font-size: 1.6rem; }
+}
+@media (prefers-reduced-motion: reduce) { .ntpc-slide.on { animation: none; } }
+
+/* --- theme switch (top right of every screen) --- */
+.theme-toggle { position: relative; width: 58px; height: 30px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.14); cursor: pointer; padding: 0; flex: none; transition: background 0.35s, border-color 0.35s; min-height: 0 !important; }
+.theme-toggle .tt-knob { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #f8fafc; box-shadow: 0 1px 4px rgba(0,0,0,0.4); transition: transform 0.35s cubic-bezier(.4,.2,.2,1), background 0.35s; }
+.theme-toggle::before, .theme-toggle::after { position: absolute; top: 50%; transform: translateY(-50%); font-size: 13px; line-height: 1; pointer-events: none; }
+.theme-toggle::before { content: "\2600"; right: 8px; color: #fbbf24; }
+.theme-toggle::after { content: "\263E"; left: 8px; color: #cbd5e1; }
+:root[data-theme="light"] .theme-toggle { background: #0b72b9; border-color: #0b72b9; }
+:root[data-theme="light"] .theme-toggle .tt-knob { transform: translateX(28px); }
+:root[data-theme="light"] .theme-toggle::before { color: #fff; }
+:root[data-theme="light"] .theme-toggle::after { color: rgba(255,255,255,0.65); }
+html.theme-anim *, html.theme-anim *::before, html.theme-anim *::after { transition: background-color 0.4s ease, color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease !important; }
+
+/* --- light theme: the colours of ntpc.co.in (white page, NTPC blue, dark navy text) --- */
+:root[data-theme="light"] {
+    --bg-base: #f3f6fa; --bg-surface: rgba(255,255,255,0.95); --bg-surface-solid: #ffffff;
+    --border-color: rgba(15,42,67,0.16); --border-color-hover: rgba(11,114,185,0.5);
+    --primary: #0b72b9; --primary-glow: rgba(11,114,185,0.12); --secondary: #0b72b9; --accent: #d97706;
+    --text-main: #0f2a43; --text-muted: #546579; --text-dark: #ffffff;
+    --edge: rgba(15,42,67,0.28); --edge-soft: rgba(15,42,67,0.14); --focus-ring: #0b72b9;
+    --shadow-md: 0 4px 10px -2px rgba(15,42,67,0.12); --shadow-lg: 0 12px 24px -6px rgba(15,42,67,0.16);
+    color-scheme: light;
+}
+:root[data-theme="light"] body { background-image: none; }
+:root[data-theme="light"] header { background: rgba(255,255,255,0.96); border-bottom: 2px solid #0b72b9; }
+:root[data-theme="light"] .logo-text, :root[data-theme="light"] .user-name { color: #0f2a43; }
+:root[data-theme="light"] .card { background: #fff; }
+:root[data-theme="light"] .btn-primary { background: #0b72b9; color: #fff; }
+:root[data-theme="light"] .btn-primary:hover { background: #095f9c; }
+:root[data-theme="light"] .btn-primary:active:not(:disabled) { background-color: #07507f; }
+:root[data-theme="light"] .btn-secondary { color: #0f2a43; }
+:root[data-theme="light"] .btn-secondary:hover { background-color: rgba(11,114,185,0.08); }
+:root[data-theme="light"] .tab-btn { color: #0f2a43; }
+:root[data-theme="light"] .tab-btn.active { background: #0b72b9; color: #fff; }
+:root[data-theme="light"] input:not([type=checkbox]):not([type=radio]), :root[data-theme="light"] select, :root[data-theme="light"] textarea { background: #fff !important; color: #0f2a43 !important; }
+:root[data-theme="light"] input::placeholder, :root[data-theme="light"] textarea::placeholder { color: #8a98a8; }
+:root[data-theme="light"] select option { color: #0f2a43; background: #fff; }
+:root[data-theme="light"] th { background: #e8f1f9; color: #0f2a43; }
+:root[data-theme="light"] td { color: #0f2a43; }
+:root[data-theme="light"] tr:hover td { background: rgba(11,114,185,0.05); }
+/* inline-styled text and boxes written for the dark theme */
+:root[data-theme="light"] [style*="color: #fff"]:not(.btn-primary):not([class*="badge"]):not(.theme-toggle):not(.ntpc-stat):not(.ntpc-stat *),
+:root[data-theme="light"] [style*="color:#fff"]:not(.btn-primary):not([class*="badge"]),
+:root[data-theme="light"] [style*="color: white"]:not(.btn-primary):not([class*="badge"]),
+:root[data-theme="light"] [style*="color: #f8fafc"], :root[data-theme="light"] [style*="color: #f1f5f9"], :root[data-theme="light"] [style*="color: #e2e8f0"], :root[data-theme="light"] [style*="color: #cbd5e1"] { color: #0f2a43 !important; }
+:root[data-theme="light"] [style*="color: #94a3b8"], :root[data-theme="light"] [style*="color:#94a3b8"] { color: #546579 !important; }
+:root[data-theme="light"] [style*="background: rgba(0,0,0,0.2)"], :root[data-theme="light"] [style*="background: rgba(0, 0, 0, 0.2)"], :root[data-theme="light"] [style*="rgba(255,255,255,0.05)"], :root[data-theme="light"] [style*="rgba(255, 255, 255, 0.05)"] { background: #f3f6fa !important; }
+:root[data-theme="light"] .loader-content { background: #fff; border-color: rgba(15,42,67,0.14); box-shadow: 0 20px 30px -5px rgba(15,42,67,0.25); }
+:root[data-theme="light"] .global-loader { background: rgba(243,246,250,0.75); color: #0f2a43; }
+/* light login page: white band like ntpc.co.in over the photographs */
+:root[data-theme="light"] .ntpc-shade { background: linear-gradient(100deg, rgba(255,255,255,0.86) 0%, rgba(255,255,255,0.55) 55%, rgba(255,255,255,0.25) 100%); }
+:root[data-theme="light"] .ntpc-topbar { background: #fff; border-bottom: 3px solid #0b72b9; }
+:root[data-theme="light"] .ntpc-logo { box-shadow: none; padding: 0; }
+:root[data-theme="light"] .ntpc-title { color: #0b4f82; -webkit-text-fill-color: #0b4f82; text-shadow: 0 1px 10px rgba(255,255,255,0.8); }
+:root[data-theme="light"] .ntpc-stat { background: rgba(255,255,255,0.9); border-color: rgba(11,114,185,0.25); color: #0b72b9; box-shadow: 0 6px 18px rgba(15,42,67,0.12); }
+:root[data-theme="light"] .ntpc-stat-l { color: #0f2a43; opacity: 1; }
+:root[data-theme="light"] .ntpc-login .login-container { background: rgba(255,255,255,0.94); }
+:root[data-theme="light"] .ntpc-login .login-header h2 { color: #0f2a43; }
+
+/* --- skeleton screens: grey shapes that shimmer while data loads (replace the spinner) --- */
+@keyframes skShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.sk, .sk-bar { background: linear-gradient(90deg, rgba(148,163,184,0.16) 25%, rgba(148,163,184,0.34) 50%, rgba(148,163,184,0.16) 75%); background-size: 200% 100%; animation: skShimmer 1.4s linear infinite; border-radius: 8px; color: transparent !important; }
+.sk-bar { display: block; height: 14px; }
+.sk-row td { padding: 0.85rem 0.75rem; }
+.sk-row .sk-bar { height: 16px; }
+.sk-card { width: min(420px, 86vw); text-align: left; }
+.sk-card .sk-bar + .sk-bar { margin-top: 12px; }
+.sk-msg { font-size: 0.95rem; font-weight: 600; margin-bottom: 14px; }
+.loader-content.sk-shell { padding: 1.6rem 1.8rem; }
+@media (prefers-reduced-motion: reduce) { .sk, .sk-bar { animation: none; } }
+
+/* light theme: selected tabs / chips are NTPC blue with white text */
+:root[data-theme="light"] .tab-btn.active, :root[data-theme="light"] .tab-btn.active *,
+:root[data-theme="light"] .date-filter-btn.active, :root[data-theme="light"] [data-ft].active { color: #fff !important; }
+:root[data-theme="light"] .date-filter-btn.active, :root[data-theme="light"] [data-ft].active { background: #0b72b9 !important; }
+:root[data-theme="light"] #app-version-tag { color: #6b7a8c; }
+:root[data-theme="light"] .connection-banner.online { background: #0b72b9; }
+:root[data-theme="light"] .sx-tab { color: #9b1c1c !important; background: #fff; }
+:root[data-theme="light"] .sx-tab.active { color: #fff !important; }
+
+/* executive dashboard cards: the field name is the highlight (bold, larger, in the card's own colour) */
+.kpi-name { font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #f1f5f9; }
+.exec-kpi-card:nth-child(1) .kpi-name { color: #34d399; } .exec-kpi-card:nth-child(2) .kpi-name { color: #60a5fa; } .exec-kpi-card:nth-child(3) .kpi-name { color: #34d399; }
+.exec-kpi-card:nth-child(4) .kpi-name { color: #fbbf24; } .exec-kpi-card:nth-child(5) .kpi-name { color: #c084fc; }
+:root[data-theme="light"] .kpi-name { color: #0f2a43; }
+:root[data-theme="light"] .exec-kpi-card:nth-child(1) .kpi-name, :root[data-theme="light"] .exec-kpi-card:nth-child(3) .kpi-name { color: #047857; }
+:root[data-theme="light"] .exec-kpi-card:nth-child(2) .kpi-name { color: #1d4ed8; } :root[data-theme="light"] .exec-kpi-card:nth-child(4) .kpi-name { color: #b45309; } :root[data-theme="light"] .exec-kpi-card:nth-child(5) .kpi-name { color: #7e22ce; }
+
+/* logos: no white plate. White silhouette on the dark theme, NTPC blue on the light theme */
+.ntpc-logo { background: none !important; padding: 0 !important; box-shadow: none !important; border-radius: 0 !important; filter: brightness(0) invert(1) drop-shadow(0 2px 6px rgba(0,0,0,0.5)); height: 62px; }
+.ntpc-logo-dadri { height: 62px; }
+:root[data-theme="light"] .ntpc-logo { filter: none; }
+
+/* ---- wrapped two-line cells, row paging, phone row details ---- */
+td.cell-wrap small { display: block; color: var(--text-muted); font-size: 0.85rem; margin-top: 2px; white-space: normal; overflow-wrap: anywhere; }
+td.cell-wrap { white-space: normal; min-width: 130px; }
+tr.pg-hide { display: none !important; }
+.rx-pager { display: flex; align-items: center; justify-content: flex-end; gap: 0.8rem; flex-wrap: wrap; padding: 0.7rem 0.3rem 0.2rem; font-size: 0.95rem; color: var(--text-muted); }
+.rx-pager .btn[disabled] { opacity: 0.4; cursor: default; }
+@media (max-width: 760px) {
+    table.rx { min-width: 0 !important; width: 100%; }
+    table.rx th.rx-hide, table.rx tbody tr:not(.rx-open) td.rx-hide { display: none; }
+    table.rx tbody tr { cursor: pointer; }
+    table.rx tbody tr:not(.rx-open) { border-left: 3px solid var(--primary); }
+    table.rx tbody tr.rx-open { display: block; border-left: 3px solid var(--primary); background: var(--primary-glow); padding: 0.4rem 0.2rem; }
+    table.rx tbody tr.rx-open td { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; white-space: normal; text-align: right; border: 0; padding: 0.45rem 0.7rem; }
+    table.rx tbody tr.rx-open td::before { content: attr(data-label); font-weight: 700; color: var(--text-muted); text-align: left; flex: none; max-width: 45%; }
+    table.rx td.cell-wrap { min-width: 0; }
+    .rx-pager { justify-content: space-between; }
+}
+
+@media (max-width: 760px) {
+    #search-unloading-input { flex: 1 1 100% !important; }
+    #search-unloading-input ~ .date-filter-toolbar { width: 100%; display: flex; flex-wrap: wrap; justify-content: flex-start; }
+}
+
+/* dashboard audit table: wide supplier column, narrow pipeline-stage column with wrapped text */
+.exec-audit { table-layout: auto; }
+.exec-audit th:nth-child(2), .exec-audit td:nth-child(2) { min-width: 300px; width: 30%; }
+.exec-audit th:nth-child(1), .exec-audit td:nth-child(1) { min-width: 96px; }
+.exec-audit th:nth-child(10), .exec-audit td:nth-child(10) { width: 112px; max-width: 120px; }
+.exec-audit td.stage-cell .badge { display: inline-block; font-size: 0.72rem; line-height: 1.2; padding: 0.25rem 0.5rem; white-space: normal; text-align: center; max-width: 110px; overflow-wrap: anywhere; }
+.exec-audit th:nth-child(9), .exec-audit td:nth-child(9) { width: 130px; }

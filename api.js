@@ -361,6 +361,13 @@
         },
         async checkDuplicateVehicle(reg) { return rpc('bm_check_duplicate_vehicle', { truck_reg_number: reg }); },
 
+        // the five public landing-page numbers (works without a login; the database returns aggregates only)
+        async publicStats() {
+            const res = await fetch(`${REST}/rpc/bm_public_stats`, { method: 'POST', headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' }, body: '{}' });
+            if (!res.ok) throw new Error('stats unavailable');
+            return res.json();
+        },
+
         async getTrucks(dateFilter) { return (await rpc('bm_get_trucks', trucksPayload(dateFilter))) || []; },
         async getTruckById(truckId) { return rpc('bm_get_truck_by_id', { truck_id: truckId }); },
 
@@ -433,6 +440,7 @@
         async reprintBottomSample(truckId) { return rpc('bm_entry_bottom_reprint', { truck_id: truckId }); },
         async superSetActionPassword(v) { return rpc('bm_super_set_action_password', v); },
         async superActionPasswordStatus() { return rpc('bm_super_action_password_status', {}); },
+        async superVendorExport(days) { return rpc('bm_super_vendor_export', { days: days || 120 }); },
         async superPasswordStatus() { return rpc('bm_super_password_status', {}); },
         async superSetEditPassword(v) { return rpc('bm_super_set_edit_password', v); },
         /** Show a stored action password: needs the Super Admin's login password AND a fresh authenticator code. The code is checked by the Auth service (the session gets a fresh second-step

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <!-- Content-Security-Policy: scripts, connections, frames and plug-ins only from where the app itself needs them (see Security_Assessment S1) -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://jarfhyraxjvtimradvbp.supabase.co blob: data:; worker-src 'self' blob:; media-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://jarfhyraxjvtimradvbp.supabase.co https://zeyxvspkzuotfpclvbzs.supabase.co blob: data:; worker-src 'self' blob:; media-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#090d16">
     <link rel="manifest" href="manifest.webmanifest">
@@ -29,7 +29,9 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
-    <link rel="stylesheet" href="style.css?v=20261104_v72">
+    <script>try{var t=localStorage.getItem("BIOMASS_THEME");if(t==="light")document.documentElement.setAttribute("data-theme","light")}catch(e){}</script>
+    <link rel="stylesheet" href="theme-light.css?v=20261108_v83">
+    <link rel="stylesheet" href="style.css?v=20261108_v83">
     <!-- Chart.js 4.4.4 for the Executive Management Dashboard: the app's own copy (no outside server is trusted) -->
     <script src="lib/chart.umd.min.js"></script>
 </head>
@@ -37,10 +39,15 @@
 
     <!-- Global Loading Overlay -->
     <div id="global-loader" class="global-loader" style="display: none;">
-        <div class="loader-content">
-            <div class="spinner"></div>
-            <h3 id="loader-message" style="font-size: 1.15rem; font-weight: 600; color: #f8fafc; margin-bottom: 0.25rem;">Loading Terminal Data...</h3>
-            <p style="font-size: 0.85rem; color: #94a3b8; margin: 0;">Syncing with secure database</p>
+        <div class="loader-content sk-shell" role="status" aria-live="polite">
+            <div class="sk-card">
+                <div id="loader-message" class="sk-msg">Loading...</div>
+                <span class="sk-bar" style="width: 62%; height: 22px;"></span>
+                <span class="sk-bar" style="width: 100%;"></span>
+                <span class="sk-bar" style="width: 92%;"></span>
+                <span class="sk-bar" style="width: 78%;"></span>
+                <span class="sk-bar" style="width: 40%; height: 36px; margin-top: 18px;"></span>
+            </div>
         </div>
     </div>
 
@@ -61,6 +68,7 @@
             </div>
             <label class="label-fmt" title="Paper size of the QR labels printed from THIS computer"><span>&#128424;&#65039;</span>
                 <select id="label-fmt-select"><option value="4x6">Label 4 &times; 6 in</option><option value="50">Label 50 &times; 50 mm</option></select></label>
+            <button type="button" class="theme-toggle" aria-label="Switch between dark and light theme" title="Dark / Light"><span class="tt-knob"></span></button>
             <button class="btn-logout" id="btn-logout-action">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
                 Logout
@@ -73,12 +81,36 @@
 
         <!-- SCREEN: LOGIN -->
         <section id="screen-login" class="screen active">
-            <div class="login-container card">
-                <div class="login-header">
-                    <div class="logo-icon" style="margin: 0 auto 1rem; width: 3rem; height: 3rem; font-size: 1.5rem;">B</div>
-                    <h1>Biomass Sampling</h1>
-                    <p hidden>Enter credentials to access secure terminal</p>
+            <div class="ntpc-login">
+                <div class="ntpc-bg" aria-hidden="true">
+                    <div class="ntpc-slide on" style="background-image:url(assets/ntpc/bg3.jpg)"></div>
+                    <div class="ntpc-slide" style="background-image:url(assets/ntpc/bg1.jpg)"></div>
+                    <div class="ntpc-slide" style="background-image:url(assets/ntpc/bg2.jpg)"></div>
+                    <div class="ntpc-slide" style="background-image:url(assets/ntpc/bg4.jpg)"></div>
                 </div>
+                <div class="ntpc-shade" aria-hidden="true"></div>
+                <div class="ntpc-topbar">
+                    <div class="ntpc-brand">
+                        <img src="assets/ntpc/ntpc-logo-t.png" alt="NTPC" class="ntpc-logo">
+                        <img src="assets/ntpc/dadri-logo-t.png" alt="NTPC Dadri" class="ntpc-logo ntpc-logo-dadri">
+                    </div>
+                    <button type="button" class="theme-toggle" aria-label="Switch between dark and light theme" title="Dark / Light"><span class="tt-knob"></span></button>
+                </div>
+                <div class="ntpc-body">
+                    <div class="ntpc-hero">
+                        <h1 class="ntpc-title">Biomass Sampling</h1>
+                        <div class="ntpc-stats" id="public-stats" aria-live="polite">
+                            <div class="ntpc-stat"><div class="ntpc-stat-n sk" data-k="trucks_today">&nbsp;</div><div class="ntpc-stat-l">Trucks entered today</div></div>
+                            <div class="ntpc-stat"><div class="ntpc-stat-n sk" data-k="weighment_today_mt">&nbsp;</div><div class="ntpc-stat-l">Weighment today (MT)</div></div>
+                            <div class="ntpc-stat"><div class="ntpc-stat-n sk" data-k="rejected_today">&nbsp;</div><div class="ntpc-stat-l">Trucks rejected today</div></div>
+                            <div class="ntpc-stat"><div class="ntpc-stat-n sk" data-k="weighment_month_mt">&nbsp;</div><div class="ntpc-stat-l">Weighment this month (MT)</div></div>
+                            <div class="ntpc-stat"><div class="ntpc-stat-n sk" data-k="companies_today">&nbsp;</div><div class="ntpc-stat-l">Companies today</div></div>
+                        </div>
+                    </div>
+                    <div class="login-container card">
+                        <div class="login-header">
+                            <h2>Sign in</h2>
+                        </div>
                 <div id="login-alert" class="alert alert-danger" style="display: none;"></div>
                 <form id="login-form">
                     <div class="form-group">
@@ -102,6 +134,8 @@
                     <button type="button" id="btn-install-app" class="btn btn-secondary" style="width: 100%; display: none;">Install this app on your device</button>
                     <div id="install-ios-hint" style="display: none; font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; text-align: center;">
                         To install on iPhone / iPad: tap the <b>Share</b> button in Safari, then <b>Add to Home Screen</b>.
+                    </div>
+                </div>
                     </div>
                 </div>
             </div>
@@ -253,45 +287,40 @@
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1.2rem; margin-bottom: 1.5rem;">
                     
                     <div class="card exec-kpi-card" style="margin-bottom: 0; background: linear-gradient(145deg, rgba(16, 185, 129, 0.12) 0%, rgba(15, 23, 42, 0.9) 100%); border: 1px solid rgba(16, 185, 129, 0.25); border-top: 4px solid #10b981; border-radius: 12px; padding: 1.25rem; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.4); backdrop-filter: blur(12px);">
-                        <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.08em; display: flex; justify-content: space-between; align-items: center;">
+                        <div class="kpi-name" style="display: flex; justify-content: space-between; align-items: center;">
                             <span>Total Biomass Procured</span>
-                            <span style="font-size: 1.1rem;">🌱</span>
                         </div>
                         <div style="font-size: 1.85rem; font-weight: 800; color: #10b981; margin: 0.4rem 0; letter-spacing: -0.02em;" id="kpi-net-weight-mt">0.00 MT</div>
                         <div style="font-size: 0.75rem; color: #94a3b8;" id="kpi-net-weight-sub">Accepted consignments only</div>
                     </div>
 
                     <div class="card exec-kpi-card" style="margin-bottom: 0; background: linear-gradient(145deg, rgba(59, 130, 246, 0.12) 0%, rgba(15, 23, 42, 0.9) 100%); border: 1px solid rgba(59, 130, 246, 0.25); border-top: 4px solid #3b82f6; border-radius: 12px; padding: 1.25rem; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.4); backdrop-filter: blur(12px);">
-                        <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.08em; display: flex; justify-content: space-between; align-items: center;">
+                        <div class="kpi-name" style="display: flex; justify-content: space-between; align-items: center;">
                             <span>Total Trucks Arrived</span>
-                            <span style="font-size: 1.1rem;">🚛</span>
                         </div>
                         <div style="font-size: 1.85rem; font-weight: 800; color: #60a5fa; margin: 0.4rem 0; letter-spacing: -0.02em;" id="kpi-total-trucks">0</div>
                         <div style="font-size: 0.75rem; color: #94a3b8;" id="kpi-trucks-breakdown">0 Accepted | 0 Rejected</div>
                     </div>
 
                     <div class="card exec-kpi-card" style="margin-bottom: 0; background: linear-gradient(145deg, rgba(16, 185, 129, 0.12) 0%, rgba(15, 23, 42, 0.9) 100%); border: 1px solid rgba(16, 185, 129, 0.25); border-top: 4px solid #10b981; border-radius: 12px; padding: 1.25rem; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.4); backdrop-filter: blur(12px);">
-                        <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.08em; display: flex; justify-content: space-between; align-items: center;">
+                        <div class="kpi-name" style="display: flex; justify-content: space-between; align-items: center;">
                             <span>Compliance Rate</span>
-                            <span style="font-size: 1.1rem;">✅</span>
                         </div>
                         <div style="font-size: 1.85rem; font-weight: 800; color: #34d399; margin: 0.4rem 0; letter-spacing: -0.02em;" id="kpi-acceptance-rate">0%</div>
                         <div style="font-size: 0.75rem; color: #f87171;" id="kpi-rejection-rate">Rejection Rate: 0%</div>
                     </div>
 
                     <div class="card exec-kpi-card" style="margin-bottom: 0; background: linear-gradient(145deg, rgba(245, 158, 11, 0.12) 0%, rgba(15, 23, 42, 0.9) 100%); border: 1px solid rgba(245, 158, 11, 0.25); border-top: 4px solid #f59e0b; border-radius: 12px; padding: 1.25rem; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.4); backdrop-filter: blur(12px);">
-                        <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.08em; display: flex; justify-content: space-between; align-items: center;">
+                        <div class="kpi-name" style="display: flex; justify-content: space-between; align-items: center;">
                             <span>Average Moisture</span>
-                            <span style="font-size: 1.1rem;">💧</span>
                         </div>
                         <div style="font-size: 1.85rem; font-weight: 800; color: #fbbf24; margin: 0.4rem 0; letter-spacing: -0.02em;" id="kpi-avg-moisture">0%</div>
                         <div style="font-size: 0.75rem; color: #94a3b8;">Max Limit: 14.0%</div>
                     </div>
 
                     <div class="card exec-kpi-card" style="margin-bottom: 0; background: linear-gradient(145deg, rgba(168, 85, 247, 0.12) 0%, rgba(15, 23, 42, 0.9) 100%); border: 1px solid rgba(168, 85, 247, 0.25); border-top: 4px solid #a855f7; border-radius: 12px; padding: 1.25rem; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.4); backdrop-filter: blur(12px);">
-                        <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.08em; display: flex; justify-content: space-between; align-items: center;">
+                        <div class="kpi-name" style="display: flex; justify-content: space-between; align-items: center;">
                             <span>Average GCV</span>
-                            <span style="font-size: 1.1rem;">🔥</span>
                         </div>
                         <div style="font-size: 1.85rem; font-weight: 800; color: #c084fc; margin: 0.4rem 0; letter-spacing: -0.02em;" id="kpi-avg-gcv">0 kcal/kg</div>
                         <div style="font-size: 0.75rem; color: #94a3b8;">Composite Calorific Output</div>
@@ -385,16 +414,12 @@
                     </div>
 
                     <div class="table-responsive">
-                        <table class="data-table" style="border-collapse: separate; border-spacing: 0;">
+                        <table class="data-table exec-audit" style="border-collapse: separate; border-spacing: 0;">
                             <thead>
                                 <tr style="background: rgba(255,255,255,0.03);">
                                     <th>Date</th>
-                                    <th>Challan / Invoice</th>
-                                    <th>Supplier</th>
-                                    <th>Truck No / ID</th>
-                                    <th>Driver Name</th>
-                                    <th>Gross (kg)</th>
-                                    <th>Tare (kg)</th>
+                                    <th>Supplier / Challan</th>
+                                    <th>Truck No / Driver</th>
                                     <th>Net (MT)</th>
                                     <th>Moisture %</th>
                                     <th>TM %</th>
@@ -405,7 +430,7 @@
                                 </tr>
                             </thead>
                             <tbody id="exec-consignments-table-body">
-                                <tr><td colspan="14" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Loading consignment records...</td></tr>
+                                <tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Loading consignment records...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -661,8 +686,7 @@
                                 <tr>
                                     <th>Truck ID</th>
                                     <th>Reg Date</th>
-                                    <th>Vehicle Number</th>
-                                    <th>Invoice / Challan No.</th>
+                                    <th>Vehicle / Challan</th>
                                     <th>Gross (kg)</th>
                                     <th>Tare (kg)</th>
                                     <th>Net (kg)</th>
@@ -1181,6 +1205,14 @@
                     <div><button type="button" class="btn btn-secondary" id="btn-sx-logins-refresh">Refresh</button></div>
                 </div>
                 <div class="card"><div class="table-responsive"><table style="min-width: 0;"><thead><tr><th>Login</th><th>Name</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody id="sx-logins-body"></tbody></table></div></div>
+                            <div class="card" id="vendor-site-card" style="margin-top: 1.5rem;">
+                    <h3 class="card-title" style="margin-bottom: 0.6rem;">Vendor website</h3>
+                    <div id="vs-status" style="font-size: 1rem; margin-bottom: 0.8rem;"></div>
+                    <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
+                        <button type="button" class="btn btn-primary" id="vs-publish">Publish to vendor site</button>
+                        <button type="button" class="btn btn-secondary" id="vs-connection">Connection</button>
+                    </div>
+                </div>
             </div>
 
             <!-- PASSWORDS (Super Admin) -->
@@ -1570,7 +1602,7 @@
             <!-- Daily report: a password-protected PDF only (no table on screen, no Excel) -->
             <div class="card" id="dayreport-card" style="margin-bottom: 1.5rem;">
                 <h3 class="card-title" style="margin-bottom: 0.25rem;">Daily Report &mdash; password-protected files</h3>
-                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.9rem;">
+                <p hidden style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.9rem;">
                     The <strong>Summary report</strong> is the one for the seniors: vendor-wise unloaded quantity (highest first, with Lot 2, Lot 3 and Lot 4), trucks received / approved / unloaded / rejected, % share and lot-wise totals.
                     <strong>Truck-wise details</strong> lists every truck with its weights and test results. Nothing is shown on this screen: each report is downloaded as a PDF (or one Excel file with both reports as two sheets) that opens only with the
                     <strong>action password</strong> (the same one used for bottom samples and Cancel QR), which is asked every time. Today&rsquo;s report opens after <strong>9:00 PM</strong>; any earlier day can be opened at any time.
@@ -1593,11 +1625,12 @@
                         <h3 class="card-title" style="margin-bottom: 0.25rem;">After Weighment — Unloading Clearance Board</h3>
                         <p hidden style="font-size: 0.85rem; color: var(--text-muted); margin: 0;">Unloading status is automatically derived from weighbridge final tare readings.</p>
                     </div>
-                    <div style="display: flex; gap: 0.5rem; flex: 1; max-width: 480px; align-items: center;">
+                    <div style="display: flex; gap: 0.5rem; flex: 1; max-width: 640px; align-items: center; flex-wrap: wrap;">
                         <input type="text" id="search-unloading-input" placeholder="Search truck no, driver, reg no..." style="flex: 1;">
                         <div class="date-filter-toolbar" style="margin-bottom: 0; padding: 0.25rem 0.5rem;">
-                            <button type="button" class="date-filter-btn active" id="btn-unloading-filter-recent" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;" title="Today's trucks + yesterday's trucks that are not unloaded yet">Today + pending</button>
-                            <button type="button" class="date-filter-btn" id="btn-unloading-filter-all" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;" title="Every truck, any date">All</button>
+                            <button type="button" class="date-filter-btn" id="btn-unloading-filter-today">Today</button>
+                            <button type="button" class="date-filter-btn active" id="btn-unloading-filter-recent">Yesterday + pending</button>
+                            <button type="button" class="date-filter-btn" id="btn-unloading-filter-all">All</button>
                         </div>
                     </div>
                 </div>
@@ -1610,8 +1643,7 @@
                         <thead>
                             <tr>
                                 <th>Date &amp; Time</th>
-                                <th>Vehicle Number</th>
-                                <th>Challan No.</th>
+                                <th>Vehicle / Challan</th>
                                 <th>Gross (kg)</th>
                                 <th>Tare (kg)</th>
                                 <th>Net (kg)</th>
@@ -1621,7 +1653,7 @@
                             </tr>
                         </thead>
                         <tbody id="table-unloading-body">
-                            <tr><td colspan="9" style="text-align: center;">Loading unloading entries...</td></tr>
+                            <tr><td colspan="8" style="text-align: center;">Loading unloading entries...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -2275,8 +2307,8 @@
 
     <!-- App JavaScript files -->
     <script src="lib/zip-store.js?v=20261103_v64" onerror="alert('CRITICAL: lib/zip-store.js failed to load!')"></script>
-    <script src="api.js?v=20261104_v67" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261104_v72" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="api.js?v=20261108_v83" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261108_v83" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

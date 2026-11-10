@@ -596,6 +596,7 @@
                 return {
                     truck_id: truck.truck_id, truck_reg_number: truck.truck_reg_number,
                     invoice_no: chVal, challan_no: chVal,
+                    po_number: truck.po_number || '', entry_date: truck.entry_date || null,
                     acceptance_status: acceptance, rejection_reason: rejectionReason, cancel_reason: truck.cancel_reason || null,
                     mixing_group_code: truck.daily_group_code || '',
                     driver_name: truck.driver_name, entry_time: truck.entry_time,

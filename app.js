@@ -19,6 +19,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || ''));
         return m ? `${m[3]}-${m[2]}-${m[1]}` : String(d || '');
     }
+    // dates in reports are always DD-MM-YYYY (and 24-hour time), whatever the language of the device
+    function nowDMY() { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
+    function dmyObj(d) { const p = (n) => String(n).padStart(2, '0'); return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()}`; }
 
     // ================= MESSAGES WITHOUT BLOCKING POP-UPS =================
     // Every alert(...) in the app now shows a message at the bottom of the screen instead of freezing the page behind an OK box.
@@ -64,7 +67,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // way back. Our own "Close" button always exists and always works, regardless of what the
     // browser's own print UI looks like on a given device.
     // `title` also becomes the suggested filename when the user chooses "Save as PDF".
-    function printDocumentInFrame({ title, bodyHtml, css }) {
+    function printDocumentInFrame({ title, bodyHtml, css, landscape, afterRender }) {
         return new Promise((resolve) => {
             const oldTitle = document.title;
 
@@ -76,7 +79,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const toolbar = document.createElement('div');
             toolbar.style.cssText = 'width:100% !important; max-width:850px !important; display:flex !important; ' +
                 'align-items:center !important; justify-content:space-between !important; gap:10px !important; ' +
-                'margin-bottom:12px !important; flex-shrink:0 !important;';
+                'margin-bottom:12px !important; flex-shrink:0 !important;' + (landscape ? ' max-width:1123px !important;' : '');
             toolbar.innerHTML =
                 '<div style="color:#fff !important; font-weight:700 !important; font-size:14px !important; overflow:hidden !important; text-overflow:ellipsis !important; white-space:nowrap !important;">' + esc(title || 'Print Preview') + '</div>' +
                 '<div style="display:flex !important; gap:8px !important; flex-shrink:0 !important;">' +
@@ -96,8 +99,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // flex layout instead of parked off-canvas, that clamp no longer has anywhere to bite either.
             const frame = document.createElement('iframe');
             frame.setAttribute('aria-hidden', 'false');
-            frame.style.cssText = 'background:#fff !important; width:816px !important; max-width:100% !important; ' +
-                'height:1056px !important; max-height:none !important; flex-shrink:0 !important; ' +
+            frame.style.cssText = 'background:#fff !important; width:' + (landscape ? '1123px' : '816px') + ' !important; max-width:100% !important; ' +
+                'height:' + (landscape ? '794px' : '1056px') + ' !important; max-height:none !important; flex-shrink:0 !important; ' +
                 'border:0 !important; border-radius:6px !important; box-shadow:0 8px 30px rgba(0,0,0,0.5) !important;';
 
             overlay.appendChild(toolbar);
@@ -155,6 +158,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             const win = frame.contentWindow;
+            if (afterRender) { let ran = false; const go = () => { if (ran) return; ran = true; try { afterRender(win.document); } catch (e) { console.warn('layout fit skipped:', e); } }; win.addEventListener('load', go); setTimeout(go, 1500); }
             toolbar.querySelector('#print-preview-print-btn').onclick = () => {
                 document.title = title || oldTitle;   // Chrome's "Save as PDF" default filename follows the TOP document's title
                 try {
@@ -1223,7 +1227,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function printMixScanSummary() {
         const res = mixScan.last;
         if (!res || !res.groups || !res.groups.length) { alert('There is nothing to print yet.'); return; }
-        const body = `<h2 style="margin:0 0 4px 0;">Mixing scan summary</h2><div style="margin-bottom:10px;">Date: <b>${esc(res.date)}</b> &nbsp; Printed: ${esc(new Date().toLocaleString())}</div>` +
+        const body = `<h2 style="margin:0 0 4px 0;">Mixing scan summary</h2><div style="margin-bottom:10px;">Date: <b>${esc(dmy(res.date))}</b> &nbsp; Printed: ${esc(nowDMY())}</div>` +
             res.groups.map(g => `
                 <h3 style="margin:14px 0 4px 0;">Mixing Code ${esc(g.group_code)} &nbsp; <span style="font-weight:400; font-size:10pt;">Include scanned ${esc(g.accepted_scanned)}/${esc(g.accepted_total)} &bull; Excluded scanned ${esc(g.rejected_scanned)}/${esc(g.rejected_total)}${g.composite_generated ? ' &bull; composite generated' : ''}</span></h3>
                 <table border="1" cellpadding="4" style="font-size:10pt;"><thead><tr><th align="left">Container</th><th align="left">Action</th><th align="left">Scanned at</th></tr></thead><tbody>
@@ -4141,142 +4145,180 @@ document.addEventListener('DOMContentLoaded', function() {
         @media screen and (max-width: 700px) { .print-summary-grid { grid-template-columns: repeat(2, 1fr); } }
     `;
 
+    // Page fitting for the vendor report (landscape A4). The signature block is never split: it goes to the bottom of the last page
+    // when it fits there, with the gap between the remarks and the signature reduced if needed; if it still does not fit, the whole block
+    // moves to the next page. Every page that is followed by another page ends with "cont...".
+    function fitVendorReportPages(doc) {
+        const win = doc.defaultView, px = (mm) => mm * 96 / 25.4;
+        const PH = px(192), SAFE = px(8), GAP = px(10), MINGAP = px(4);
+        const tbl = doc.querySelector('.vr-table'), rm = doc.querySelector('.vr-rm'), sig = doc.querySelector('.vr-sig');
+        if (!tbl || !rm || !sig || !tbl.tBodies[0]) return;
+        if (tbl.dataset.fit) return; tbl.dataset.fit = '1';
+        const h = (el) => el.getBoundingClientRect().height;
+        const topOf = (el) => el.getBoundingClientRect().top + win.scrollY;
+        const headH = h(tbl.tHead);
+        const avail = PH - SAFE, rows = [].slice.call(tbl.tBodies[0].rows);
+        const heights = rows.map(h), rmH = h(rm) + px(6), sigH = h(sig);
+        let y = topOf(tbl) - px(9) + headH, curTable = tbl, firstPage = true;
+        const contBefore = (before) => {         // "cont..." at the bottom of the page that ends here, then a page break
+            const el = doc.createElement('div'); el.className = 'vr-cont'; el.textContent = 'cont...';
+            el.style.height = Math.round(Math.max(px(6), avail - y)) + 'px';
+            before.parentNode.insertBefore(el, before);
+            before.style.breakBefore = 'page'; before.style.pageBreakBefore = 'always'; firstPage = false;
+        };
+        rows.forEach((r, i) => {
+            if (y + heights[i] > avail) {        // this row starts a new page: it goes into a new copy of the table (same heading)
+                const nt = tbl.cloneNode(false); nt.appendChild(tbl.tHead.cloneNode(true)); nt.appendChild(doc.createElement('tbody'));
+                curTable.parentNode.insertBefore(nt, curTable.nextSibling);
+                contBefore(nt); curTable = nt; y = headH;
+            }
+            if (curTable !== tbl) curTable.tBodies[0].appendChild(r);
+            y += heights[i];
+        });
+        if (y + rmH > avail) { contBefore(rm); y = 0; }
+        y += rmH;
+        if (y + MINGAP + sigH <= avail) { sig.style.marginTop = Math.round(firstPage ? Math.max(MINGAP, avail - y - sigH) : Math.min(GAP, avail - y - sigH)) + 'px'; }     // one-page report: bottom of the page; later pages: close under the remarks
+        else { contBefore(sig); sig.style.marginTop = Math.round(GAP) + 'px'; }                                              // both signatures together on the next page
+        // every page becomes its own sheet (A4 landscape with the margins inside), so the browser has no margin area to print its address line in
+        const page = doc.querySelector('.vr-page'), kids = [].slice.call(page.children), sheets = [];
+        let cur = null;
+        kids.forEach(k => {
+            if (!cur || k.style.breakBefore === 'page') { cur = doc.createElement('div'); cur.className = 'vr-sheet'; sheets.push(cur); }
+            k.style.breakBefore = ''; k.style.pageBreakBefore = '';
+            cur.appendChild(k);
+        });
+        page.innerHTML = ''; sheets.forEach(sh => page.appendChild(sh)); page.classList.add('fitted');
+    }
+
+    // The vendor test report (landscape A4): the same look as the NTPC Dadri chemistry-lab sample report
+    const VENDOR_REPORT_PRINT_CSS = `
+        @page { size: A4 landscape; margin: 0; }      /* margin 0 = the browser adds no web address / page number line; the margins are inside each sheet */
+        html, body { width: 297mm !important; }
+        body { padding: 0 !important; font-family: Calibri, Carlito, "Helvetica Neue", Arial, sans-serif; font-size: 10.5pt; }
+        .vr-page { display: block; padding: 9mm 11mm; box-sizing: border-box; }
+        .vr-page.fitted { padding: 0; }
+        .vr-sheet { width: 297mm; height: 209mm; padding: 9mm 11mm; box-sizing: border-box; overflow: hidden; break-after: page; page-break-after: always; }
+        .vr-sheet:last-child { break-after: auto; page-break-after: auto; }
+        .vr-top { display: grid; grid-template-columns: 38mm 1fr 38mm; align-items: start; gap: 6mm; }
+        .vr-top img { max-width: 100%; max-height: 22mm; }
+        .vr-hd { text-align: center; font-style: italic; font-size: 14pt; line-height: 1.5; padding-top: 3mm; }
+        .vr-dt { text-align: right; font-style: italic; font-weight: bold; font-size: 10.5pt; margin-top: 1.5mm; white-space: nowrap; }
+        .vr-meta { margin: 5mm auto 2mm; width: 215mm; max-width: 100%; }
+        .vr-meta div { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; font-size: 11pt; line-height: 1.55; }
+        .vr-meta b.l { text-align: right; font-weight: normal; } .vr-meta b.v { font-weight: bold; }
+        .vr-ar { text-align: center; font-weight: bold; font-style: italic; text-decoration: underline; font-size: 12pt; margin: 3mm 0 1.5mm; }
+        .vr-table { width: 100%; border-collapse: collapse; margin: 0; }
+        .vr-table th, .vr-table td { border: 1px solid #000; padding: 1.6mm 1.3mm; font-size: 9pt; text-align: center; vertical-align: middle; background: none; }
+        .vr-table th { font-weight: bold; } .vr-table td.l { text-align: left; } .vr-table td.n { white-space: nowrap; }
+        .vr-table td small { display: block; font-size: 7pt; font-weight: normal; }
+        .vr-table tr { page-break-inside: avoid; }
+        .vr-rm { text-align: center; margin-top: 6mm; font-style: italic; font-size: 9.5pt; line-height: 1.5; }
+        .vr-rm b { font-style: normal; font-size: 10.5pt; }
+        .vr-sig { width: 100%; border-collapse: collapse; margin-top: 10mm; page-break-inside: avoid; break-inside: avoid; font-size: 10pt; line-height: 1.35; }
+        .vr-sig td { border: 0 !important; padding: 0 4mm; vertical-align: bottom; text-align: left; width: 50%; }
+        .vr-sig td.r { text-align: right; } .vr-sig img { height: 16mm; width: auto; }
+        .vr-cont { text-align: right; font-style: italic; font-size: 9.5pt; display: flex; align-items: flex-end; justify-content: flex-end; }
+    `;
+
     function setupReportPrintTrigger(report) {
         const btnPrint = document.getElementById('btn-print-report-action');
         const btnPdf = document.getElementById('btn-export-pdf-action');
 
+        // The vendor's official test report: NTPC Dadri chemistry-lab layout (landscape A4). Vendor GCV / Referee GCV columns appear only
+        // when at least one value has been saved; Sulphur / VM only when the report has a Lot 4 or Lot 4A truck.
         function generatePrintHtml() {
+            const rows = report.rows || [];
+            const hasLot4 = !!(report.summary && report.summary.has_lot4);
+            const hasVendor = rows.some(r => r.vendor_gcv !== null && r.vendor_gcv !== undefined);
+            const hasReferee = rows.some(r => r.referee_gcv !== null && r.referee_gcv !== undefined);
+            const sampleDate = String(report.date || '').slice(0, 10);
+            const today = window.BiomassAPI.todayIST();
+            const ddmmyyyy = (d) => dmy(d);
+            const MONTHS = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
+            // test report no.: financial year (April to March) / month of the sample date, e.g. 2026-27 / OCTOBER
+            const rn = (() => { const d = /^\d{4}-\d{2}-\d{2}/.test(sampleDate) ? sampleDate : today, y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7)), fy = m >= 4 ? y : y - 1;
+                return fy + '-' + String((fy + 1) % 100).padStart(2, '0') + ' / ' + MONTHS[m - 1]; })();
+            const na = (r) => r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED';
+            const num = (v) => (v === null || v === undefined || v === '') ? 'Pending' : esc(v);
             let rowHtml = '';
-            report.rows.forEach(r => {
-                const acceptanceLabel = r.acceptance_status === 'REJECTED' 
-                    ? `<span style="color:red; font-weight:bold;">REJECTED (${r.rejection_reason || 'Moisture >14%'})</span>` 
-                    : r.acceptance_status === 'CANCELLED' ? `<span style="color:#444; font-weight:bold;">QR CANCELLED (${esc(r.cancel_reason || '')})</span>`
-                    : r.acceptance_status === 'ACCEPTED' ? '<span style="color:green; font-weight:bold;">ACCEPTED</span>' : 'Pending';
-                const chNo = r.invoice_no || r.challan_no || '-';
-                const gcvPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : (r.gcv_value !== null ? r.gcv_value : 'Pending');
-                const ashPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : (r.ash_pct !== null ? r.ash_pct + '%' : 'Pending');
-                const vendorGcvPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : formatVendorGcvDisplay(r);
-                const refereeGcvPrint = (r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED') ? ('N/A (' + r.acceptance_status + ')') : formatRefereeGcvDisplay(r);
-
-                rowHtml += `
-                    <tr>
-                        <td><strong>${r.truck_id}</strong></td>
-                        <td>${r.truck_reg_number}</td>
-                        <td>${chNo}</td>
-                        <td>${r.moisture_pct !== null ? r.moisture_pct + '%' : 'Pending'}</td>
-                        <td>${r.fineness_value !== null ? r.fineness_value + '%' : 'Pending'}</td>
-                        <td>${acceptanceLabel}</td>
-                        <td>${r.mixing_group_code || 'N/A'}</td>
-                        <td>${r.tm !== null && r.tm !== undefined ? r.tm.toFixed(2) + '%' : '-'}</td>
-                        <td>${gcvPrint}</td>
-                        <td>${ashPrint}</td>
-                        ${report.summary.has_lot4 ? `<td>${isLot4(r.lot) && r.arb_sulphur !== null ? r.arb_sulphur + '%' : '-'}</td><td>${isLot4(r.lot) && r.arb_vm !== null ? r.arb_vm + '%' : '-'}</td>` : ''}
-                        <td>${vendorGcvPrint}</td>
-                        <td>${refereeGcvPrint}</td>
-                    </tr>
-                `;
+            rows.forEach(r => {
+                const reason = r.acceptance_status === 'REJECTED' ? (r.rejection_reason || 'Moisture over the limit') : r.acceptance_status === 'CANCELLED' ? ('QR cancelled' + (r.cancel_reason ? ': ' + r.cancel_reason : '')) : '';
+                const accept = r.acceptance_status === 'REJECTED' ? `<b style="color:#b00000;">REJECTED</b><small>${esc(reason)}</small>`
+                    : r.acceptance_status === 'CANCELLED' ? `<b>QR CANCELLED</b><small>${esc(reason)}</small>`
+                    : r.acceptance_status === 'ACCEPTED' ? '<b>ACCEPTED</b>' : 'Pending';
+                const dash = na(r) ? 'N/A' : null;
+                const l4 = isLot4(r.lot);
+                rowHtml += `<tr>
+                    <td class="n">${esc(dmy(String(r.entry_date || sampleDate).slice(0, 10)))}</td>
+                    <td class="l">${esc(report.company_name)}</td>
+                    <td>${esc(r.truck_reg_number)}</td>
+                    <td>${esc(r.po_number || '-')}</td>
+                    <td>${esc(String(r.lot || '').replace('LOT2/3', 'LOT2/3'))}</td>
+                    <td>${esc(r.invoice_no || r.challan_no || '-')}</td>
+                    <td>${num(r.moisture_pct)}</td>
+                    <td>${num(r.fineness_value)}</td>
+                    <td>${accept}</td>
+                    <td>${dash || (r.tm !== null && r.tm !== undefined ? r.tm.toFixed(2) : '-')}</td>
+                    <td>${dash || num(r.ash_pct)}</td>
+                    <td>${dash || num(r.gcv_value)}</td>
+                    ${hasLot4 ? `<td>${l4 && !na(r) ? (r.arb_sulphur !== null && r.arb_sulphur !== undefined ? esc(r.arb_sulphur) : 'Pending') : '-'}</td><td>${l4 && !na(r) ? (r.arb_vm !== null && r.arb_vm !== undefined ? esc(r.arb_vm) : 'Pending') : '-'}</td>` : ''}
+                    ${hasVendor ? `<td>${dash || (r.vendor_gcv !== null && r.vendor_gcv !== undefined ? esc(r.vendor_gcv) : '-')}</td>` : ''}
+                    ${hasReferee ? `<td>${dash || (r.referee_gcv !== null && r.referee_gcv !== undefined ? esc(r.referee_gcv) : '-')}</td>` : ''}
+                </tr>`;
             });
-
             return `
-                <div class="print-report-view">
-                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 2px solid black; padding-bottom: 0.75rem;">
-                        <img src="assets/ntpc/ntpc-logo.png" alt="NTPC" style="height: 56px;" onerror="this.style.display='none'">
-                        <div style="text-align: center; flex: 1;">
-                            <h1 style="font-size: 20pt; font-weight: bold; margin: 0; color: #000;">NTPC LIMITED</h1>
-                            <h3 style="font-size: 11pt; font-weight: bold; letter-spacing: 0.05em; margin: 0; color: #444;">CHEMISTRY DEPARTMENT</h3>
-                        </div>
-                        <img src="assets/ntpc/dadri-logo.png" alt="NTPC Dadri" style="height: 56px;" onerror="this.style.display='none'">
+                <div class="vr-page">
+                    <div class="vr-top">
+                        <img src="assets/ntpc/ntpc-logo.png" alt="NTPC" onerror="this.style.visibility='hidden'">
+                        <div class="vr-hd">Coal and Combustion Laboratory Chemistry Dept.- (O&amp;M)<br>NTPC Dadri, Gautam Budh Nagar, 201008</div>
+                        <div><img src="assets/ntpc/dadri-logo.png" alt="NTPC Dadri" style="display:block;margin-left:auto" onerror="this.style.visibility='hidden'"><div class="vr-dt">DATE : ${ddmmyyyy(today)}</div></div>
                     </div>
-
-                    <h2 style="font-size: 16pt; font-weight: bold; text-align: center; margin-bottom: 1rem;">OFFICIAL BIOMASS LAB QUALITY REPORT</h2>
-
-                    <div class="report-meta-info">
-                        <div><strong>Supplier Company:</strong> ${esc(report.company_name)}</div>
-                        <div><strong>Intake Date:</strong> ${esc(report.date)}</div>
-                        <div><strong>Generated At:</strong> ${new Date().toLocaleString()}</div>
+                    <div class="vr-meta">
+                        <div><b class="l">Test Report No.:</b><b class="v">${esc(rn)}</b></div>
+                        <div><b class="l">Sample Drawn by Laboratory :</b><b class="v">YES</b></div>
+                        <div><b class="l">Vendors Name :</b><b class="v">${esc(report.company_name)}</b></div>
+                        <div><b class="l">Type of Material Supplied :</b><b class="v">Agro Residue Biomass</b></div>
                     </div>
-
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Truck ID</th>
-                                <th>Vehicle Reg</th>
-                                <th>Invoice / Challan No.</th>
-                                <th>Moisture %</th>
-                                <th>Fineness %</th>
-                                <th>Acceptance</th>
-                                <th>Mixing Group</th>
-                                <th>TM %</th>
-                                <th>ARB GCV (kcal)</th>
-                                <th>ARB Ash %</th>
-                                ${report.summary.has_lot4 ? '<th>ARB Sulphur %</th><th>ARB VM %</th>' : ''}
-                                <th>Vendor GCV</th>
-                                <th>Referee GCV</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${rowHtml}
-                        </tbody>
+                    <div class="vr-ar">Analysis Report</div>
+                    <table class="vr-table">
+                        <thead><tr>
+                            <th>Date</th><th>Supplier</th><th>Truck Reg No.</th><th>PO No.</th><th>Lot</th><th>Invoice / Challan No.</th>
+                            <th>Total Moisture % (truck)</th><th>Fineness %</th><th>Acceptance</th><th>TM %</th><th>ARB Ash %</th><th>ARB GCV (kcal/kg)</th>
+                            ${hasLot4 ? '<th>ARB Sulphur % (Lot-4)</th><th>ARB VM % (Lot-4)</th>' : ''}
+                            ${hasVendor ? '<th>Vendor GCV (kcal/kg)</th>' : ''}${hasReferee ? '<th>Referee GCV (kcal/kg)</th>' : ''}
+                        </tr></thead>
+                        <tbody>${rowHtml}</tbody>
                     </table>
-
-                    <div class="print-summary-grid">
-                        <div class="print-summary-card">
-                            <div class="print-summary-lbl">Total Trucks</div>
-                            <div class="print-summary-val">${report.summary.truck_count}</div>
-                        </div>
-                        <div class="print-summary-card">
-                            <div class="print-summary-lbl">Total Net Weight</div>
-                            <div class="print-summary-val">${report.summary.total_net_weight.toLocaleString()} kg</div>
-                        </div>
-                        <div class="print-summary-card">
-                            <div class="print-summary-lbl">Approved / Rejected</div>
-                            <div class="print-summary-val" style="font-size: 11pt; padding-top: 4px;">${report.summary.accepted_count} / ${report.summary.rejected_count}</div>
-                        </div>
-                        <div class="print-summary-card">
-                            <div class="print-summary-lbl">Moisture (TM)</div>
-                            <div class="print-summary-val">${report.summary.tm !== null ? report.summary.tm + '%' : 'Pending'}</div>
-                        </div>
-                        <div class="print-summary-card">
-                            <div class="print-summary-lbl">Avg Fineness</div>
-                            <div class="print-summary-val">${report.summary.avg_fineness !== null ? report.summary.avg_fineness + '%' : 'Pending'}</div>
-                        </div>
-                        <div class="print-summary-card">
-                            <div class="print-summary-lbl">ARB GCV / Ash${report.summary.has_lot4 ? ' / S / VM' : ''}</div>
-                            <div class="print-summary-val" style="font-size: 11pt; padding-top: 4px;">
-                                ${report.summary.avg_gcv !== null ? report.summary.avg_gcv + ' kcal' : 'Pending'} / 
-                                ${report.summary.avg_ash !== null ? report.summary.avg_ash + '%' : 'Pending'}${report.summary.has_lot4 && report.summary.avg_sulphur !== null ? ` / ${report.summary.avg_sulphur}% / ${report.summary.avg_vm}%` : ''}
-                            </div>
-                        </div>
+                    <div class="vr-rm"><b>Remarks :</b><br>
+                        1. Sample Collected in presence of FM/Chemistry/Bidder (if present).<br>
+                        2. The results are related only to the item tested.<br>
+                        3. LOT-03 Vendor part sample will be disposed after 07 days of report date.<br>
+                        4. In Referee mail truck number and unloading date must be clearly mentioned same as quality report .<br>
+                        5. For LOT-04 Vendors , Vendor Sample will retained for 03 days only from the date of  sampling. After that  NTPC has no responsibilty of sample .<br>
+                        6. For LOT -04. for referee challenge, the vendor must send the analysis report of the sample collected from NTPC Dadri.
                     </div>
-
-                    <div class="print-signature-section">
-                        <div class="print-signature-box">
-                            <strong>Prepared By</strong><br>
-                            <span style="font-size: 9pt; color: #444;">Name: ___________________</span><br>
-                            <span style="font-size: 9pt; color: #444;">Designation: _____________</span>
-                        </div>
-                        <div class="print-signature-box">
-                            <strong>Verified By</strong><br>
-                            <span style="font-size: 9pt; color: #444;">Name: ___________________</span><br>
-                            <span style="font-size: 9pt; color: #444;">Designation: _____________</span>
-                        </div>
-                    </div>
+                    <table class="vr-sig"><tr>
+                        <td><img src="assets/ntpc/sign-tushar.png" alt="" onerror="this.style.visibility='hidden'"><br>Tushar Kr Sinha<br>Sr Manager Chem</td>
+                        <td class="r"><img src="assets/ntpc/sign-rajeev.png" alt="" onerror="this.style.visibility='hidden'"><br>Rajeev Kumar<br>DGM Chem</td>
+                    </tr></table>
                 </div>
             `;
         }
 
-        const filename = `${shortCode(report.company_name)}_Quality_Report_${compactDate(report.date)}`;
+        // saved as  <vendor name>_<sample date>.pdf  ("/" and other characters a file name cannot hold become "-")
+        const filename = (String(report.company_name || 'Vendor').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim() || 'Vendor') + '_' + dmy(String(report.date || '').slice(0, 10) || window.BiomassAPI.todayIST());
+
 
         btnPrint.onclick = async function() {
             btnPrint.disabled = true;
-            try { await printDocumentInFrame({ title: filename, bodyHtml: generatePrintHtml(), css: OFFICIAL_REPORT_PRINT_CSS }); }
+            try { await printDocumentInFrame({ title: filename, bodyHtml: generatePrintHtml(), css: VENDOR_REPORT_PRINT_CSS, landscape: true, afterRender: fitVendorReportPages }); }
             finally { btnPrint.disabled = false; }
         };
 
         if (btnPdf) {
             btnPdf.onclick = async function() {
                 btnPdf.disabled = true;
-                try { await printDocumentInFrame({ title: filename, bodyHtml: generatePrintHtml(), css: OFFICIAL_REPORT_PRINT_CSS }); }
+                try { await printDocumentInFrame({ title: filename, bodyHtml: generatePrintHtml(), css: VENDOR_REPORT_PRINT_CSS, landscape: true, afterRender: fitVendorReportPages }); }
                 finally { btnPdf.disabled = false; }
             };
         }
@@ -4304,7 +4346,7 @@ document.addEventListener('DOMContentLoaded', function() {
             ? '<tr><td colspan="9" style="text-align:center;">No truck consignments recorded.</td></tr>'
             : trucks.map(t => `
                 <tr>
-                    <td>${esc(t.entry_date)}</td>
+                    <td>${esc(dmy(t.entry_date))}</td>
                     <td><strong>${esc(t.truck_id)}</strong></td>
                     <td>${esc(t.truck_reg_number)}</td>
                     <td>${esc(t.company_name)}</td>
@@ -4324,9 +4366,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 <h2 style="font-size: 16pt; font-weight: bold; text-align: center; margin-bottom: 0.2in;">BIOMASS LOGISTICS &amp; UNLOADING REPORT (${esc((rep.period || '').toUpperCase())})</h2>
                 <div class="report-meta-info">
-                    <div><strong>Period:</strong> ${esc(rep.start_date)} to ${esc(rep.end_date)}</div>
+                    <div><strong>Period:</strong> ${esc(dmy(rep.start_date))} to ${esc(dmy(rep.end_date))}</div>
                     <div><strong>Supplier:</strong> ${esc(rep.company_filter)}</div>
-                    <div><strong>Generated:</strong> ${new Date().toLocaleString()}</div>
+                    <div><strong>Generated:</strong> ${nowDMY()}</div>
                 </div>
                 <div class="print-summary-grid" style="grid-template-columns: repeat(4, 1fr);">
                     <div class="print-summary-card"><div class="print-summary-lbl">Total Trucks</div><div class="print-summary-val">${rep.summary.total_trucks}</div></div>
@@ -4369,7 +4411,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 outputPanel.style.display = 'block';
                 titleEl.textContent = `Biomass Logistics & Unloading Report (${period.toUpperCase()})`;
-                subtitleEl.textContent = `Period: ${rep.start_date} to ${rep.end_date} | Supplier: ${rep.company_filter} | Generated: ${new Date().toLocaleString()}`;
+                subtitleEl.textContent = `Period: ${dmy(rep.start_date)} to ${dmy(rep.end_date)} | Supplier: ${rep.company_filter} | Generated: ${nowDMY()}`;
 
                 // NOTE: these ids (comm-sum-*) previously did not match any element in index.html
                 // (they were comm-stat-*), so this whole panel silently rendered nothing at all.
@@ -9804,7 +9846,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div><strong>Period:</strong> ${esc(meta.period || 'All Time')} (${esc(meta.range || '-')})</div>
                     <div><strong>Status Filter:</strong> ${esc(meta.status || 'All Statuses')}</div>
                     <div><strong>Search Filter:</strong> ${esc(meta.search || '—')}</div>
-                    <div><strong>Generated At:</strong> ${new Date().toLocaleString()}</div>
+                    <div><strong>Generated At:</strong> ${nowDMY()}</div>
                 </div>
 
                 <table>
@@ -10039,7 +10081,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 company: compFilter === 'ALL' ? 'All Suppliers' : compFilter,
                 status: statusFilter === 'ALL' ? 'All Statuses' : statusFilter,
                 search: searchQuery || '—',
-                range: (startBoundary ? startBoundary.toLocaleDateString() : 'Beginning') + ' → ' + (endBoundary ? endBoundary.toLocaleDateString() : 'Today')
+                range: (startBoundary ? dmyObj(startBoundary) : 'Beginning') + ' → ' + (endBoundary ? dmyObj(endBoundary) : 'Today')
             };
 
 
@@ -10314,7 +10356,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Filter/meta subtitle band
         sheet.mergeCells(2, 1, 2, columns.length);
         const subtitleCell = sheet.getCell(2, 1);
-        subtitleCell.value = `Supplier: ${meta.company || 'All Suppliers'}    |    Period: ${meta.period || 'All Time'} (${meta.range || '-'})    |    Status: ${meta.status || 'All Statuses'}    |    Generated: ${new Date().toLocaleString()}`;
+        subtitleCell.value = `Supplier: ${meta.company || 'All Suppliers'}    |    Period: ${meta.period || 'All Time'} (${meta.range || '-'})    |    Status: ${meta.status || 'All Statuses'}    |    Generated: ${nowDMY()}`;
         subtitleCell.font = { italic: true, size: 10, color: { argb: 'FF374151' } };
         subtitleCell.alignment = { vertical: 'middle', horizontal: 'center' };
         sheet.getRow(2).height = 20;

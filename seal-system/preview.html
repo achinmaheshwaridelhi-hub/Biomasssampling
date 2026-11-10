@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preview: what the seal switch changes</title>
+<style>
+:root{--bg:#090d16;--card:#111827;--text:#f3f4f6;--muted:#9ca3af;--line:rgba(255,255,255,.16);--pri:#10b981}
+*{box-sizing:border-box;margin:0}body{background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:.8rem;display:flex;flex-direction:column;height:100vh}
+h1{font-size:1.2rem}.sub{color:var(--muted);font-size:.95rem;margin:.2rem 0 .6rem}
+.bar{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.6rem}.bar button{min-height:42px;padding:0 .9rem;border-radius:10px;border:1px solid var(--line);background:transparent;color:inherit;font-weight:700;cursor:pointer}.bar button.on{background:var(--pri);color:#052e1f;border-color:var(--pri)}
+.main{display:flex;gap:.8rem;flex:1;min-height:0}.main iframe{flex:1;border:2px solid #f59e0b;border-radius:12px;background:#fff;min-width:0}
+.side{width:300px;flex:none;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:.9rem;font-size:.95rem}
+.side h2{font-size:1.05rem;margin-bottom:.4rem}.side input,.side select{width:100%;min-height:44px;margin:.25rem 0 .6rem;border-radius:9px;border:1px solid var(--line);background:transparent;color:inherit;padding:0 .7rem;font:inherit}.side select option{color:#000}
+.side button{width:100%;min-height:46px;border-radius:10px;border:0;background:var(--pri);color:#052e1f;font-weight:800;cursor:pointer;margin-bottom:.7rem}
+.side ul{padding-left:1.1rem;color:var(--muted)}.warn{border:1px solid #f59e0b;border-radius:10px;padding:.6rem .8rem;margin-bottom:.8rem;background:rgba(245,158,11,.1)}
+@media(max-width:900px){.main{flex-direction:column}.side{width:auto}}
+</style>
+</head>
+<body>
+<h1>What the seal switch would change, on the real screens</h1>
+<p class="sub">The screens below are the real app with the seal system shown in the mode you choose and every answer simulated. No real data is read or written, and your own login is not touched. In Preview mode the new parts are visible but greyed and not working; in On mode they work (with simulated answers).</p>
+<div class="bar" id="bar"></div>
+<div class="bar"><span style="align-self:center;color:var(--muted)">Show the seal system as:</span><button id="m-preview" class="on">Preview (greyed, not working)</button><button id="m-on">On (working, simulated)</button></div>
+<div class="main"><iframe id="f" title="preview"></iframe>
+<div class="side"><div class="warn">Simulated answers only. Needs the website (not a double-clicked file).</div>
+<h2>Try a sample QR</h2>
+<select id="k"><option value="LAB">Moisture / fineness test</option><option value="COMP">Composite mixing scan</option></select>
+<input id="qr" placeholder="sample QR, e.g. NEW-1 or OLD-1">
+<button id="go">Scan this sample QR</button>
+<h2>How to read it</h2>
+<ul><li>A sample QR starting with <b>OLD</b> is a sample from before the switch: no seal asked.</li><li>Any other QR is a sealed sample: it asks for its seal unless the seal is already in the tray.</li><li>A seal number starting with <b>BAD</b> is tampered (red cross); any other number is intact (green tick).</li><li>Moisture and fineness logins share the LAB seal tray.</li></ul>
+<h2>Entry</h2><p style="color:var(--muted)">In Preview mode a greyed seal box appears above Register. In On mode, after Register is pressed a window asks for two seals (interchangeable).</p></div></div>
+<script>
+(function () {
+  var ROLES = [['lab1m', 'Moisture login'], ['lab1f', 'Fineness login'], ['entry', 'Entry'], ['admin', 'Admin'], ['unloading', 'Unloading'], ['weighment', 'Weighment'], ['lab2', 'Lab 2'], ['composite', 'Composite']];
+  var bar = document.getElementById('bar'), frame = document.getElementById('f'), cur = 'lab1m', MODE = 'preview';
+  document.getElementById('m-preview').onclick = function () { MODE = 'preview'; document.getElementById('m-preview').classList.add('on'); document.getElementById('m-on').classList.remove('on'); load(cur); };
+  document.getElementById('m-on').onclick = function () { MODE = 'on'; document.getElementById('m-on').classList.add('on'); document.getElementById('m-preview').classList.remove('on'); load(cur); };
+  ROLES.forEach(function (r) { var b = document.createElement('button'); b.textContent = r[1]; b.onclick = function () { load(r[0]); }; b.dataset.r = r[0]; bar.appendChild(b); });
+  var CSS = '#lab1-tab-seals,#lab1-tab-cseals{outline:3px solid #f59e0b!important;position:relative}#lab1-tab-seals::after,#lab1-tab-cseals::after{content:"NEW";position:absolute;top:-10px;right:-6px;background:#f59e0b;color:#000;font:800 11px sans-serif;padding:1px 6px;border-radius:8px}' +
+    '#screen-lab1 .card:not([data-ftab=seals]):not([data-ftab=cseals]){opacity:.5;filter:grayscale(.8)}#screen-lab1 [data-ftab=seals],#screen-lab1 [data-ftab=cseals]{outline:3px solid #f59e0b;border-radius:14px}' +
+    '#screen-admin .card,#screen-unloading .card,#screen-lab2 .card{opacity:.6;filter:grayscale(.6)}';
+  async function load(role) {
+    cur = role; [].forEach.call(bar.children, function (b) { b.classList.toggle('on', b.dataset.r === role); });
+    var base = new URL('../', location.href).href, html;
+    try { html = await (await fetch('../index.html', { cache: 'no-store' })).text(); } catch (e) { frame.srcdoc = '<p style="font:16px sans-serif;padding:1rem">Open this page from the website (or run a local web server). Double-clicking the file cannot load the app screens.</p>'; return; }
+    var inj = '<base href="' + base + '"><style>' + CSS + '</style><script>(function(){var FAKE=JSON.stringify({access_token:"t",refresh_token:"r",expires_at:Date.now()+36e5,user:{username:"' + role + '1",role:"' + role + '",name:"Preview",is_super:false}});' +
+      'var gi=Storage.prototype.getItem,si=Storage.prototype.setItem,ri=Storage.prototype.removeItem;' +
+      'Storage.prototype.getItem=function(k){return k==="BIOMASS_AUTH"?FAKE:gi.call(this,k)};Storage.prototype.setItem=function(k,v){if(k==="BIOMASS_AUTH")return;return si.call(this,k,v)};Storage.prototype.removeItem=function(k){if(k==="BIOMASS_AUTH")return;return ri.call(this,k)};' +
+      'window.__SEAL_ALLOW_TYPING=true;var cleared={},nf=window.fetch;window.alert=function(){};window.confirm=function(){return true};' +
+      'window.fetch=function(u,o){u=String(u);if(/supabase\\.co/.test(u)){var m=/rpc\\/([a-z0-9_]+)/.exec(u),n=m?m[1]:"",p={};try{p=JSON.parse(o.body).p||{}}catch(e){}var out=[];' +
+      'if(n==="bm_seal_enabled")out={mode:"'+MODE+'",enabled:'+(MODE==='on')+'};else if(n==="bm_seal_gate"){var q=String(p.qr||"").toUpperCase();out=/^OLD/.test(q)?{success:true,required:false,ok:true,verdict:"NO_SEAL_NEEDED"}:(cleared[q+p.kind]?{success:true,required:true,ok:true,verdict:"OK"}:{success:true,required:true,ok:false,verdict:"SEAL_NOT_SCANNED"})}' +
+      'else if(n==="bm_seal_clear"){var c=String(p.code||"").toUpperCase();if(/^BAD/.test(c))out={success:true,ok:false,verdict:"NOT_REGISTERED"};else{if(p.qr)cleared[String(p.qr).toUpperCase()+p.kind]=1;else cleared["*"+c]=1;out={success:true,ok:true,verdict:"OK"}}}' +
+      'else if(n==="bm_seal_precheck")out={used:(p.codes||[]).filter(function(x){return /^USED/i.test(x)})};else if(n==="bm_seal_register")out={success:true};' +
+      'return Promise.resolve(new Response(JSON.stringify(out),{status:200,headers:{"Content-Type":"application/json"}}))}return nf.apply(this,arguments)}})()<\/script>';
+    frame.srcdoc = html.replace('<head>', '<head>' + inj);
+  }
+  document.getElementById('go').onclick = async function () {
+    var w = frame.contentWindow; if (!w || !w.SealGate) { alert('Wait for the screen to finish loading.'); return; }
+    if (!w.SealGate.enabled) await w.SealGate.refresh();
+    var ok = await w.SealGate.gate(document.getElementById('k').value, document.getElementById('qr').value.trim());
+    if (ok) w.SealGate.showVerdict(true, 'GO AHEAD', 'The result can be entered.');
+  };
+  load(cur);
+})();
+</script>
+</body>
+</html>

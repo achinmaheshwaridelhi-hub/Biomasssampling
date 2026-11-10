@@ -1079,6 +1079,7 @@ document.addEventListener('DOMContentLoaded', function() {
             readerId: 'lab1-qr-reader',
             onDecode: async function(decodedText) {
                 const plainId = await processScannedCode(decodedText);
+                if (window.SealGate && window.SealGate.enabled && !(await window.SealGate.gate('LAB', plainId))) return;     // sealed samples need a cleared seal (old samples pass)
                 lookupLab1Barcode(plainId);
             }
         });
@@ -1149,6 +1150,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!code) return;
         try {
             const plainId = await processScannedCode(code);
+            if (window.SealGate && window.SealGate.enabled && !(await window.SealGate.gate('COMP', plainId))) return;
             const res = await window.BiomassAPI.mixingScan(plainId);
             if (!res || !res.success) {
                 showMixFeedback('error', `<div style="font-weight:800;">${esc((res && res.message) || 'Scan could not be recorded')}</div>` +
@@ -2012,6 +2014,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         applyRoleBasedPrivileges();
+        if (window.sealRefresh) window.sealRefresh();       // is the barcoded-seal system on? (off unless the Super Admin switched it on)
     }
 
     function applyRoleBasedPrivileges() {
@@ -3261,7 +3264,17 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!(await confirmRegistrationDetails(data, vend.kind === 'new'))) return;
 
             try {
+                // barcoded seals (only when the Super Admin has switched the seal system on): both seals are scanned before anything is saved
+                let sealPair = null;
+                if (window.SealGate && window.SealGate.enabled) {
+                    sealPair = await window.SealGate.askSeals(2);        // two interchangeable seals
+                    if (!sealPair) { alert('Registration stopped: both seals must be scanned. Nothing was saved.'); return; }
+                }
                 const truck = await window.BiomassAPI.registerTruck(data);
+                if (sealPair) {
+                    const sr = await window.BiomassAPI.sealRegister({ qr: truck.sample1_barcode_id, a: sealPair[0], b: sealPair[1] }).catch(e => ({ success: false, message: e.message }));
+                    if (!sr || !sr.success) alert('The truck was registered but the seals could not be linked: ' + ((sr && sr.message) || '') + '\n\nTell the Admin before this sample is used.');
+                }
                 
                 if (data.company_name) {
                     companiesSet.add(data.company_name);
@@ -8558,8 +8571,36 @@ document.addEventListener('DOMContentLoaded', function() {
                 } });
         };
     }
+    // ---- Barcoded seals: the Super Admin's Off / Preview / On choice ----
+    const SEAL_MODES = { off: 'OFF', preview: 'PREVIEW (greyed fields)', on: 'ON' };
+    async function paintSealCard() {
+        const st = sx$('seal-status'), box = sx$('seal-modes'); if (!st || !box) return;
+        try {
+            const r = await window.BiomassAPI.superSealStatus();
+            st.innerHTML = 'Now: <b>' + esc(SEAL_MODES[r.mode] || r.mode) + '</b> &nbsp;&bull;&nbsp; sealed ' + esc(r.sealed) + ' &nbsp;&bull;&nbsp; cleared ' + esc(r.cleared) + ' &nbsp;&bull;&nbsp; cancelled ' + esc(r.voided) + ' &nbsp;&bull;&nbsp; tamper alerts (7 days) ' + esc(r.alerts_7d) + ' &nbsp;&bull;&nbsp; a cleared seal stays valid ' + esc(r.clear_hours) + ' h';
+            box.querySelectorAll('button[data-m]').forEach(b => { b.disabled = false; b.classList.toggle('btn-primary', b.dataset.m === r.mode); b.classList.toggle('btn-secondary', b.dataset.m !== r.mode); });
+            box.dataset.mode = r.mode;
+        } catch (e) { st.textContent = 'Not installed yet (run db/migrations/2026-11-09_seals.sql).'; box.querySelectorAll('button[data-m]').forEach(b => { b.disabled = true; }); }
+    }
+    function initSealCard() {
+        const box = sx$('seal-modes'); if (!box) return;
+        const pv = sx$('seal-preview'); if (pv) pv.onclick = () => window.SealGate && window.SealGate.preview();
+        if (!box.dataset.wired) {
+            box.dataset.wired = '1';
+            const info = { off: 'The seal system is hidden everywhere. Nothing is asked for.',
+                preview: 'The new seal fields become visible in the other logins, greyed out and not working, so you can see what will change. Nothing is asked for yet. Other logins pick it up within a minute.',
+                on: 'From now on, gate entry must scan two seals for every new truck, and the labs must clear the seal of those samples. Earlier samples are not affected. Switch on only after the readers have been tested on your seal photos.' };
+            box.onclick = (e) => {
+                const b = e.target.closest('button[data-m]'); if (!b || b.disabled || b.dataset.m === box.dataset.mode) return;
+                const m = b.dataset.m;
+                openSuperEdit('Set the barcoded seals to ' + SEAL_MODES[m], info[m], [], async (v, why) => { await window.BiomassAPI.superSealSwitch(m, why); }, { saveLabel: 'Confirm', after: paintSealCard });
+            };
+        }
+        paintSealCard();
+    }
     async function renderSuperLogins() {
         const body = sx$('sx-logins-body');
+        initSealCard();
         initVendorSiteCard();
         body.innerHTML = window.skelRows(5);
         try {
@@ -9177,8 +9218,17 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!confirm(`Generate a NEW sample QR for truck ${r.truck_reg_number}?\n\nThe new label carries the truck's ORIGINAL entry date (${r.entry_date ? dmy(r.entry_date) : 'not today'}) and a copy of its moisture and fineness. The truck's existing sample is taken out of the composite mixture. This cannot be undone.`)) return;
         btn.disabled = true;
         try {
+            let bottomSeals = null;
+            if (window.SealGate && window.SealGate.enabled) {
+                bottomSeals = await window.SealGate.askSeals(1);      // a bottom sample goes to the composite: one seal only
+                if (!bottomSeals) { btn.disabled = false; alert('The seal must be scanned for the bottom sample. Nothing was generated.'); return; }
+            }
             const res = await window.BiomassAPI.generateBottomSample(r.truck_id);
             if (!res || !res.success) throw new Error((res && res.message) || 'Could not generate the sample');
+            if (bottomSeals) {
+                const sr = await window.BiomassAPI.sealRegister({ qr: res.sample1_barcode_id, a: bottomSeals[0] }).catch(e => ({ success: false, message: e.message }));
+                if (!sr || !sr.success) alert('The bottom sample QR was made but its seals could not be linked: ' + ((sr && sr.message) || '') + '\n\nTell the Admin.');
+            }
             await showBottomLabel(res, r.truck_reg_number);
             await renderBottomList();
             const auto = document.getElementById('auto-print-label');
@@ -10679,4 +10729,46 @@ window.skelRows = function (cols, rows) {
             tr.classList.toggle('rx-open');
         });
     });
+})();
+
+
+// ===== BARCODED SEALS: wiring to the database (everything stays inert while the system is switched off) =====
+(function sealSystem() {
+    const SG = window.SealGate; if (!SG) return;
+    const api = () => window.BiomassAPI;
+    SG.use({
+        enabled: async () => { const r = await api().sealEnabled(); return !!(r && r.enabled); },
+        mode: async () => { const r = await api().sealEnabled(); return (r && r.mode) || (r && r.enabled ? 'on' : 'off'); },
+        precheck: (codes) => api().sealPrecheck(codes),
+        register: (o) => api().sealRegister(o),
+        clear: (o) => api().sealClear(o),
+        gate: (o) => api().sealGate(o)
+    });
+    // the seal tabs of the Lab 1 screen and the registration box: hidden when off, greyed and not working in preview mode, working when on
+    function mountTrays() {
+        const u = api().getCurrentUser && api().getCurrentUser();
+        const role = u && u.role, lab = role === 'lab1' || role === 'lab1m' || role === 'lab1f', gate = role === 'entry' || role === 'admin';
+        const mode = SG.mode, prev = mode === 'preview', live = mode === 'on';
+        const show = (id, on) => { const b = document.getElementById(id); if (!b) return; b.style.display = on ? '' : 'none'; b.classList.toggle('sg-tab-preview', on && prev); if (!on && b.classList.contains('active')) { const t = document.getElementById('lab1-tab-scan'); if (t) t.click(); } };
+        show('lab1-tab-seals', (prev || live) && lab);
+        show('lab1-tab-cseals', (prev || live) && role === 'lab1f');
+        const trays = [['lab1-seal-tray', 'LAB', lab], ['lab1-cseal-tray', 'COMP', role === 'lab1f']];
+        trays.forEach(([id, kind, ok]) => {
+            const el = document.getElementById(id); if (!el) return;
+            if (prev && ok) { el._sgTray = false; SG.previewTray(el, kind); }
+            else if (live && ok) { el._sgPv = false; if (!el._sgTray) el.innerHTML = ''; SG.tray({ kind, el }); }
+            else if (!ok || mode === 'off') { el.innerHTML = ''; el._sgTray = false; el._sgPv = false; }
+        });
+        // registration (Entry, Admin): a greyed "2 seals" box in preview mode
+        document.querySelectorAll('.sg-pvmode.sg-regbox').forEach(n => n.remove());
+        const sub = document.querySelector('#truck-reg-form button[type=submit]');
+        if (sub) sub._sgPvBox = false;
+        if (prev && gate && sub) { SG.previewRegBox(sub); const bx = sub.previousElementSibling; if (bx) bx.classList.add('sg-regbox'); }
+    }
+    window.sealRefresh = async () => {
+        const u = api().getCurrentUser && api().getCurrentUser(); if (!u) return;
+        await SG.refresh();
+        try { mountTrays(); } catch (e) { /* screen not present for this login */ }
+    };
+    setInterval(() => { if (document.hidden) return; const u = api().getCurrentUser && api().getCurrentUser(); if (u) window.sealRefresh(); }, 60000);     // picks up a change of mode made by the Super Admin
 })();

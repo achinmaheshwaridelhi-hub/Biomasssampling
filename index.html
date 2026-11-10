@@ -30,8 +30,9 @@
     <meta http-equiv="Expires" content="0">
     <!-- Premium Stylesheet -->
     <script>try{var t=localStorage.getItem("BIOMASS_THEME");if(t==="light")document.documentElement.setAttribute("data-theme","light")}catch(e){}</script>
-    <link rel="stylesheet" href="theme-light.css?v=20261108_v83">
-    <link rel="stylesheet" href="style.css?v=20261108_v83">
+    <link rel="stylesheet" href="theme-light.css?v=20261111_v86">
+    <link rel="stylesheet" href="style.css?v=20261111_v86">
+    <link rel="stylesheet" href="seal-gate.css?v=20261111_v86">
     <!-- Chart.js 4.4.4 for the Executive Management Dashboard: the app's own copy (no outside server is trusted) -->
     <script src="lib/chart.umd.min.js"></script>
 </head>
@@ -1205,7 +1206,17 @@
                     <div><button type="button" class="btn btn-secondary" id="btn-sx-logins-refresh">Refresh</button></div>
                 </div>
                 <div class="card"><div class="table-responsive"><table style="min-width: 0;"><thead><tr><th>Login</th><th>Name</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody id="sx-logins-body"></tbody></table></div></div>
-                            <div class="card" id="vendor-site-card" style="margin-top: 1.5rem;">
+                            <div class="card" id="seal-card" style="margin-top: 1.5rem;">
+                    <h3 class="card-title" style="margin-bottom: 0.6rem;">Barcoded seals</h3>
+                    <div id="seal-status" style="font-size: 1rem; margin-bottom: 0.8rem;">Loading...</div>
+                    <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;" id="seal-modes">
+                        <button type="button" class="btn btn-secondary" data-m="off" disabled>Off</button>
+                        <button type="button" class="btn btn-secondary" data-m="preview" disabled>Preview (greyed fields)</button>
+                        <button type="button" class="btn btn-secondary" data-m="on" disabled>On</button>
+                        <button type="button" class="btn btn-secondary" id="seal-preview">Summary of what changes</button>
+                    </div>
+                </div>
+                <div class="card" id="vendor-site-card" style="margin-top: 1.5rem;">
                     <h3 class="card-title" style="margin-bottom: 0.6rem;">Vendor website</h3>
                     <div id="vs-status" style="font-size: 1rem; margin-bottom: 0.8rem;"></div>
                     <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
@@ -1666,6 +1677,8 @@
                 <div class="ftabs" id="lab1-tabs" role="tablist">
                     <button type="button" class="active" data-ft="scan" id="lab1-tab-scan">Scan &amp; test</button>
                     <button type="button" data-ft="mix" id="lab1-tab-mix" style="display: none;">Mixing scan</button>
+                    <button type="button" data-ft="seals" id="lab1-tab-seals" style="display: none;">Seal tray</button>
+                    <button type="button" data-ft="cseals" id="lab1-tab-cseals" style="display: none;">Composite seals</button>
                     <button type="button" data-ft="hist" id="lab1-tab-hist">Today's list</button>
                 </div>
                 <div class="lab-col-a" style="display: flex; flex-direction: column; gap: 1.5rem;">
@@ -1681,6 +1694,15 @@
                             </div>
                         </div>
                         <div id="lab1-qr-reader" style="display:none;"></div>
+                    </div>
+
+                    <div class="card" data-ftgroup="lab1-tabs" data-ftab="seals" style="margin-bottom: 0;">
+                        <h3 class="card-title">Seal tray: scan the seals first</h3>
+                        <div id="lab1-seal-tray"></div>
+                    </div>
+                    <div class="card" data-ftgroup="lab1-tabs" data-ftab="cseals" style="margin-bottom: 0;">
+                        <h3 class="card-title">Composite seals: scan before mixing</h3>
+                        <div id="lab1-cseal-tray"></div>
                     </div>
 
                     <!-- Blind Entry Form (Hidden until barcode lookup succeeds) -->
@@ -2307,8 +2329,9 @@
 
     <!-- App JavaScript files -->
     <script src="lib/zip-store.js?v=20261103_v64" onerror="alert('CRITICAL: lib/zip-store.js failed to load!')"></script>
-    <script src="api.js?v=20261108_v83" onerror="alert('CRITICAL: api.js failed to load!')"></script>
-    <script src="app.js?v=20261108_v83" onerror="alert('CRITICAL: app.js failed to load!')"></script>
+    <script src="seal-gate.js?v=20261111_v86"></script>
+    <script src="api.js?v=20261111_v86" onerror="alert('CRITICAL: api.js failed to load!')"></script>
+    <script src="app.js?v=20261111_v86" onerror="alert('CRITICAL: app.js failed to load!')"></script>
 
     <!-- MOBILE/APK FIX: make every table horizontally scrollable inside its card -->
     <script>

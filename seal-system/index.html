@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Barcoded Seal System - stand-alone</title>
+<link rel="stylesheet" href="seal-gate.css">
+<style>
+:root{--bg:#090d16;--card:#111827;--text:#f3f4f6;--muted:#9ca3af;--line:rgba(255,255,255,.14);--pri:#10b981}
+*{box-sizing:border-box;margin:0}body{background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:1rem;max-width:1100px;margin:0 auto}
+h1{font-size:1.5rem}.sub{color:var(--muted);margin-bottom:1rem}
+.tabs{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem}.tabs button{min-height:46px;padding:0 1rem;border-radius:10px;border:1px solid var(--line);background:transparent;color:inherit;font-weight:700;cursor:pointer}.tabs button.on{background:var(--pri);color:#052e1f;border-color:var(--pri)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:1.1rem;margin-bottom:1rem}.card h2{font-size:1.15rem;margin-bottom:.6rem}
+input,select{min-height:48px;border-radius:10px;border:1px solid var(--line);background:transparent;color:inherit;padding:0 .8rem;font:inherit}select option{color:#000}
+label{display:flex;flex-direction:column;gap:.25rem;font-weight:600}.row{display:flex;gap:.7rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:.7rem}
+.b{min-height:48px;padding:0 1.1rem;border-radius:10px;border:1px solid var(--pri);background:var(--pri);color:#052e1f;font-weight:800;cursor:pointer}.b.g{background:transparent;color:inherit;border-color:var(--line)}
+table{width:100%;border-collapse:collapse;font-size:.95rem}th,td{padding:.5rem .6rem;border-bottom:1px solid var(--line);text-align:left}th{color:var(--muted);font-size:.8rem;text-transform:uppercase}
+.pass{color:#10b981;font-weight:800}.fail{color:#ef4444;font-weight:800}.note{color:var(--muted);font-size:.95rem}
+.pane{display:none}.pane.on{display:block}code{background:rgba(255,255,255,.08);padding:1px 6px;border-radius:5px}
+</style>
+</head>
+<body>
+<h1>Barcoded Seal System <span class="note">(stand-alone demo, stores nothing outside this browser)</span></h1>
+<p class="sub">Entry registers two interchangeable barcoded seals against a sample. The lab scans the sample QR as usual; a sealed sample then asks for a seal, or finds it already cleared in the seal tray. (Typing a seal number exists only in this demo: real seals carry no number.) <button class="b g" id="h-preview" style="min-height:38px;margin-left:.5rem">Preview what changes</button></p>
+<div class="tabs" id="tabs"><button data-p="entry" class="on">1 Gate entry</button><button data-p="lab">2 Lab</button><button data-p="admin">3 Admin</button><button data-p="photo">4 Photo test</button><button data-p="self">5 Self-test</button></div>
+
+<section class="pane on" id="p-entry"><div class="card"><h2>Register the two seals of a sample</h2>
+  <div class="row"><label>Sample QR (from truck registration)<input id="e-qr" placeholder="e.g. S1-20261109-0001"></label><button class="b g" id="e-new">New sample QR</button><button class="b" id="e-go">Scan the two seals</button><button class="b g" id="e-old">Register as OLD sample (no seals)</button></div>
+  <div class="row"><label>Bottom sample: original sample QR<input id="e-orig" placeholder="QR of the original sample"></label><button class="b g" id="e-bottom">Bottom sample: scan its one composite seal</button></div>
+  <div class="note" id="e-msg"></div></div></section>
+
+<section class="pane" id="p-lab"><div class="card"><h2>Lab: sample QR first, seal only when asked (or scan seals in advance)</h2>
+  <div class="row"><label>Station<select id="l-st"><option value="lab1m">Moisture login</option><option value="lab1f">Fineness login</option><option value="lab1">Lab 1 (both)</option></select></label>
+  <label>Purpose of this scan<select id="l-kind"><option value="LAB">Moisture / fineness test</option><option value="COMP">Composite mixing (fineness login only)</option></select></label></div>
+  <div class="card" style="background:transparent"><h2>Seal tray (bulk scan at the start)</h2><div id="l-tray"></div></div>
+  <div class="row"><label>Sample QR<input id="l-qr" placeholder="scan or type the sample QR"></label><button class="b" id="l-go">Read sample</button></div>
+  <div class="note" id="l-msg"></div></div></section>
+
+<section class="pane" id="p-admin"><div class="card"><h2>Seals</h2><div class="row"><label>Sample QR<input id="a-qr"></label><button class="b g" id="a-void">Void its seals (QR cancelled)</button><button class="b g" id="a-reset">Clear all demo data</button></div><div style="overflow-x:auto"><table><thead><tr><th>Seal</th><th>Type</th><th>Sample</th><th>Status</th><th>Tests done</th></tr></thead><tbody id="a-seals"></tbody></table></div></div>
+  <div class="card"><h2>Events (these go to the Admin and Super Admin audit logs in the biomass app)</h2><div style="overflow-x:auto"><table><thead><tr><th>Time</th><th>Event</th><th>Seal</th><th>Detail</th></tr></thead><tbody id="a-ev"></tbody></table></div></div></section>
+
+<section class="pane" id="p-photo"><div class="card"><h2>Photo test: can the reader read your seal photos?</h2>
+  <p class="note" style="margin-bottom:.7rem">Choose many photos of seals at once. Each is decoded the same way the app does it (browser reader first, then the library on the photo, a resized copy, a high-contrast copy and a rotated copy). Nothing is uploaded.</p>
+  <div class="row"><input type="file" id="ph-files" accept="image/*" multiple><button class="b" id="ph-go">Read all</button><button class="b g" id="ph-csv">Download result (CSV)</button></div>
+  <div id="ph-sum" class="note" style="margin:.5rem 0"></div><div style="overflow-x:auto"><table><thead><tr><th>Photo</th><th>Code read</th><th>How</th><th>ms</th></tr></thead><tbody id="ph-body"></tbody></table></div></div></section>
+
+<section class="pane" id="p-self"><div class="card"><h2>Rule check</h2><p class="note" style="margin-bottom:.7rem">Runs the whole seal story on a scratch store (your demo data is kept).</p><button class="b" id="s-go">Run</button><table style="margin-top:.8rem"><tbody id="s-body"></tbody></table></div></section>
+
+<script src="html5-qrcode.min.js"></script>
+<script src="seal-gate.js"></script>
+<script src="local-backend.js"></script>
+<script src="demo.js"></script>
+</body>
+</html>

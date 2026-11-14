@@ -334,7 +334,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         if (!window.crypto || !window.crypto.subtle) {
-            throw new Error('Standard encrypted QR codes cannot be verified in non-secure offline browser tabs. Please use a secure connection (HTTPS or localhost) or scan local offline barcodes.');
+            throw new Error('Standard encrypted QR codes cannot be verified in non-secure offline browser tabs. Please use a secure connection (HTTPS or localhost) or scan local offline QR codes.');
         }
         
         try {
@@ -642,7 +642,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 const decodedText = await decodeQrImage(tempFile, qrReaderId);
                                 successCallback(decodedText);
                             } catch (err) {
-                                errorCallback('Could not decode barcode from PDF page. Make sure the barcode is clear and not cropped.');
+                                errorCallback('Could not decode the QR from the PDF page. Make sure the QR is clear and not cropped.');
                             }
                         }, "image/png");
                     } catch (err) {
@@ -749,16 +749,16 @@ document.addEventListener('DOMContentLoaded', function() {
                                                 console.log('Successfully scanned using square crop canvas');
                                                 successCallback(sqText);
                                             } catch(sqErr) {
-                                                errorCallback('Could not read QR code or barcode from this photo. Please make sure the photo is well-lit and the code is not skewed or blurry.');
+                                                errorCallback('Could not read the QR code from this photo. Please make sure the photo is well-lit and the code is not skewed or blurry.');
                                             }
                                         }, "image/png");
                                     } catch(e5) {
-                                        errorCallback('Could not read QR code or barcode from this photo.');
+                                        errorCallback('Could not read the QR code from this photo.');
                                     }
                                 }
                             }, "image/png");
                         } catch (err4) {
-                            errorCallback('Could not read QR code or barcode from this photo.');
+                            errorCallback('Could not read the QR code from this photo.');
                         }
                     };
                     img.src = event.target.result;
@@ -873,7 +873,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 await cfg.onDecode(decodedText);
             } catch (err) {
                 btnUpload.textContent = 'Snap Photo / Upload Image to Scan';
-                alert('Barcode scan failed: Could not detect barcode from the uploaded photo. Please make sure the QR code/barcode is clear, close-up, and well-lit, then try again.');
+                alert('QR scan failed: Could not detect a QR code in the uploaded photo. Please make sure the QR code is clear, close-up, and well-lit, then try again.');
             }
             fileInput.value = '';
         };
@@ -922,7 +922,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     const decodedText = await decodeQrImage(blob, cfg.readerId);
                     await cfg.onDecode(decodedText);
                 } catch (err) {
-                    alert('Barcode scan failed: Could not detect barcode from the captured picture. Please make sure the barcode is in clear focus and try again.');
+                    alert('QR scan failed: Could not detect a QR code in the captured picture. Please make sure the QR code is in clear focus and try again.');
                 }
             }, 'image/jpeg');
         };
@@ -1062,7 +1062,7 @@ document.addEventListener('DOMContentLoaded', function() {
             } catch (err) {
                 trigger.style.pointerEvents = '';
                 trigger.style.opacity = '';
-                alert('Barcode scan failed: Could not detect a barcode in that photo. Please make sure it is clear, close-up, and well-lit, then try again.');
+                alert('QR scan failed: Could not detect a QR code in that photo. Please make sure it is clear, close-up, and well-lit, then try again.');
                 return;
             }
 
@@ -1083,7 +1083,7 @@ document.addEventListener('DOMContentLoaded', function() {
             readerId: 'lab1-qr-reader',
             onDecode: async function(decodedText) {
                 const plainId = await processScannedCode(decodedText);
-                if (window.SealGate && window.SealGate.enabled && !(await window.SealGate.gate('LAB', plainId))) return;     // sealed samples need a cleared seal (old samples pass)
+                if (window.labSealFlow && !(await window.labSealFlow.before(plainId))) return;     // seal step of the Fineness login (nothing happens while the seal system is off)
                 lookupLab1Barcode(plainId);
             }
         });
@@ -1097,6 +1097,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const mixScan = { last: null };
 
     function fmtMixTime(t) { return esc(t || ''); }
+    // a group is finished only when every accepted container is scanned and nothing is waiting for Lab 1 or to be set aside
+    function mixGroupDone(g) { return !g.composite_generated ? (g.accepted_total > 0 && g.accepted_scanned >= g.accepted_total && !(g.pending_total > 0) && !((g.rejected_to_set_aside || []).length)) : true; }
 
     function initMixScanCard() {
         const card = document.getElementById('mixscan-card');
@@ -1154,7 +1156,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!code) return;
         try {
             const plainId = await processScannedCode(code);
-            if (window.SealGate && window.SealGate.enabled && !(await window.SealGate.gate('COMP', plainId))) return;
+            if (window.mixLocked && window.mixLocked()) { alert('The Mixing scan is locked. Scan the seals of the samples received in the Composite seals tab and press Start mixing first.'); return; }
             const res = await window.BiomassAPI.mixingScan(plainId);
             if (!res || !res.success) {
                 showMixFeedback('error', `<div style="font-weight:800;">${esc((res && res.message) || 'Scan could not be recorded')}</div>` +
@@ -1163,8 +1165,8 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             const pr = res.progress || {};
             const pill = `<span class="scan-group-code-pill" style="font-size:1.35rem;">${esc(res.daily_group_code)}</span>`;
-            const prog = `<div style="margin-top:0.4rem; font-size:0.88rem;">Accepted containers of <strong>${esc(res.daily_group_code)}</strong> scanned: <strong>${esc(pr.accepted_scanned)} / ${esc(pr.accepted_total)}</strong>` +
-                (pr.accepted_total > 0 && pr.accepted_scanned >= pr.accepted_total ? ' &mdash; <strong>all done, Lab 2 can now generate this composite</strong>' : '') + '</div>';
+            const doneNow = pr.accepted_total > 0 && pr.accepted_scanned >= pr.accepted_total && !(pr.pending_total > 0) && !(pr.rejected_total > pr.rejected_scanned);
+            const prog = doneNow ? `<div style="margin-top:0.4rem; font-size:0.95rem;"><strong>&#10004; All samples scanned for mixing group ${esc(res.daily_group_code)}</strong></div>` : '';
             if (res.duplicate) {
                 showMixFeedback('dup', `<div style="font-weight:800; font-size:1.1rem;">ALREADY SCANNED at ${fmtMixTime(res.scanned_time)}</div>` +
                     `<div>${esc(res.sample1_barcode_id)} &rarr; Mixing Code ${pill} &mdash; <strong>${res.include ? 'INCLUDE' : 'EXCLUDE'}</strong>. This scan was not counted again.</div>${prog}`);
@@ -1200,23 +1202,20 @@ document.addEventListener('DOMContentLoaded', function() {
             mixScan.last = res;
             const groups = (res && res.groups) || [];
             if (!groups.length) { box.innerHTML = `<div style="color:#94a3b8; font-style:italic; padding:0.5rem;">No samples registered for ${esc(date)}.</div>`; return; }
-            box.innerHTML = groups.slice().sort((a, b) => (a.composite_generated ? 1 : 0) - (b.composite_generated ? 1 : 0)).map(g => {  // open groups first
-                const complete = g.accepted_total > 0 && g.accepted_scanned >= g.accepted_total;
-                const badge = g.composite_generated ? '<span class="badge badge-success">COMPOSITE GENERATED</span>'
-                    : g.pending_total > 0 ? `<span class="badge badge-pending">${esc(g.pending_total)} awaiting Lab 1</span>`
-                    : g.accepted_total === 0 ? '<span class="badge badge-pending">nothing to mix</span>'
-                    : complete ? '<span class="badge badge-success">ALL SCANNED</span>' : '<span class="badge badge-pending">IN PROGRESS</span>';
+            // the operator sees only what HE has scanned and segregated: no totals, no "still to scan"
+            const seen = groups.filter(g => g.scanned && g.scanned.length);
+            if (!seen.length) { box.innerHTML = `<div style="color:#94a3b8; font-style:italic; padding:0.5rem;">Nothing scanned yet for ${esc(date)}.</div>`; return; }
+            box.innerHTML = seen.map(g => {
+                const done = mixGroupDone(g);
                 const rows = g.scanned.map(x => `<tr><td>${esc(x.id)}</td><td style="font-weight:700; color:${x.include ? '#10b981' : '#ef4444'};">${x.include ? 'INCLUDE' : 'EXCLUDE'}</td><td>${esc(x.time)}</td></tr>`).join('');
-                const toScan = g.to_scan.length ? `<div style="margin-top:0.4rem; font-size:0.9rem; color:#fde68a;">Still to scan: <strong>${g.to_scan.length}</strong> truck${g.to_scan.length > 1 ? 's' : ''}</div>` : '';
-                const aside = g.rejected_to_set_aside.length ? `<div style="margin-top:0.3rem; font-size:0.9rem; color:#fca5a5;">Rejected / cancelled, not scanned yet: <strong>${g.rejected_to_set_aside.length}</strong> truck${g.rejected_to_set_aside.length > 1 ? 's' : ''} - keep out of the mix</div>` : '';
-                return `<div style="border:1px solid var(--border-color); border-radius:8px; padding:0.6rem 0.75rem; margin-bottom:0.6rem; background:rgba(15,23,42,0.6);">
+                const nInc = g.scanned.filter(x => x.include).length, nExc = g.scanned.length - nInc;
+                return `<div style="border:1px solid ${done ? '#10b981' : 'var(--border-color)'}; border-radius:8px; padding:0.6rem 0.75rem; margin-bottom:0.6rem; background:rgba(15,23,42,0.6);">
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; flex-wrap:wrap;">
                         <div><span class="group-code-badge">${esc(g.group_code)}</span>
-                        <span style="font-size:0.82rem; color:#cbd5e1; margin-left:0.4rem;">Include: <strong>${esc(g.accepted_scanned)}/${esc(g.accepted_total)}</strong> &nbsp; Excluded: <strong>${esc(g.rejected_scanned)}/${esc(g.rejected_total)}</strong></span></div>
-                        ${badge}
+                        <span style="font-size:0.82rem; color:#cbd5e1; margin-left:0.4rem;">Included: <strong>${nInc}</strong> &nbsp; Excluded: <strong>${nExc}</strong></span></div>
+                        ${done ? '<span class="badge badge-success">All samples scanned for mixing group ' + esc(g.group_code) + '</span>' : ''}
                     </div>
-                    ${g.scanned.length ? `<div class="table-responsive" style="margin-top:0.4rem;"><table style="min-width:0; width:100%; font-size:0.82rem;"><thead><tr><th>Container</th><th>Action</th><th>Scanned at</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div style="font-size:0.82rem; color:#94a3b8; margin-top:0.3rem;">Nothing scanned yet.</div>'}
-                    ${toScan}${aside}
+                    <div class="table-responsive" style="margin-top:0.4rem;"><table style="min-width:0; width:100%; font-size:0.82rem;"><thead><tr><th>Container</th><th>Action</th><th>Scanned at</th></tr></thead><tbody>${rows}</tbody></table></div>
                 </div>`;
             }).join('');
         } catch (err) {
@@ -1226,15 +1225,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function printMixScanSummary() {
         const res = mixScan.last;
-        if (!res || !res.groups || !res.groups.length) { alert('There is nothing to print yet.'); return; }
+        if (!res || !res.groups || !res.groups.some(g => g.scanned && g.scanned.length)) { alert('There is nothing to print yet.'); return; }
         const body = `<h2 style="margin:0 0 4px 0;">Mixing scan summary</h2><div style="margin-bottom:10px;">Date: <b>${esc(dmy(res.date))}</b> &nbsp; Printed: ${esc(nowDMY())}</div>` +
-            res.groups.map(g => `
-                <h3 style="margin:14px 0 4px 0;">Mixing Code ${esc(g.group_code)} &nbsp; <span style="font-weight:400; font-size:10pt;">Include scanned ${esc(g.accepted_scanned)}/${esc(g.accepted_total)} &bull; Excluded scanned ${esc(g.rejected_scanned)}/${esc(g.rejected_total)}${g.composite_generated ? ' &bull; composite generated' : ''}</span></h3>
+            res.groups.filter(g => g.scanned && g.scanned.length).map(g => `
+                <h3 style="margin:14px 0 4px 0;">Mixing Code ${esc(g.group_code)} &nbsp; <span style="font-weight:400; font-size:10pt;">Included ${esc(g.scanned.filter(x => x.include).length)} &bull; Excluded ${esc(g.scanned.filter(x => !x.include).length)}</span></h3>
                 <table border="1" cellpadding="4" style="font-size:10pt;"><thead><tr><th align="left">Container</th><th align="left">Action</th><th align="left">Scanned at</th></tr></thead><tbody>
                 ${g.scanned.map(x => `<tr><td>${esc(x.id)}</td><td><b>${x.include ? 'INCLUDE' : 'EXCLUDE'}</b></td><td>${esc(x.time)}</td></tr>`).join('') || '<tr><td colspan="3">Nothing scanned</td></tr>'}
                 </tbody></table>
-                ${g.to_scan.length ? `<div style="margin-top:4px;"><b>Still to scan:</b> ${g.to_scan.length} truck(s)</div>` : ''}
-                ${g.rejected_to_set_aside.length ? `<div style="margin-top:2px;"><b>Rejected, not scanned yet (keep out of the mix):</b> ${g.rejected_to_set_aside.length} truck(s)</div>` : ''}`).join('');
+                ${mixGroupDone(g) ? `<div style="margin-top:4px;"><b>All samples scanned for mixing group ${esc(g.group_code)}</b></div>` : ''}`).join('');
         printDocumentInFrame({ title: `Mixing_scan_summary_${compactDate(res.date)}`, bodyHtml: body });
     }
 
@@ -2018,6 +2016,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         applyRoleBasedPrivileges();
+        window.printDocumentInFrame = printDocumentInFrame;
         if (window.sealRefresh) window.sealRefresh();       // is the barcoded-seal system on? (off unless the Super Admin switched it on)
     }
 
@@ -2874,11 +2873,27 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             
             if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No registered trucks found for today (${todayStr}).</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No registered trucks found for today (${todayStr}).</td></tr>`;
                 return;
             }
             
             tbody.innerHTML = '';
+            if (!tbody.dataset.reprintWired) {
+                tbody.dataset.reprintWired = '1';
+                tbody.addEventListener('click', (e) => {          // reprint today's QR: the QR reprint password (set by the Super Admin) is asked every time
+                    const b = e.target.closest('button[data-reprint]'); if (!b) return;
+                    const id = b.dataset.reprint;
+                    vdDialog({ title: 'Reprint the QR of ' + esc(b.dataset.veh), okLabel: 'Reprint', html: '<label style="font-size:1rem;font-weight:600;">QR reprint password<input type="password" id="reprint-pw" autocomplete="off" style="width:100%;"></label>',
+                        onOk: async () => {
+                            const pw = document.getElementById('reprint-pw').value;
+                            if (!pw) throw new Error('Type the QR reprint password.');
+                            const r = await window.BiomassAPI.entryReprintQr(id, pw);
+                            if (!r || !r.success) throw new Error((r && r.message) || 'Could not reprint.');
+                            setTimeout(() => window.printSampleLabel(r.sample1_barcode_id, r.entry_date), 150);
+                        } });
+                    setTimeout(() => { const i = document.getElementById('reprint-pw'); if (i) i.focus(); }, 80);
+                });
+            }
             filtered.forEach(truck => {
                 const tr = document.createElement('tr');
                 
@@ -2891,6 +2906,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td>${esc(truck.truck_reg_number)}</td>
                     <td><span style="font-family: monospace;">${esc(chNo)}</span></td>
                     <td>${esc(truck.driver_name)}</td>
+                    <td><button type="button" class="btn btn-secondary btn-sm" data-reprint="${esc(truck.truck_id)}" data-veh="${esc(truck.truck_reg_number)}">Reprint QR</button></td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -3268,17 +3284,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!(await confirmRegistrationDetails(data, vend.kind === 'new'))) return;
 
             try {
-                // barcoded seals (only when the Super Admin has switched the seal system on): both seals are scanned before anything is saved
-                let sealPair = null;
-                if (window.SealGate && window.SealGate.enabled) {
-                    sealPair = await window.SealGate.askSeals(2);        // two interchangeable seals
-                    if (!sealPair) { alert('Registration stopped: both seals must be scanned. Nothing was saved.'); return; }
-                }
                 const truck = await window.BiomassAPI.registerTruck(data);
-                if (sealPair) {
-                    const sr = await window.BiomassAPI.sealRegister({ qr: truck.sample1_barcode_id, a: sealPair[0], b: sealPair[1] }).catch(e => ({ success: false, message: e.message }));
-                    if (!sr || !sr.success) alert('The truck was registered but the seals could not be linked: ' + ((sr && sr.message) || '') + '\n\nTell the Admin before this sample is used.');
-                }
                 
                 if (data.company_name) {
                     companiesSet.add(data.company_name);
@@ -3968,6 +3974,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         card.style.display = 'block';
         calculateEditNet();
+        weighPrepare(role, hasGross, hasTare, truck);
         card.scrollIntoView({ behavior: 'smooth' });
     };
 
@@ -3984,6 +3991,90 @@ document.addEventListener('DOMContentLoaded', function() {
         const net = g > t ? (g - t) : 0;
         if (editNet) editNet.textContent = `${net.toLocaleString()} kg`;
     }
+
+    // ===== WEIGHMENT: the weight is READ from a photo of the weighment screen (the photo is never saved); typing by hand needs the
+    // weighment manual-entry password (set by the Super Admin), which then stays valid for 10 minutes =====
+    const weighRd = { role: null, target: 'gross', pw: null, until: 0, timer: null, mode: { gross: 'read', tare: 'read' }, busy: false };
+    const weighEl = (id) => document.getElementById(id);
+    function weighUnlocked() { return !!weighRd.pw && Date.now() < weighRd.until; }
+    function weighLockNow() { weighRd.pw = null; weighRd.until = 0; clearInterval(weighRd.timer); weighApplyLock(); }
+    function weighApplyLock() {
+        const unlocked = weighUnlocked(), strict = weighRd.role === 'weighment';
+        [editGross, editTare].forEach(inp => { if (!inp) return; inp.readOnly = strict && !unlocked; inp.classList.toggle('weigh-ro', strict && !unlocked); if (strict && !unlocked && !inp.disabled) inp.placeholder = 'Read from photo'; });
+        const st = weighEl('weigh-manual-state'), b = weighEl('btn-weigh-manual');
+        if (!st || !b) return;
+        b.style.display = strict ? '' : 'none';
+        if (!strict) { st.textContent = ''; return; }
+        if (unlocked) {
+            const left = Math.max(0, Math.round((weighRd.until - Date.now()) / 1000));
+            st.innerHTML = 'Typing unlocked for <b>' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') + '</b> <button type="button" class="btn btn-secondary btn-sm" id="btn-weigh-lock">Lock now</button>';
+            const lb = weighEl('btn-weigh-lock'); if (lb) lb.onclick = weighLockNow;
+            b.textContent = 'Typing is unlocked';
+        } else { st.textContent = ''; b.textContent = 'Type by hand (password)'; }
+        if (unlocked && !weighRd.timer) weighRd.timer = setInterval(() => { if (!weighUnlocked()) weighLockNow(); else weighApplyLock(); }, 1000);
+    }
+    function weighPrepare(role, hasGross, hasTare, truck) {
+        weighRd.role = role; weighRd.mode = { gross: 'read', tare: 'read' };
+        weighRd.target = hasGross ? 'tare' : 'gross';
+        const rb = weighEl('btn-weigh-photo'), res = weighEl('weigh-read-result'), box = weighEl('weigh-read-box');
+        if (res) { res.style.display = 'none'; res.innerHTML = ''; }
+        const nothing = role !== 'admin' && hasGross && hasTare;
+        if (box) box.style.display = nothing ? 'none' : '';
+        if (rb) rb.textContent = weighRd.target === 'gross' ? 'Read GROSS weight from photo' : 'Read FINAL weight from photo';
+        weighApplyLock();
+    }
+    async function weighReadPhoto(file) {
+        const res = weighEl('weigh-read-result'); if (!res || weighRd.busy) return;
+        weighRd.busy = true; res.style.display = 'block';
+        res.innerHTML = '<div class="weigh-read-card"><span class="sk-bar" style="width:55%;height:22px"></span><span class="sk-bar" style="width:90%;margin-top:10px"></span><div style="margin-top:8px;color:var(--text-muted)">Reading the photo...</div></div>';
+        const url = URL.createObjectURL(file);
+        try {
+            const r = await rcReadOne(file, url, 'auto');
+            const v = r && r.value != null && isFinite(Number(r.value)) ? Math.round(Number(r.value)) : null;
+            const MO = window.MoistureOCR, sure = MO ? (r.conf != null && r.conf >= (MO.WEIGHT_MIN_CONFIDENCE || 75)) : false;
+            if (v === null || v < 100 || v > 200000) {
+                res.innerHTML = '<div class="weigh-read-card bad"><b>Could not read the weight.</b><br>Hold the phone steady, fill the frame with the weighment screen and try again.' + (weighRd.role === 'weighment' ? ' If it keeps failing, use "Type by hand".' : '') + '</div>';
+                return;
+            }
+            const field = weighRd.target === 'gross' ? 'Gross' : 'Final';
+            res.innerHTML = '<div class="weigh-read-card ' + (sure ? 'ok' : 'warn') + '"><div style="color:var(--text-muted)">' + field + ' weight read from the photo</div>' +
+                '<div class="weigh-read-val">' + v.toLocaleString('en-IN') + ' kg</div>' +
+                (sure ? '' : '<div style="color:#f59e0b;font-weight:700">Not sure: compare with the screen before using it.</div>') +
+                '<div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.7rem"><button type="button" class="btn btn-primary" id="btn-weigh-use">Yes, use this value</button><button type="button" class="btn btn-secondary" id="btn-weigh-retake">Retake</button></div></div>';
+            weighEl('btn-weigh-use').onclick = () => {
+                const inp = weighRd.target === 'gross' ? editGross : editTare;
+                if (inp.disabled) { res.innerHTML = '<div class="weigh-read-card bad">This weight is already recorded and locked.</div>'; return; }
+                inp.value = String(v); weighRd.mode[weighRd.target] = 'read'; calculateEditNet();
+                res.innerHTML = '<div class="weigh-read-card ok"><b>' + field + ' weight filled: ' + v.toLocaleString('en-IN') + ' kg.</b> The photo was not saved.</div>';
+            };
+            weighEl('btn-weigh-retake').onclick = () => { res.style.display = 'none'; res.innerHTML = ''; weighEl('weigh-photo-file').click(); };
+        } catch (e) {
+            res.innerHTML = '<div class="weigh-read-card bad"><b>Could not read the photo.</b> ' + esc(e.message || String(e)) + '</div>';
+        } finally { URL.revokeObjectURL(url); weighRd.busy = false; }       // the picture is dropped here: only the value is kept
+    }
+    (function wireWeighReader() {
+        const pb = weighEl('btn-weigh-photo'), pf = weighEl('weigh-photo-file'), mb = weighEl('btn-weigh-manual');
+        if (pb && pf) {
+            pb.onclick = () => pf.click();
+            pf.onchange = () => { const f = pf.files && pf.files[0]; pf.value = ''; if (f) weighReadPhoto(f); };
+        }
+        if (mb) mb.onclick = () => {
+            if (weighUnlocked()) return;
+            vdDialog({ title: 'Type weights by hand', okLabel: 'Unlock for 10 minutes',
+                html: '<p style="margin-bottom:.6rem">Normally the weight is read from the photo. Typing by hand is allowed for 10 minutes after the manual-entry password is entered. Every manual weight is logged.</p><label style="font-size:1rem;font-weight:600;">Manual-entry password<input type="password" id="weigh-manual-pw" autocomplete="off" style="width:100%;"></label>',
+                onOk: async () => {
+                    const pw = document.getElementById('weigh-manual-pw').value;
+                    if (!pw) throw new Error('Type the manual-entry password.');
+                    const r = await window.BiomassAPI.weighManualCheck(pw);
+                    if (!r || !r.success) throw new Error((r && r.message) || 'Not accepted.');
+                    weighRd.pw = pw; weighRd.until = Date.now() + 10 * 60 * 1000; clearInterval(weighRd.timer); weighRd.timer = null; weighApplyLock();
+                    const t = weighRd.target === 'gross' ? editGross : editTare; if (t && !t.disabled) setTimeout(() => t.focus(), 120);
+                } });
+            setTimeout(() => { const i = document.getElementById('weigh-manual-pw'); if (i) i.focus(); }, 80);
+        };
+        if (editGross) editGross.addEventListener('input', (e) => { if (e.isTrusted) weighRd.mode.gross = 'manual'; });
+        if (editTare) editTare.addEventListener('input', (e) => { if (e.isTrusted) weighRd.mode.tare = 'manual'; });
+    })();
 
     const btnCancelWeigh = document.getElementById('btn-cancel-weigh');
     if (btnCancelWeigh) {
@@ -4010,8 +4101,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
 
+            const typed = weighRd.role === 'weighment' && (weighRd.mode.gross === 'manual' || weighRd.mode.tare === 'manual');
+            if (typed && !weighUnlocked()) { alert('Typing by hand is locked. Use "Type by hand (password)" first, or read the weight from the photo.'); return; }
             try {
-                const res = await window.BiomassAPI.updateWeighment(id, g, t, reason);
+                const res = await window.BiomassAPI.updateWeighment(id, g, t, reason, typed ? { manual: true, manualPw: weighRd.pw } : null);
                 if (res.success) {
                     alert('Weighment updated successfully.');
                     document.getElementById('weighment-edit-card').style.display = 'none';
@@ -4035,31 +4128,24 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('report-output-panel').style.display = 'none';
         const dateInput = document.getElementById('report-select-date');
         if (dateInput && !dateInput.value) dateInput.value = window.BiomassAPI.todayIST();
+        if (window.reportRangeInit) window.reportRangeInit();
         await filterSuppliersByDate('report-select-company', dateInput.value, '<option value="">-- Choose Supplier --</option>');
     }
 
     const btnCompileReport = document.getElementById('btn-compile-report');
-    btnCompileReport.onclick = async function() {
-        const company = document.getElementById('report-select-company').value;
-        const date = document.getElementById('report-select-date').value;
-
-        if (!company || !date) {
-            alert('Please select both supplier and date.');
-            return;
-        }
-
+    async function runCompileReport(company, date, dateTo) {
         try {
-            const report = await window.BiomassAPI.getAdminReport(company, date);
+            const report = await window.BiomassAPI.getAdminReport(company, date, dateTo);
             
             if (report.rows.length === 0) {
-                alert('No truck entry logs recorded for this supplier on the selected date.');
+                alert(dateTo && dateTo !== date ? 'No truck entry logs recorded for this supplier in the selected dates.' : 'No truck entry logs recorded for this supplier on the selected date.');
                 document.getElementById('report-output-panel').style.display = 'none';
                 return;
             }
 
             // Populate Panel
             document.getElementById('report-company-title').textContent = report.company_name;
-            document.getElementById('report-date-title').textContent = report.date;
+            document.getElementById('report-date-title').textContent = report.date_to && report.date_to !== report.date ? dmy(report.date) + ' to ' + dmy(report.date_to) : report.date;
 
             document.getElementById('summary-truck-count').textContent = report.summary.truck_count;
             document.getElementById('summary-net-weight').textContent = `${report.summary.total_net_weight.toLocaleString()} kg`;
@@ -4124,7 +4210,37 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (err) {
             alert('Failed to compile report: ' + err.message);
         }
+    }
+    btnCompileReport.onclick = function() {
+        const company = document.getElementById('report-select-company').value;
+        const date = document.getElementById('report-select-date').value;
+        if (!company || !date) { alert('Please select both supplier and date.'); return; }
+        return runCompileReport(company, date);
     };
+    // second tab: one vendor, any range of dates
+    (function wireRangeReport() {
+        const bar = document.getElementById('rep-tabs'); if (!bar) return;
+        bar.onclick = (e) => { const b = e.target.closest('button[data-ft]'); if (b) { showFtab('rep-tabs', b.dataset.ft); document.getElementById('report-output-panel').style.display = 'none'; } };
+        showFtab('rep-tabs', 'day');
+        const f = document.getElementById('report-range-from'), t = document.getElementById('report-range-to'), sel = document.getElementById('report-range-company');
+        const fill = async () => {
+            if (!f.value || !t.value || f.value > t.value) return;
+            const prev = sel.value;
+            try {
+                const trucks = await window.BiomassAPI.getTrucks({ fromDate: f.value, toDate: t.value });
+                const names = Array.from(new Set(trucks.map(x => x.company_name).filter(Boolean))).sort();
+                sel.innerHTML = '<option value="">-- Choose Supplier --</option>' + names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+                if (names.includes(prev)) sel.value = prev;
+            } catch (e) { console.error(e); }
+        };
+        f.onchange = t.onchange = fill;
+        document.getElementById('btn-compile-range-report').onclick = () => {
+            if (!sel.value || !f.value || !t.value) { alert('Please choose the vendor and both dates.'); return; }
+            if (f.value > t.value) { alert('The From date is after the To date.'); return; }
+            return runCompileReport(sel.value, f.value, t.value);
+        };
+        window.reportRangeInit = () => { const td = window.BiomassAPI.todayIST(); if (!f.value) f.value = window.BiomassAPI.addDaysYMD(td, -6); if (!t.value) t.value = td; fill(); };
+    })();
 
     // Shared by: Compiled Reports, Commercial Logistics Report, and the Executive Dashboard's
     // filtered PDF export - all three use this same "official report" layout.
@@ -4212,7 +4328,7 @@ document.addEventListener('DOMContentLoaded', function() {
         .vr-table th { font-weight: bold; } .vr-table td.l { text-align: left; } .vr-table td.n { white-space: nowrap; }
         .vr-table td small { display: block; font-size: 7pt; font-weight: normal; }
         .vr-table tr { page-break-inside: avoid; }
-        .vr-rm { text-align: center; margin-top: 6mm; font-style: italic; font-size: 9.5pt; line-height: 1.5; }
+        .vr-rm { text-align: left; margin-top: 6mm; font-style: italic; font-size: 9.5pt; line-height: 1.5; }
         .vr-rm b { font-style: normal; font-size: 10.5pt; }
         .vr-sig { width: 100%; border-collapse: collapse; margin-top: 10mm; page-break-inside: avoid; break-inside: avoid; font-size: 10pt; line-height: 1.35; }
         .vr-sig td { border: 0 !important; padding: 0 4mm; vertical-align: bottom; text-align: left; width: 50%; }
@@ -4236,8 +4352,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const ddmmyyyy = (d) => dmy(d);
             const MONTHS = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
             // test report no.: financial year (April to March) / month of the sample date, e.g. 2026-27 / OCTOBER
-            const rn = (() => { const d = /^\d{4}-\d{2}-\d{2}/.test(sampleDate) ? sampleDate : today, y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7)), fy = m >= 4 ? y : y - 1;
-                return fy + '-' + String((fy + 1) % 100).padStart(2, '0') + ' / ' + MONTHS[m - 1]; })();
+            const rn = (() => { const one = (d0) => { const d = /^\d{4}-\d{2}-\d{2}/.test(d0) ? d0 : today, y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7)), fy = m >= 4 ? y : y - 1;
+                    return fy + '-' + String((fy + 1) % 100).padStart(2, '0') + ' / ' + MONTHS[m - 1]; };
+                const a0 = one(sampleDate), b0 = report.date_to ? one(String(report.date_to).slice(0, 10)) : a0; return a0 === b0 ? a0 : a0 + ' to ' + b0; })();
             const na = (r) => r.acceptance_status === 'REJECTED' || r.acceptance_status === 'CANCELLED';
             const num = (v) => (v === null || v === undefined || v === '') ? 'Pending' : esc(v);
             let rowHtml = '';
@@ -4306,7 +4423,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // saved as  <vendor name>_<sample date>.pdf  ("/" and other characters a file name cannot hold become "-")
-        const filename = (String(report.company_name || 'Vendor').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim() || 'Vendor') + '_' + dmy(String(report.date || '').slice(0, 10) || window.BiomassAPI.todayIST());
+        const filename = (String(report.company_name || 'Vendor').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim() || 'Vendor') + '_' + dmy(String(report.date || '').slice(0, 10) || window.BiomassAPI.todayIST()) + (report.date_to && report.date_to !== report.date ? ' to ' + dmy(String(report.date_to).slice(0, 10)) : '');
 
 
         btnPrint.onclick = async function() {
@@ -6582,7 +6699,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function lookupLab1Barcode(barcode) {
         if (!barcode) {
-            alert('Please scan or type a barcode ID.');
+            alert('Please scan or type a QR ID.');
             return;
         }
 
@@ -7211,7 +7328,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function lookupLab2Barcode(barcode) {
         if (!barcode) {
-            alert('Please scan or type a composite barcode ID.');
+            alert('Please scan or type a composite QR ID.');
             return;
         }
         await openLab2Results(() => window.BiomassAPI.getCompositeDetails(barcode));
@@ -8622,7 +8739,7 @@ document.addEventListener('DOMContentLoaded', function() {
             st.innerHTML = 'Now: <b>' + esc(SEAL_MODES[r.mode] || r.mode) + '</b> &nbsp;&bull;&nbsp; sealed ' + esc(r.sealed) + ' &nbsp;&bull;&nbsp; cleared ' + esc(r.cleared) + ' &nbsp;&bull;&nbsp; cancelled ' + esc(r.voided) + ' &nbsp;&bull;&nbsp; tamper alerts (7 days) ' + esc(r.alerts_7d) + ' &nbsp;&bull;&nbsp; a cleared seal stays valid ' + esc(r.clear_hours) + ' h';
             box.querySelectorAll('button[data-m]').forEach(b => { b.disabled = false; b.classList.toggle('btn-primary', b.dataset.m === r.mode); b.classList.toggle('btn-secondary', b.dataset.m !== r.mode); });
             box.dataset.mode = r.mode;
-        } catch (e) { st.textContent = 'Not installed yet (run db/migrations/2026-11-09_seals.sql).'; box.querySelectorAll('button[data-m]').forEach(b => { b.disabled = true; }); }
+        } catch (e) { st.textContent = 'Not installed yet (run db/migrations/2026-11-09_seals.sql and 2026-11-16_seals_v3.sql).'; box.querySelectorAll('button[data-m]').forEach(b => { b.disabled = true; }); }
     }
     function initSealCard() {
         const box = sx$('seal-modes'); if (!box) return;
@@ -8630,8 +8747,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!box.dataset.wired) {
             box.dataset.wired = '1';
             const info = { off: 'The seal system is hidden everywhere. Nothing is asked for.',
-                preview: 'The new seal fields become visible in the other logins, greyed out and not working, so you can see what will change. Nothing is asked for yet. Other logins pick it up within a minute.',
-                on: 'From now on, gate entry must scan two seals for every new truck, and the labs must clear the seal of those samples. Earlier samples are not affected. Switch on only after the readers have been tested on your seal photos.' };
+                preview: 'The Admin gets the Seal tags screen (generate lots, print) so tags can be prepared. Nothing is asked for in the other logins yet.',
+                on: 'From now on the labs must scan a seal (made by this app) for every new sample before readings can be entered. Gate entry scans nothing. Earlier samples are not affected. Switch on only after the seal tags are printed and tested.' };
             box.onclick = (e) => {
                 const b = e.target.closest('button[data-m]'); if (!b || b.disabled || b.dataset.m === box.dataset.mode) return;
                 const m = b.dataset.m;
@@ -8682,15 +8799,18 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (e) { box.innerHTML = `<div class="card"><span style="color:#ef4444;">${esc(e.message)}</span></div>`; }
     }
     function superSetPassword(which, name) {
-        const isEdit = which === 'admin_edit';
+        const isEdit = which === 'admin_edit', isAux = which === 'weigh_manual' || which === 'qr_reprint';
         openSuperEdit('Set / change the ' + name.toLowerCase(),
-            isEdit ? 'The Admin must type this password <b>every time</b> they correct a moisture, fineness, GCV, ash, sulphur or VM value in the Barcode Inspector. Tell it only to the Admin. Minimum 6 characters.'
+            which === 'weigh_manual' ? 'The Weighment login needs this to <b>type a weight by hand</b> instead of reading it from the photo. Typing stays unlocked for 10 minutes after it is entered; the database checks it again at every manual save. Minimum 6 characters.'
+            : which === 'qr_reprint' ? 'The Entry login needs this to <b>reprint the QR label of a truck registered today</b>. Asked every time. Minimum 6 characters.'
+            : isEdit ? 'The Admin must type this password <b>every time</b> they correct a moisture, fineness, GCV, ash, sulphur or VM value in the QR Inspector. Tell it only to the Admin. Minimum 6 characters.'
                    : 'Used by the Unloading team for <b>bottom-sample requests</b>, <b>Cancel QR</b> and the <b>daily report PDF</b>. Tell it only to the people who may do these things. Minimum 6 characters.',
             [{ id: 'pw1', label: 'New password', type: 'password' }, { id: 'pw2', label: 'Type it again', type: 'password' }],
             async (v, why) => {
                 if (v.pw1.length < 6) throw new Error('Use at least 6 characters.');
                 if (v.pw1 !== v.pw2) throw new Error('The two passwords are not the same.');
-                if (isEdit) await window.BiomassAPI.superSetEditPassword({ password: v.pw1, reason: why });
+                if (isAux) await window.BiomassAPI.superSetAuxPassword({ which: which, password: v.pw1, reason: why });
+                else if (isEdit) await window.BiomassAPI.superSetEditPassword({ password: v.pw1, reason: why });
                 else await window.BiomassAPI.superSetActionPassword({ password: v.pw1, reason: why });
                 alert('The ' + name.toLowerCase() + ' was saved.');
             }, { saveLabel: 'Save password', danger: false, after: renderSuperPasswords });
@@ -9260,17 +9380,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!confirm(`Generate a NEW sample QR for truck ${r.truck_reg_number}?\n\nThe new label carries the truck's ORIGINAL entry date (${r.entry_date ? dmy(r.entry_date) : 'not today'}) and a copy of its moisture and fineness. The truck's existing sample is taken out of the composite mixture. This cannot be undone.`)) return;
         btn.disabled = true;
         try {
-            let bottomSeals = null;
-            if (window.SealGate && window.SealGate.enabled) {
-                bottomSeals = await window.SealGate.askSeals(1);      // a bottom sample goes to the composite: one seal only
-                if (!bottomSeals) { btn.disabled = false; alert('The seal must be scanned for the bottom sample. Nothing was generated.'); return; }
-            }
             const res = await window.BiomassAPI.generateBottomSample(r.truck_id);
             if (!res || !res.success) throw new Error((res && res.message) || 'Could not generate the sample');
-            if (bottomSeals) {
-                const sr = await window.BiomassAPI.sealRegister({ qr: res.sample1_barcode_id, a: bottomSeals[0] }).catch(e => ({ success: false, message: e.message }));
-                if (!sr || !sr.success) alert('The bottom sample QR was made but its seals could not be linked: ' + ((sr && sr.message) || '') + '\n\nTell the Admin.');
-            }
             await showBottomLabel(res, r.truck_reg_number);
             await renderBottomList();
             const auto = document.getElementById('auto-print-label');
@@ -9290,7 +9401,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } finally { btn.disabled = false; }
     }
 
-    // Admin > Barcode Inspector > Mixing codes: every mixing code (composite) of a date range, each opening to its truck-wise details
+    // Admin > QR Inspector > Mixing codes: every mixing code (composite) of a date range, each opening to its truck-wise details
     function initMixSearch() {
         const input = document.getElementById('inspector-mix-input'), btn = document.getElementById('btn-inspector-mix');
         if (!input || !btn || btn.dataset.wired) return;
@@ -9468,7 +9579,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    // Admin corrections of lab values (Barcode Inspector). EVERY save needs a reason AND the Admin edit password (kept by the Super Admin); the server checks both
+    // Admin corrections of lab values (QR Inspector). EVERY save needs a reason AND the Admin edit password (kept by the Super Admin); the server checks both
     // and writes the old -> new values to the Admin and the Super Admin audit log. A moisture / AD correction recalculates every composite that contains the truck.
     let inspectorLastBatch = null;
     function openAdminEdit(title, info, fields, onSave) {
@@ -9535,7 +9646,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function lookupInspectorBarcode(barcode) {
         if (!barcode) {
-            alert('Please scan, upload, or type a barcode.');
+            alert('Please scan, upload, or type a QR.');
             return;
         }
 
@@ -9678,9 +9789,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div style="font-size: 0.9rem; line-height: 1.6; color: var(--text-muted);">
                             <strong>Supplier Name:</strong> ${esc(res.batch.company_name)}<br>
                             <strong>Compilation Date:</strong> ${res.batch.date}<br>
-                            <strong>Test Lot Barcode ID:</strong> ${res.batch.test_lot || res.batch.composite_barcode_id || (res.batch.lots ? res.batch.lots.test : '') || (res.batch.composite_ref_id ? res.batch.composite_ref_id + '-T' : 'N/A')}<br>
-                            <strong>Referee Lot Barcode ID:</strong> ${res.batch.referee_lot || (res.batch.lots ? res.batch.lots.referee : '') || (res.batch.composite_ref_id ? res.batch.composite_ref_id + '-R' : 'N/A')}<br>
-                            <strong>Vendor Lot Barcode ID:</strong> ${res.batch.vendor_lot || (res.batch.lots ? res.batch.lots.vendor : '') || (res.batch.composite_ref_id ? res.batch.composite_ref_id + '-V' : 'N/A')}<br>
+                            <strong>Test Lot QR ID:</strong> ${res.batch.test_lot || res.batch.composite_barcode_id || (res.batch.lots ? res.batch.lots.test : '') || (res.batch.composite_ref_id ? res.batch.composite_ref_id + '-T' : 'N/A')}<br>
+                            <strong>Referee Lot QR ID:</strong> ${res.batch.referee_lot || (res.batch.lots ? res.batch.lots.referee : '') || (res.batch.composite_ref_id ? res.batch.composite_ref_id + '-R' : 'N/A')}<br>
+                            <strong>Vendor Lot QR ID:</strong> ${res.batch.vendor_lot || (res.batch.lots ? res.batch.lots.vendor : '') || (res.batch.composite_ref_id ? res.batch.composite_ref_id + '-V' : 'N/A')}<br>
                             <strong>System Intake Samples Count:</strong> ${res.matching_trucks && res.matching_trucks.length > 0 ? res.matching_trucks.length : (Number(res.batch.system_samples_count) || 1)}<br>
                             <strong>Lab Confirmed Mixed Count:</strong> <strong style="color: var(--primary);">${res.matching_trucks && res.matching_trucks.length > 0 ? res.matching_trucks.length : (Number(res.batch.mixed_samples_count) || 1)}</strong><br><br>
                             
@@ -10020,18 +10131,24 @@ document.addEventListener('DOMContentLoaded', function() {
                 };
             });
 
-            // Calculate Live Operational Pipeline Counts (Unfiltered)
-            const gateEl = document.getElementById('pipe-gate-count');
-            const lab1El = document.getElementById('pipe-lab1-count');
-            const weighEl = document.getElementById('pipe-weigh-count');
-            const lab2El = document.getElementById('pipe-lab2-count');
-            const compEl = document.getElementById('pipe-completed-count');
-
-            if (gateEl) gateEl.textContent = records.filter(r => r.pipeline_stage === 'Gate Registered').length;
-            if (lab1El) lab1El.textContent = records.filter(r => r.pipeline_stage === 'Lab Moisture Tested').length;
-            if (weighEl) weighEl.textContent = records.filter(r => r.pipeline_stage === 'Unloaded & Weighted').length;
-            if (lab2El) lab2El.textContent = records.filter(r => r.gcv_value === null && r.pipeline_stage === 'Unloaded & Weighted').length;
-            if (compEl) compEl.textContent = records.filter(r => r.pipeline_stage === 'Completed & Audited').length;
+            // Live Operational Pipeline: where the trucks of the LAST 7 DAYS are waiting right now (rejected and cancelled trucks are not in the pipeline).
+            // Trucks older than 7 days that never finished are counted once, in the last box.
+            {
+                const today = window.BiomassAPI.todayIST(), from = window.BiomassAPI.addDaysYMD(today, -6);
+                const cnt = { gate: 0, moist: 0, unl: 0, done: 0, old: 0 };
+                records.forEach(r => {
+                    if (r.acceptance_status === 'CANCELLED' || r.acceptance_status === 'REJECTED') return;
+                    const d = String(r.entry_date || '').slice(0, 10);
+                    const unloaded = Number(r.tare_weight) > 0, done = r.gcv_value !== null && r.gcv_value !== undefined;
+                    if (d && d < from) { if (!done) cnt.old++; return; }
+                    if (done) cnt.done++;
+                    else if (unloaded) cnt.unl++;
+                    else if (r.moisture_pct !== null && r.moisture_pct !== undefined) cnt.moist++;
+                    else cnt.gate++;
+                });
+                const put = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+                put('pipe-gate-count', cnt.gate); put('pipe-lab1-count', cnt.moist); put('pipe-weigh-count', cnt.unl); put('pipe-lab2-count', cnt.done); put('pipe-completed-count', cnt.old);
+            }
 
             // Apply Filters (Date Range, Supplier, Status, Search)
             const period = document.getElementById('exec-filter-period')?.value || 'all';
@@ -10781,9 +10898,7 @@ window.skelRows = function (cols, rows) {
     SG.use({
         enabled: async () => { const r = await api().sealEnabled(); return !!(r && r.enabled); },
         mode: async () => { const r = await api().sealEnabled(); return (r && r.mode) || (r && r.enabled ? 'on' : 'off'); },
-        precheck: (codes) => api().sealPrecheck(codes),
-        register: (o) => api().sealRegister(o),
-        clear: (o) => api().sealClear(o),
+        clear: async (o) => { const r = await api().sealClear(o); if (o && o.kind === 'COMP') { try { await applyMixLock(); } catch (e) {} } return r; },
         gate: (o) => api().sealGate(o)
     });
     // the seal tabs of the Lab 1 screen and the registration box: hidden when off, greyed and not working in preview mode, working when on
@@ -10792,9 +10907,9 @@ window.skelRows = function (cols, rows) {
         const role = u && u.role, lab = role === 'lab1' || role === 'lab1m' || role === 'lab1f', gate = role === 'entry' || role === 'admin';
         const mode = SG.mode, prev = mode === 'preview', live = mode === 'on';
         const show = (id, on) => { const b = document.getElementById(id); if (!b) return; b.style.display = on ? '' : 'none'; b.classList.toggle('sg-tab-preview', on && prev); if (!on && b.classList.contains('active')) { const t = document.getElementById('lab1-tab-scan'); if (t) t.click(); } };
-        show('lab1-tab-seals', (prev || live) && lab);
+        show('lab1-tab-seals', false);
         show('lab1-tab-cseals', (prev || live) && role === 'lab1f');
-        const trays = [['lab1-seal-tray', 'LAB', lab], ['lab1-cseal-tray', 'COMP', role === 'lab1f']];
+        const trays = [['lab1-seal-tray', 'LAB', false], ['lab1-cseal-tray', 'COMP', role === 'lab1f']];
         trays.forEach(([id, kind, ok]) => {
             const el = document.getElementById(id); if (!el) return;
             if (prev && ok) { el._sgTray = false; SG.previewTray(el, kind); }
@@ -10805,12 +10920,164 @@ window.skelRows = function (cols, rows) {
         document.querySelectorAll('.sg-pvmode.sg-regbox').forEach(n => n.remove());
         const sub = document.querySelector('#truck-reg-form button[type=submit]');
         if (sub) sub._sgPvBox = false;
-        if (prev && gate && sub) { SG.previewRegBox(sub); const bx = sub.previousElementSibling; if (bx) bx.classList.add('sg-regbox'); }
+        
+    }
+
+    // ---- Fineness login: scan the seal ONCE, then the sample QR (pairs the two). The Moisture login only checks. ----
+    const labSeal = { pending: null, bypass: false };
+    const role0 = () => { const u = api().getCurrentUser && api().getCurrentUser(); return u && u.role; };
+    const canScan = () => ['lab1f', 'lab1'].includes(role0());
+    function applyLabSealUi() {
+        const trig = document.getElementById('lab1-scan-trigger'); if (!trig) return;
+        let box = document.getElementById('lab1-sealscan-box');
+        const live = SG.mode === 'on' && canScan(), prev = SG.mode === 'preview' && canScan();
+        if (!live && !prev) { if (box) box.remove(); trig.classList.remove('sg-locked'); labSeal.pending = null; labSeal.bypass = false; return; }
+        if (!box) {
+            box = document.createElement('div'); box.id = 'lab1-sealscan-box'; box.style.marginBottom = '.9rem';
+            box.innerHTML = '<div class="sg-pvbadge" id="lab1-sealscan-badge" style="display:none">PREVIEW: not active yet. After the Super Admin switches the seal system on, the seal is scanned here first.</div>' +
+                '<div class="scan-trigger-section" id="lab1-sealscan-trigger"><div class="scan-icon">&#127991;</div><div><h4 style="margin-bottom:.25rem;">Step 1: Snap Photo of the Seal</h4></div></div>' +
+                '<div id="lab1-sealscan-state" style="font-size:.9rem;margin:.4rem 0;"></div>' +
+                '<button type="button" class="btn btn-secondary btn-sm" id="lab1-sealscan-skip">Earlier sample (no seal)</button>';
+            trig.parentNode.insertBefore(box, trig);
+            document.getElementById('lab1-sealscan-trigger').onclick = async () => {
+                if (SG.mode !== 'on' || labSeal.pending) return;
+                const r = await SG.askSeal({ title: 'Scan the seal', hint: 'Take a photo of the seal tag. After it is accepted, scan the sample QR.', check: (code) => api().sealClear({ code, kind: 'LAB' }) });
+                if (r && r.ok) { labSeal.pending = r.code; labSeal.bypass = false; applyLabSealUi(); }
+            };
+            document.getElementById('lab1-sealscan-skip').onclick = () => { if (SG.mode !== 'on') return; labSeal.bypass = true; applyLabSealUi(); };
+        }
+        const st = document.getElementById('lab1-sealscan-state'), sealTrig = document.getElementById('lab1-sealscan-trigger'), skip = document.getElementById('lab1-sealscan-skip');
+        document.getElementById('lab1-sealscan-badge').style.display = prev ? '' : 'none';
+        if (prev) { box.classList.add('sg-greyed'); st.textContent = ''; trig.classList.remove('sg-locked'); skip.style.display = 'none'; return; }
+        box.classList.remove('sg-greyed'); skip.style.display = '';
+        const lock = !labSeal.pending && !labSeal.bypass;
+        trig.classList.toggle('sg-locked', lock); sealTrig.classList.toggle('sg-locked', !!labSeal.pending || labSeal.bypass);
+        st.innerHTML = labSeal.pending ? '<b style="color:#34d399">Seal accepted.</b> Now scan the sample QR (Step 2).' : labSeal.bypass ? 'Scan the sample QR of an earlier sample.' : 'The sample QR scanner is locked until the seal is scanned.';
+    }
+    window.labSealFlow = {
+        before: async (plainId) => {
+            if (SG.mode !== 'on') return true;
+            if (canScan() && labSeal.pending) {
+                const r = await api().sealClear({ code: labSeal.pending, kind: 'LAB', qr: plainId });
+                labSeal.pending = null; applyLabSealUi();
+                if (!r || !r.ok) { const t = SG.verdictText(r && r.verdict, r && r.message); await SG.showVerdict(false, t[0], t[1]); return false; }
+                return true;
+            }
+            labSeal.bypass = false; applyLabSealUi();
+            let g; try { g = await api().sealGate({ qr: plainId }); } catch (e) { await SG.showVerdict(false, 'NOT ALLOWED', e.message || 'Could not check the seal.'); return false; }
+            if (!g || !g.required || g.ok) return true;
+            await SG.showVerdict(false, canScan() ? 'SEALED SAMPLE' : 'SEAL NOT OPENED', canScan() ? 'This sample is sealed. Scan its seal first (Step 1).' : 'The seal of this sample has not been scanned yet. The Fineness login must scan the seal first.');
+            return false;
+        }
+    };
+
+    // ---- Fineness login: the Mixing scan stays locked until the seals of the samples received are scanned and "Start mixing" is pressed ----
+    const mixState = { on: false, open: true, scanned: 0, expected: 0 };
+    window.mixLocked = () => SG.mode === 'on' && role0() === 'lab1f' && mixState.on && !mixState.open;
+    async function applyMixLock() {
+        const trig = document.getElementById('mixscan-trigger'); if (!trig) return;
+        if (SG.mode === 'on' && role0() === 'lab1f') { try { const s = await api().sealMixState({}); mixState.on = !!s.on; mixState.open = !!s.open; mixState.scanned = s.scanned || 0; mixState.expected = s.expected || 0; } catch (e) { mixState.on = false; } }
+        else { mixState.on = false; mixState.open = true; }
+        const locked = window.mixLocked(), inp = document.getElementById('mixscan-manual-input'), chk = document.getElementById('btn-mixscan-manual');
+        trig.classList.toggle('sg-locked', locked); if (inp) inp.disabled = locked; if (chk) chk.disabled = locked;
+        let note = document.getElementById('mixscan-lock-note');
+        if (locked && !note) { note = document.createElement('div'); note.id = 'mixscan-lock-note'; note.className = 'sg-pvbadge'; note.style.marginBottom = '.7rem'; trig.parentNode.insertBefore(note, trig); }
+        if (note) { if (locked) note.textContent = 'LOCKED: scan the seals of the samples received in the "Composite seals" tab, then press Start mixing.'; else note.remove(); }
+        const sb = document.getElementById('lab1-cseal-start');
+        if (sb) {
+            if (SG.mode === 'on' && role0() === 'lab1f' && mixState.on) {
+                sb.innerHTML = mixState.open ? '<div style="color:#34d399;font-weight:700">Mixing started today (' + mixState.scanned + ' seals = ' + mixState.expected + ' samples). The Mixing scan is open.</div>' : '<div id="lab1-cseal-count" style="font-weight:700;margin-bottom:.5rem;">Seals scanned: ' + mixState.scanned + ' of ' + mixState.expected + ' samples today' + (mixState.scanned === mixState.expected && mixState.expected > 0 ? ' &#10004;' : '') + '</div><button type="button" class="btn btn-primary" id="lab1-cseal-startbtn">I am satisfied: break the seals and start mixing</button>';
+                const b = document.getElementById('lab1-cseal-startbtn');
+                if (b) b.onclick = async () => {
+                    const cur = await api().sealMixState({}); mixState.scanned = cur.scanned || 0; mixState.expected = cur.expected || 0; if (cur.scanned !== cur.expected) { alert(cur.scanned + ' seal(s) scanned but ' + cur.expected + ' sample(s) registered today. The numbers must match: some seals have not been scanned. Mixing cannot start.'); await applyMixLock(); return; } if (!confirm('Seals scanned (' + cur.scanned + ') match the samples of today (' + cur.expected + '). Break the seals and start mixing?')) return;
+                    const r = await api().sealMixState({ open: true }); if (!r || !r.success) { alert((r && r.message) || 'Could not start mixing.'); return; }
+                    await applyMixLock(); const t = document.getElementById('lab1-tab-mix'); if (t) t.click();
+                };
+            } else sb.innerHTML = '';
+        }
     }
     window.sealRefresh = async () => {
         const u = api().getCurrentUser && api().getCurrentUser(); if (!u) return;
         await SG.refresh();
         try { mountTrays(); } catch (e) { /* screen not present for this login */ }
+        try { applyLabSealUi(); await applyMixLock(); } catch (e) { /* screen not present for this login */ }
     };
     setInterval(() => { if (document.hidden) return; const u = api().getCurrentUser && api().getCurrentUser(); if (u) window.sealRefresh(); }, 60000);     // picks up a change of mode made by the Super Admin
+})();
+
+
+// ===== SEAL TAGS (Admin): stock, new lots, print sheets =====
+(function sealAdmin() {
+    const $ = (id) => document.getElementById(id);
+    const api = () => window.BiomassAPI;
+    const A4 = { w: 210, h: 297, m: 8, gap: 2 };
+    function layout(tw, th) { const cols = Math.max(1, Math.floor((A4.w - 2 * A4.m + A4.gap) / (tw + A4.gap))), rows = Math.max(1, Math.floor((A4.h - 2 * A4.m + A4.gap) / (th + A4.gap))); return { cols, rows, per: cols * rows }; }
+    function codeUrl(tok) { return window.SealCode.render(tok, 8).toDataURL('image/png'); }
+    function sheetsHtml(tokens, tw, th) {
+        const L = layout(tw, th), pad = Math.min(tw, th) * 0.06, pages = [];
+        for (let i = 0; i < tokens.length; i += L.per) pages.push(tokens.slice(i, i + L.per));
+        return pages.map((pg, pi) => '<div class="sg-sheet"' + (pi ? ' style="page-break-before:always"' : '') + '>' + pg.map(t => '<div class="sg-tag"><img src="' + codeUrl(t) + '"></div>').join('') + '</div>').join('');
+    }
+    function sheetCss(tw, th) {
+        return '@page{size:A4 portrait;margin:0}html,body{margin:0;padding:0;background:#fff}.sg-sheet{width:' + (A4.w - 2 * A4.m) + 'mm;margin:' + A4.m + 'mm;display:flex;flex-wrap:wrap;gap:' + A4.gap + 'mm;align-content:flex-start;height:' + (A4.h - 2 * A4.m) + 'mm;overflow:hidden}' +
+            '.sg-tag{width:' + tw + 'mm;height:' + th + 'mm;box-sizing:border-box;border:0.2mm dashed #bbb;display:flex;align-items:center;justify-content:center;padding:' + (Math.min(tw, th) * 0.05) + 'mm}.sg-tag img{width:100%;height:100%;object-fit:contain;image-rendering:pixelated}';
+    }
+    async function pngZip(tokens, tw, th, name) {
+        const dpi = 300, mm = dpi / 25.4, L = layout(tw, th), files = [];
+        for (let pi = 0, i = 0; i < tokens.length; i += L.per, pi++) {
+            const c = document.createElement('canvas'); c.width = Math.round(A4.w * mm); c.height = Math.round(A4.h * mm);
+            const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.imageSmoothingEnabled = false;
+            tokens.slice(i, i + L.per).forEach((t, k) => {
+                const col = k % L.cols, row = Math.floor(k / L.cols), x = (A4.m + col * (tw + A4.gap)) * mm, y = (A4.m + row * (th + A4.gap)) * mm, pad = Math.min(tw, th) * 0.05 * mm;
+                g.strokeStyle = '#bbb'; g.setLineDash([6, 6]); g.lineWidth = 2; g.strokeRect(x, y, tw * mm, th * mm);
+                const s = Math.min(tw * mm, th * mm) - 2 * pad; g.drawImage(window.SealCode.render(t, 8), x + (tw * mm - s) / 2, y + (th * mm - s) / 2, s, s);
+            });
+            const blob = await new Promise(r => c.toBlob(r, 'image/png')); files.push({ name: name + '_page' + String(pi + 1).padStart(2, '0') + '.png', data: new Uint8Array(await blob.arrayBuffer()) });
+        }
+        const zip = window.ZipStore.build(files), a = document.createElement('a'); a.href = URL.createObjectURL(zip); a.download = name + '.zip'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    }
+    async function printLot(res, tw, th, lot) {
+        await window.printDocumentInFrame({ title: 'Seal tags lot ' + lot, bodyHtml: sheetsHtml(res.tokens, tw, th), css: sheetCss(tw, th), landscape: false });
+    }
+    async function paint() {
+        const card = $('seal-admin-card'); if (!card) return;
+        const u = api().getCurrentUser && api().getCurrentUser();
+        if (!u || u.role !== 'admin' || !window.SealGate || window.SealGate.mode === 'off') { card.style.display = 'none'; return; }
+        let r; try { r = await api().adminSealStock(); } catch (e) { card.style.display = 'none'; return; }
+        card.style.display = '';
+        $('seal-stock-line').textContent = 'Unused codes: ' + r.available + '  (enough for about ' + r.samples_left + ' samples)   |   Used: ' + r.used + (r.voided ? '   |   Cancelled: ' + r.voided : '');
+        const b = $('seal-low-banner'); b.style.display = r.low ? '' : 'none';
+        if (r.low) b.textContent = 'LOW SEAL STOCK: only about ' + r.samples_left + ' samples\' worth of seal codes are left. Generate a fresh lot and send it for printing now.';
+        $('seal-lots').innerHTML = (r.lots && r.lots.length) ? '<table style="width:100%;border-collapse:collapse;font-size:.88rem;"><thead><tr><th align=left>Lot</th><th align=left>Created</th><th align=right>Codes</th><th align=right>Used</th><th align=left>Tag size</th><th></th></tr></thead><tbody>' +
+            r.lots.map(l => '<tr style="border-top:1px solid rgba(255,255,255,.1)"><td>' + esc(l.id) + (l.label ? ' - ' + esc(l.label) : '') + '</td><td>' + esc(new Date(l.at).toLocaleDateString('en-GB')) + '</td><td align=right>' + esc(l.qty) + '</td><td align=right>' + esc(l.used) + '</td><td>' + esc(l.tag_w || 30) + ' x ' + esc(l.tag_h || 10) + ' mm</td>' +
+            '<td style="white-space:nowrap"><button type="button" class="btn btn-secondary" data-lot="' + l.id + '" data-act="pdf" data-w="' + (l.tag_w || 30) + '" data-h="' + (l.tag_h || 10) + '">Print / PDF (unused)</button> <button type="button" class="btn btn-secondary" data-lot="' + l.id + '" data-act="png" data-w="' + (l.tag_w || 30) + '" data-h="' + (l.tag_h || 10) + '">PNG images (zip)</button></td></tr>').join('') + '</tbody></table>' : '<p style="color:var(--text-muted)">No lot generated yet.</p>';
+    }
+    function init() {
+        const card = $('seal-admin-card'); if (!card || card._w) return; card._w = true;
+        $('seal-gen-btn').onclick = async () => {
+            const msg = $('seal-gen-msg'), btn = $('seal-gen-btn'), qty = parseInt($('seal-gen-qty').value, 10), tw = parseFloat($('seal-gen-w').value) || 30, th = parseFloat($('seal-gen-h').value) || 10;
+            if (!(qty >= 1)) { msg.textContent = 'Enter how many codes.'; return; }
+            if (!confirm('Generate ' + qty + ' new seal codes?')) return;
+            btn.disabled = true; msg.textContent = 'Generating...';
+            try {
+                const res = await api().adminSealGenerate({ qty, label: $('seal-gen-label').value, tag_w: tw, tag_h: th });
+                if (!res || !res.success) throw new Error((res && res.message) || 'Could not generate.');
+                msg.textContent = 'Lot ' + res.lot + ' created with ' + res.qty + ' codes. Opening the print sheet...';
+                await paint(); await printLot(res, tw, th, res.lot);
+            } catch (e) { msg.textContent = e.message || 'Failed.'; } finally { btn.disabled = false; }
+        };
+        $('seal-lots').onclick = async (e) => {
+            const b = e.target.closest('button[data-lot]'); if (!b) return; b.disabled = true;
+            try {
+                const res = await api().adminSealLot({ lot: b.dataset.lot, only_unused: true });
+                if (!res || !res.success) throw new Error((res && res.message) || 'Could not open the lot.');
+                const tw = parseFloat(b.dataset.w) || 30, th = parseFloat(b.dataset.h) || 10;
+                if (!res.tokens.length) alert('Every code of this lot has been used.');
+                else if (b.dataset.act === 'png') await pngZip(res.tokens, tw, th, 'seal_tags_lot' + res.lot); else await printLot(res, tw, th, res.lot);
+            } catch (er) { alert(er.message || 'Failed.'); } finally { b.disabled = false; }
+        };
+    }
+    window.sealAdminRefresh = () => { init(); return paint(); };
+    setInterval(() => { if (!document.hidden) window.sealAdminRefresh(); }, 60000);
+    const old = window.sealRefresh; if (old) window.sealRefresh = async () => { await old(); await window.sealAdminRefresh(); };
 })();

@@ -371,9 +371,14 @@
         async getTrucks(dateFilter) { return (await rpc('bm_get_trucks', trucksPayload(dateFilter))) || []; },
         async getTruckById(truckId) { return rpc('bm_get_truck_by_id', { truck_id: truckId }); },
 
-        async updateWeighment(truckId, grossWeight, tareWeight, overrideReason) {
-            return rpc('bm_update_weighment', { truck_id: truckId, gross: grossWeight, tare: tareWeight, reason: overrideReason || '' });
+        async updateWeighment(truckId, grossWeight, tareWeight, overrideReason, opts) {
+            const p = { truck_id: truckId, gross: grossWeight, tare: tareWeight, reason: overrideReason || '' };
+            if (opts && opts.manual) { p.entry_mode = 'manual'; p.manual_pw = opts.manualPw || ''; }       // typed by hand: the database checks the manual-entry password again
+            return rpc('bm_update_weighment', p);
         },
+        async weighManualCheck(password) { return rpc('bm_weigh_manual_check', { password: password }); },
+        async entryReprintQr(truckId, password) { return rpc('bm_entry_reprint_qr', { truck_id: truckId, password: password }); },
+        async superSetAuxPassword(v) { return rpc('bm_super_set_aux_password', v); },
 
         // --- LAB 1 (blind) ------------------------------------------------------
         async getSample1Details(barcodeId) { return rpc('bm_get_sample1_details', { barcode: barcodeId }); },
@@ -442,13 +447,14 @@
         async superActionPasswordStatus() { return rpc('bm_super_action_password_status', {}); },
         // --- barcoded seals (off until the Super Admin switches the system on) ---
         async sealEnabled() { return rpc('bm_seal_enabled', {}); },
-        async sealPrecheck(codes) { return rpc('bm_seal_precheck', { codes: codes }); },
-        async sealRegister(o) { return rpc('bm_seal_register', o); },
-        async sealClear(o) { return rpc('bm_seal_clear', o); },
+        async sealClear(o) { return (o && o.kind === 'COMP') ? rpc('bm_seal_comp_scan', { code: o.code }) : rpc('bm_seal_clear', o); },
+        async sealMixState(o) { return rpc('bm_seal_mix_state', o || {}); },
         async sealGate(o) { return rpc('bm_seal_gate', o); },
         async superSealStatus() { return rpc('bm_super_seal_status', {}); },
         async superSealSwitch(mode, reason) { return rpc('bm_super_seal_switch', { mode: mode, reason: reason || '' }); },
-        async adminSealReplace(o) { return rpc('bm_admin_seal_replace', o); },
+        async adminSealStock() { return rpc('bm_admin_seal_stock', {}); },
+        async adminSealGenerate(o) { return rpc('bm_admin_seal_generate', o); },
+        async adminSealLot(o) { return rpc('bm_admin_seal_lot', o); },
         async superVendorExport(days) { return rpc('bm_super_vendor_export', { days: days || 120 }); },
         async superPasswordStatus() { return rpc('bm_super_password_status', {}); },
         async superSetEditPassword(v) { return rpc('bm_super_set_edit_password', v); },
@@ -571,8 +577,8 @@
             return { trucks: d.trucks || [], lab1: d.lab1 || [], composites: d.composites || [] };
         },
 
-        async getAdminReport(companyName, date) {
-            const d = await rpc('bm_admin_dashboard', { company: companyName, from: date, to: date });
+        async getAdminReport(companyName, date, dateTo) {
+            const d = await rpc('bm_admin_dashboard', { company: companyName, from: date, to: dateTo || date });
             const lab1Map = {};
             (d.lab1 || []).forEach(r => { lab1Map[r.sample1_barcode_id] = r; });
             const compByBarcode = {};
@@ -643,7 +649,7 @@
             });
             const hasLot4 = reportRows.some(r => isLot4(r.lot));
             return {
-                company_name: companyName, date, rows: reportRows,
+                company_name: companyName, date, date_to: dateTo || date, rows: reportRows,
                 summary: {
                     truck_count: reportRows.length, accepted_count: acceptedCount, rejected_count: rejectedCount, cancelled_count: cancelledCount,
                     total_net_weight: totalNetWeight,
